@@ -31,6 +31,7 @@ import {
   grantsFromMembership,
 } from './lib/membershipFacts'
 
+// Kept on phones: a renamed or removed field means bumping KEPT_SHAPE.
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {

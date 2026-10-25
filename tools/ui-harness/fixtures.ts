@@ -161,6 +161,68 @@ const ALL_CAPS = {
   'accounts.switch': false,
 }
 
+const DAY_MS = 86_400_000
+
+/** Today's day key in Perth, as the business's schedule counts it. */
+export function perthTodayKey(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date())
+}
+
+/** `dayKey` moved on by `days` (negative for back). */
+export function addDays(dayKey: string, days: number): string {
+  return new Date(Date.parse(`${dayKey}T00:00:00Z`) + days * DAY_MS)
+    .toISOString()
+    .slice(0, 10)
+}
+
+function daysFromToday(dayKey: string): number {
+  return Math.round(
+    (Date.parse(`${dayKey}T00:00:00Z`) -
+      Date.parse(`${perthTodayKey()}T00:00:00Z`)) /
+      DAY_MS,
+  )
+}
+
+/**
+ * A day of the schedule (`jobs.listDay`): today's sample jobs on today, and
+ * two of them, moved, on every third day either side, so a week has some
+ * days busy and some clear. No projection off its own day, as the server.
+ */
+export function scheduleDay(dayKey: string) {
+  const offset = daysFromToday(dayKey)
+  const jobs =
+    offset === 0
+      ? JOBS
+      : Math.abs(offset) % 3 === 1
+        ? JOBS.filter((job) => job.status !== 'recurring').slice(0, 2)
+        : []
+  return jobs.map((job) => ({
+    ...job,
+    _id: offset === 0 ? job._id : `${job._id}_${dayKey}`,
+    scheduledAt: job.scheduledAt + offset * DAY_MS,
+  }))
+}
+
+/** The week strip's counts (`jobs.listWeek`) for the days above, with two
+ * recurring visits due on the Thursday. */
+export function scheduleWeek(startKey: string) {
+  return Array.from({ length: 7 }, (_, offset) => {
+    const dayKey = addDays(startKey, offset)
+    const booked = scheduleDay(dayKey).filter(
+      (job) => job.status !== 'recurring',
+    )
+    return {
+      offset,
+      dayKey,
+      count: booked.length,
+      recurringCount: offset === 3 ? 2 : 0,
+      suburb: booked[0]?.suburb ?? '',
+      postcode: booked[0]?.postcode ?? '',
+      colours: [...new Set(booked.map((job) => job.assigneeColour))],
+    }
+  })
+}
+
 /** `actingAs`: working in Kevin's account. `technician`: signed in as a
  * subcontractor, with no owner's capabilities. `noClientEdits`: one who
  * can't change clients either (`clients.manage` off), as a subcontractor
@@ -1050,6 +1112,8 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   'reports:staleDrafts': () => ({ count: 0, oldest: null }),
   'jobTypes:manage': () => JOB_TYPES_MANAGE,
   'jobTypes:list': () => JOB_TYPES_LIST,
+  'jobs:listDay': (args: { dayKey: string }) => scheduleDay(args.dayKey),
+  'jobs:listWeek': (args: { startKey: string }) => scheduleWeek(args.startKey),
   ...XERO_FIXTURES,
 }
 

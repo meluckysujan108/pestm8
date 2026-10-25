@@ -3,6 +3,22 @@ import type { ComponentType, ReactNode } from 'react'
 import { ErrorComponent } from '@tanstack/react-router'
 import { ErrorScreen as AppErrorScreen } from '#/components/shell/ErrorScreen'
 import { ReachNotice } from '#/components/shell/ConnectionNotice'
+import { KeptCopyNote } from '#/components/shell/KeptCopyNote'
+import { NotKeptDay } from '#/components/schedule/NotKeptDay'
+import { ScheduleNotKept } from '#/components/schedule/ScheduleNotKept'
+import { RecurringDueNote } from '#/components/schedule/RecurringDueNote'
+import { WeekStrip } from '#/components/schedule/WeekStrip'
+import { WeekView } from '#/components/schedule/WeekView'
+import { SidebarProvider } from '#/components/ui/sidebar'
+import {
+  formatDayLabel,
+  formatMonthLabel,
+  formatWeekRange,
+  startOfWeekKey,
+} from '#/lib/format'
+import { SCHEDULE_VIEW_OPTIONS } from '#/lib/scheduleViews'
+import type { KeptNote } from '#/lib/offline/useKept'
+import type { ScheduleView } from '#/lib/scheduleViews'
 import { publishReachNotice } from '#/lib/reach'
 import type { ReachNoticeModel } from '#/lib/reach'
 import { MobileDock } from '#/components/shell/MobileDock'
@@ -119,8 +135,11 @@ import {
   MEMBERS,
   SAMPLE_LOGO,
   TZ,
+  addDays,
   finishedReport,
+  perthTodayKey,
   resolveFixture,
+  scheduleWeek,
   state,
 } from './fixtures'
 import { EVERY_XERO_LINE, TWO_XERO_LINES, XERO_BIZ } from './xeroFixtures'
@@ -792,7 +811,8 @@ function reach(
   props: Pick<
     Parameters<typeof ReachNotice>[0],
     'online' | 'waitingToSave' | 'action'
-  >,
+  > &
+    Partial<Pick<Parameters<typeof ReachNotice>[0], 'updated'>>,
 ) {
   return function Reach() {
     return (
@@ -804,6 +824,7 @@ function reach(
           ))}
         </div>
         <ReachNotice
+          updated={null}
           {...props}
           onTry={() => {}}
           onReload={() => {}}
@@ -815,12 +836,174 @@ function reach(
 }
 
 /**
+ * The Schedule on a phone as the page draws it, from props: the header (its
+ * markup, as `Header`), the week strip, the "Updated" note under it, and the
+ * day or week below. Nothing here reads the phone's copy; `note` says what
+ * the page's `useKeptNote` would have.
+ */
+function KeptSchedule({
+  note,
+  view,
+  heading,
+  children,
+}: {
+  note: Pick<KeptNote, 'phase' | 'tone' | 'asOf'>
+  view: ScheduleView
+  heading: string
+  children: ReactNode
+}) {
+  const today = perthTodayKey()
+  const weekStart = startOfWeekKey(today)
+  return (
+    <Phone>
+      <Header kicker={formatMonthLabel(today)} title="Schedule" />
+      <div className="border-b border-hairline bg-chrome">
+        <div className="flex items-center justify-between px-3 pt-2">
+          <span className="size-8" />
+          <span className="text-body font-semibold text-blue">Today</span>
+          <span className="size-8" />
+        </div>
+        <WeekStrip
+          startKey={weekStart}
+          selectedKey={today}
+          todayKey={today}
+          load={scheduleWeek(weekStart)}
+          onSelect={() => {}}
+        />
+      </div>
+      <KeptCopyNote {...note} timezone={TZ} todayKey={today} />
+      <section className="px-4 pt-4 pb-6">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="section-label min-w-0">{heading}</h2>
+          <Segmented
+            label="View"
+            value={view}
+            options={SCHEDULE_VIEW_OPTIONS}
+            onChange={() => {}}
+          />
+        </div>
+        {children}
+      </section>
+    </Phone>
+  )
+}
+
+/** A time of day on `dayKey`, in Perth: the business's clock. */
+function perthAt(dayKey: string, time: string): number {
+  return Date.parse(`${dayKey}T${time}:00+08:00`)
+}
+
+/**
+ * Today, opened with no signal from the copy kept on the phone, written
+ * yesterday evening: the note, and the day's recurring visits, which a copy
+ * from before the day has none of, said from the week's count.
+ */
+function ScheduleKeptDay() {
+  const today = perthTodayKey()
+  return (
+    <KeptSchedule
+      note={{
+        phase: 'shown',
+        tone: 'no-signal',
+        asOf: perthAt(addDays(today, -1), '17:10'),
+      }}
+      view="job"
+      heading={formatDayLabel(today)}
+    >
+      <div className="mb-3">
+        <RecurringDueNote count={2} businessSlug="demo" kept />
+      </div>
+      <div className="flex flex-col gap-2.5">
+        {JOBS.filter((job) => job.status !== 'recurring').map((job) => (
+          <JobCard
+            key={job._id}
+            job={job as never}
+            timezone={TZ}
+            onOpen={() => {}}
+            hideTechnician
+          />
+        ))}
+      </div>
+    </KeptSchedule>
+  )
+}
+
+/** This week, from the copy kept on the phone, with the socket down: the
+ * note's "Could not reach PestM8" and a time earlier today. */
+function ScheduleKeptWeek() {
+  const today = perthTodayKey()
+  const weekStart = startOfWeekKey(today)
+  return (
+    <KeptSchedule
+      note={{
+        phase: 'shown',
+        tone: 'unreachable',
+        asOf: perthAt(today, '07:42'),
+      }}
+      view="week"
+      heading={formatWeekRange(weekStart)}
+    >
+      <WeekView
+        businessId={bizId}
+        businessSlug="demo"
+        timezone={TZ}
+        weekStart={weekStart}
+        todayKey={today}
+        focusKey={today}
+        week={scheduleWeek(weekStart)}
+        showTeam
+        onOpenJob={() => {}}
+        onOpenDay={() => {}}
+      />
+    </KeptSchedule>
+  )
+}
+
+/** A day three weeks out, asked for with no signal: the phone keeps this
+ * week and next, so the list's place says so, with the way back. */
+function ScheduleNotKeptDay() {
+  const asked = addDays(perthTodayKey(), 21)
+  return (
+    <KeptSchedule
+      note={{
+        phase: 'shown',
+        tone: 'no-signal',
+        asOf: perthAt(perthTodayKey(), '07:42'),
+      }}
+      view="job"
+      heading={formatDayLabel(asked)}
+    >
+      <NotKeptDay label={formatDayLabel(asked)} onToday={() => {}} />
+    </KeptSchedule>
+  )
+}
+
+/** The Schedule with no signal and nothing of this week on the phone. */
+function ScheduleNotKeptPage() {
+  return (
+    <Phone>
+      <SidebarProvider className="block min-h-0">
+        <AccessProvider businessId={bizId}>
+          <ScheduleNotKept
+            businessId={bizId}
+            businessSlug="demo"
+            kicker={formatMonthLabel(perthTodayKey())}
+            title="Schedule"
+          />
+        </AccessProvider>
+      </SidebarProvider>
+    </Phone>
+  )
+}
+
+/**
  * The notice's copy at the top of an open sheet, under the grab handle: the
  * real Sheet, drawing what ConnectionNotice would have published.
  */
 const REACH_IN_SHEET: ReachNoticeModel = {
   online: true,
   waitingToSave: true,
+  updated: null,
   action: 'try',
   onTry: () => {},
   onReload: () => {},
@@ -2056,6 +2239,17 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
     action: 'reload-confirm',
   }),
   'reach-sheet': ReachInSheet,
+  // With the copy kept on the phone on screen, the notice says how old it is.
+  'connection-notice-updated': reach({
+    online: false,
+    waitingToSave: false,
+    action: 'try',
+    updated: '9:42am',
+  }),
+  'schedule-kept-day': ScheduleKeptDay,
+  'schedule-kept-week': ScheduleKeptWeek,
+  'schedule-not-kept-day': ScheduleNotKeptDay,
+  'schedule-not-kept-page': ScheduleNotKeptPage,
   empty: Empty,
   guide: Guide,
   confirm: Confirm,

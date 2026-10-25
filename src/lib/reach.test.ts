@@ -7,6 +7,7 @@ import {
   SOCKET_DOWN_MS,
   oldestPending,
   sampleReach,
+  waitingOnScreen,
 } from './reach'
 import type { ReachSample, ReachState } from './reach'
 
@@ -156,5 +157,39 @@ describe('oldestPending', () => {
     // Asked for again after it answered: a new wait.
     expect(oldestPending(seen, ['a', 'b'], 4_000)).toBe(2_000)
     expect(oldestPending(seen, ['a'], 5_000)).toBe(4_000)
+  })
+})
+
+describe('waitingOnScreen', () => {
+  it('counts answers from the phone’s copy the server hasn’t confirmed', () => {
+    expect(waitingOnScreen(['a'], ['k1', 'k2'])).toEqual(['a', 'k1', 'k2'])
+    expect(waitingOnScreen([], [])).toEqual([])
+  })
+
+  it('a query the copy answered while it waited keeps its wait', () => {
+    const seen = new Map<string, number>()
+    // Asked for with no answer, then answered from the phone, unconfirmed.
+    expect(oldestPending(seen, waitingOnScreen(['d'], []), 1_000)).toBe(1_000)
+    expect(oldestPending(seen, waitingOnScreen([], ['d']), 5_000)).toBe(1_000)
+    expect(oldestPending(seen, waitingOnScreen(['d'], ['d']), 6_000)).toBe(
+      1_000,
+    )
+    // Confirmed by the server: no longer waiting.
+    expect(oldestPending(seen, waitingOnScreen([], []), 7_000)).toBeNull()
+  })
+
+  it('an unconfirmed copy over a socket that never answers raises the notice', () => {
+    const seen = new Map<string, number>()
+    const { stuck } = run(
+      (now) => ({
+        oldestPendingQueryAt: oldestPending(
+          seen,
+          waitingOnScreen([], ['k']),
+          now,
+        ),
+      }),
+      QUERY_WAIT_MS,
+    )
+    expect(stuck).toBe(true)
   })
 })

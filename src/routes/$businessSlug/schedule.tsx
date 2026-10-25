@@ -1,9 +1,10 @@
-import { useDeferredValue, useEffect, useRef, useState } from 'react'
+import { Suspense, useDeferredValue, useEffect, useRef, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { usePrefetchQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { z } from 'zod'
 import { PageHeader } from '#/components/shell/PageHeader'
+import { PagePending } from '#/components/shell/Pending'
 import { WeekStrip } from '#/components/schedule/WeekStrip'
 import { JobCard } from '#/components/schedule/JobCard'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
@@ -49,6 +50,23 @@ import {
 import { useToday } from '#/lib/useToday'
 import { WeekView } from '#/components/schedule/WeekView'
 import { RecurringDueNote } from '#/components/schedule/RecurringDueNote'
+import { NotKeptDay } from '#/components/schedule/NotKeptDay'
+import { ScheduleNotKept } from '#/components/schedule/ScheduleNotKept'
+import { KeptCopyNote } from '#/components/shell/KeptCopyNote'
+import { logConnection } from '#/lib/connectionLog'
+import { keeper } from '#/lib/offline/keeper'
+import {
+  aimFor,
+  drawnFrom,
+  drawnNow,
+  firstDrawn,
+} from '#/lib/offline/keptSchedule'
+import {
+  useKeptBeforeDay,
+  useKeptNote,
+  useReadable,
+  useReadableAll,
+} from '#/lib/offline/useKept'
 import { SCHEDULE_VIEWS, SCHEDULE_VIEW_OPTIONS } from '#/lib/scheduleViews'
 import { weekDayKeys, weekTotals } from '#/lib/weekView'
 import type { ScheduleView } from '#/lib/scheduleViews'
@@ -78,6 +96,11 @@ const searchSchema = z.object({
 /** How long a navigation in the browser waits for the owner's news (the
  * set-up guide, who joined) before the day shows without it. */
 const OWNER_NEWS_WAIT_MS = 1_500
+
+/** How soon after the page has hydrated the phone's copy may still replace
+ * what the HTML drew (`keeper.upgradeFromKept`): later, cards would move
+ * under a thumb already reaching for one. */
+const UPGRADE_WITHIN_MS = 500
 
 export const Route = createFileRoute('/$businessSlug/schedule')({
   validateSearch: searchSchema,
@@ -150,9 +173,11 @@ export const Route = createFileRoute('/$businessSlug/schedule')({
     // Everything, on the server. In the browser the day is waited for only
     // so long (`loaderWaitMs`), and the owner's news for less: on a line
     // that slow, the day is worth more than keeping news from landing
-    // above it.
+    // above it. Not at all with the line down, the socket's as well as the
+    // phone's (`keeper.lineDown`): what the phone keeps answers at once, and
+    // the page says what it doesn't.
     await settleInBrowser(
-      loaderWaitMs(),
+      keeper.lineDown() ? 0 : loaderWaitMs(),
       Promise.all([essentials, settleInBrowser(OWNER_NEWS_WAIT_MS, news)]),
     )
     return { today, joinSince }
@@ -160,7 +185,66 @@ export const Route = createFileRoute('/$businessSlug/schedule')({
   component: SchedulePage,
 })
 
+/**
+ * The Schedule, or with the line down and nothing of it on the phone, the
+ * page saying so (`ScheduleNotKept`) where a placeholder would wait for good.
+ *
+ * Whether a day can be drawn (`useReadable`) reads as yes on the server and
+ * in the hydration render, so the page hydrates as the server drew it, and
+ * only then looks at what the phone holds. Today, or the day asked for, will
+ * do: the schedule itself goes back to one it has when the other is missing.
+ *
+ * The body waits for its first day inside a boundary of its own, so this
+ * much is on screen, and listening, even while it waits: a day asked for
+ * as a socket dies, before the line counts as down, would otherwise hold
+ * the route's placeholder up for as long as there is no signal. Once the
+ * line counts as down this says so, and the body starts again on a day it
+ * can draw.
+ */
 function SchedulePage() {
+  const { business } = Route.useRouteContext()
+  const loaded = Route.useLoaderData()
+  const { date, view } = Route.useSearch()
+  const mode = useViewMode()
+  // The loader's today until the page has hydrated, then the phone's: the
+  // HTML may be a copy the service worker kept from an earlier day.
+  const today = useToday(business.timezone, loaded.today)
+  const requestedKey = date ?? today
+  const inWeek = view === 'week'
+  const requestedReadable = useReadableAll(
+    drawnFrom(business._id, requestedKey, inWeek),
+  )
+  const todayReadable = useReadableAll(drawnFrom(business._id, today, inWeek))
+  const teamReadable = useReadable(rq.roster(business._id).queryKey)
+  const nothingKept = !teamReadable || (!requestedReadable && !todayReadable)
+
+  useEffect(() => {
+    if (nothingKept) logConnection('kept-not-here', { what: 'schedule' })
+  }, [nothingKept])
+
+  return nothingKept ? (
+    <ScheduleNotKept
+      businessId={business._id}
+      businessSlug={business.slug}
+      kicker={formatMonthLabel(requestedKey)}
+      title={mode === 'mine' ? 'My jobs' : 'Schedule'}
+    />
+  ) : (
+    <Suspense fallback={<PagePending />}>
+      <ScheduleBody today={today} requestedReadable={requestedReadable} />
+    </Suspense>
+  )
+}
+
+function ScheduleBody({
+  today,
+  requestedReadable,
+}: {
+  today: string
+  /** Whether the day (or week) asked for can be drawn: in memory, kept on
+   * the phone, or on its way down a working line. */
+  requestedReadable: boolean
+}) {
   const { business } = Route.useRouteContext()
   const loaded = Route.useLoaderData()
   const canDispatch = useCan('jobs.dispatch')
@@ -226,9 +310,6 @@ function SchedulePage() {
   // week strip and its sheet — a re-layout, not a second calendar.
   const isDesktop = useMediaQuery('(min-width: 1024px)')
 
-  // The loader's today until the page has hydrated, then the phone's: the
-  // HTML may be a copy the service worker kept from an earlier day.
-  const today = useToday(business.timezone, loaded.today)
   // The day asked for, and the day on screen. A day not fetched yet suspends
   // this page, and a suspension here swaps the whole page — the strip or
   // calendar just tapped included — for the route's placeholder. Deferring
@@ -237,9 +318,29 @@ function SchedulePage() {
   // highlight, the next/previous week, the new job's day) follows
   // `requestedKey`; everything drawn from the day's data follows
   // `selectedKey`.
+  //
+  // With the line down, a day the phone keeps no copy of would never be
+  // ready: the page would sit on the one before, dimmed, for good. So the
+  // day aimed for is the one asked for only while it can be drawn, else the
+  // last one that was (today, if none has been yet), and the heading names
+  // the day asked for over "Not on this phone" in the list's place
+  // (lib/offline/keptSchedule.ts). In the week, it is all seven days that
+  // must be drawable, so the day on screen may be the very one asked for
+  // and still not do.
   const requestedKey = date ?? today
-  const selectedKey = useDeferredValue(requestedKey)
-  const stale = selectedKey !== requestedKey || shownView !== activeView
+  const [lastDrawn, setLastDrawn] = useState(() =>
+    firstDrawn(requestedKey, requestedReadable, today),
+  )
+  const { target, notKept } = aimFor({
+    requestedKey,
+    requestedReadable,
+    lastDrawn,
+  })
+  const selectedKey = useDeferredValue(target)
+  useEffect(() => {
+    setLastDrawn((last) => drawnNow(last, selectedKey, target))
+  }, [selectedKey, target])
+  const stale = selectedKey !== target || shownView !== activeView
   // The delay is what keeps a cached day from flashing dimmed on its way past;
   // reduced motion takes the instant change after that delay, not no delay.
   const dimmed = `transition-opacity delay-150 motion-reduce:duration-0 ${stale ? 'opacity-60' : 'delay-0'}`
@@ -252,6 +353,37 @@ function SchedulePage() {
   const { data: week } = useSuspenseQuery(rq.week(business._id, weekStart))
   const { data: jobs } = useSuspenseQuery(rq.day(business._id, selectedKey))
   const { data: members } = useSuspenseQuery(rq.roster(business._id))
+
+  // What is on screen is drawn from these: the note under the strip says
+  // when they were last known right, if they are the phone's copy.
+  const shownKeys = [
+    ...drawnFrom(business._id, selectedKey, shownView === 'week'),
+    rq.roster(business._id).queryKey,
+  ]
+  const keptNote = useKeptNote(shownKeys, business.timezone, today)
+  // Once hydrated, what the HTML drew gives way to the phone's copy where
+  // that is clearly newer — only straight away, or not at all (R10).
+  const [firstKeys] = useState(shownKeys)
+  useEffect(() => {
+    void keeper.upgradeFromKept(firstKeys, UPGRADE_WITHIN_MS)
+  }, [firstKeys])
+  // For the phone's connection notes: how old a copy was shown, once, and
+  // each day asked for that the phone doesn't keep.
+  const keptNoted = useRef(false)
+  useEffect(() => {
+    if (keptNote.phase !== 'shown' || keptNoted.current) return
+    keptNoted.current = true
+    logConnection('kept-note', {
+      tone: keptNote.tone,
+      ageMin:
+        keptNote.asOf === null
+          ? -1
+          : Math.round((Date.now() - keptNote.asOf) / 60_000),
+    })
+  }, [keptNote.phase, keptNote.tone, keptNote.asOf])
+  useEffect(() => {
+    if (notKept) logConnection('kept-not-here', { what: activeView })
+  }, [notKept, requestedKey, activeView])
   /**
    * The phone opens on your own jobs — for everyone but the owner looking at
    * his business, whose God view means everyone on the phone as on the
@@ -311,10 +443,36 @@ function SchedulePage() {
 
   // Projected visits on the selected day, when it is still ahead: not on its
   // list and in no count, but worth saying so the day does not look clear.
+  // And on a day that has arrived whose list is a copy the phone kept from
+  // before it had: the list has none of that day's visits, the week's count
+  // says how many there are.
+  const keptBeforeDay = useKeptBeforeDay(
+    rq.day(business._id, selectedKey).queryKey,
+    business.timezone,
+    selectedKey,
+  )
+  const recurringKept = selectedKey <= today && keptBeforeDay
   const recurringDue =
-    selectedKey > today
+    selectedKey > today || recurringKept
       ? (week.find((d) => d.dayKey === selectedKey)?.recurringCount ?? 0)
       : 0
+  // The day or week asked for that the phone keeps no copy of, as the
+  // heading names it.
+  const notKeptLabel =
+    shownView === 'week'
+      ? formatWeekRange(startOfWeekKey(requestedKey))
+      : formatDayLabel(requestedKey)
+  const notKeptDay = (
+    <NotKeptDay label={notKeptLabel} onToday={() => setDay(today)} />
+  )
+  const note = (className?: string) => (
+    <KeptCopyNote
+      {...keptNote}
+      timezone={business.timezone}
+      todayKey={today}
+      className={className}
+    />
+  )
   const totals = weekTotals(week)
   const weekSummary = (
     <p className="flex flex-wrap items-center gap-x-1.5 text-caption tabular-nums text-ink-2">
@@ -350,7 +508,7 @@ function SchedulePage() {
       <PageHeader
         businessId={business._id}
         businessSlug={business.slug}
-        kicker={formatMonthLabel(selectedKey)}
+        kicker={formatMonthLabel(notKept ? requestedKey : selectedKey)}
         onKickerClick={hydrated ? () => setMonthOpen(true) : undefined}
         // Says which view this is at a glance, on the screen he opens most.
         title={mode === 'mine' ? 'My jobs' : 'Schedule'}
@@ -395,53 +553,77 @@ function SchedulePage() {
         // Same JobCard rows, same colours-are-per-subcontractor model —
         // re-flowed, not a second calendar.
         <section className="grid grid-cols-[340px_minmax(0,1fr)] items-start gap-5 px-4 pt-4 pb-6">
-          <MonthCalendarCard
-            businessId={business._id}
-            monthKey={monthKey ?? requestedKey.slice(0, 7)}
-            selectedKey={requestedKey}
-            todayKey={today}
-            weekStart={shownView === 'week' ? weekStart : undefined}
-            onSelect={setDay}
-            onMonthChange={setMonthKey}
-          />
-          <div aria-busy={stale || undefined} className={`min-w-0 ${dimmed}`}>
-            {shownView === 'week' ? (
-              <div className="flex min-w-0 flex-col gap-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="text-sheet-title text-ink">
-                      {formatWeekRange(weekStart)}
+          <div className="flex min-w-0 flex-col gap-3">
+            <MonthCalendarCard
+              businessId={business._id}
+              monthKey={monthKey ?? requestedKey.slice(0, 7)}
+              selectedKey={requestedKey}
+              todayKey={today}
+              weekStart={shownView === 'week' ? weekStart : undefined}
+              onSelect={setDay}
+              onMonthChange={setMonthKey}
+            />
+            {/* Under the month, well below the band at the top right where
+                the can't-reach notice floats, which would cover it above
+                the agenda. */}
+            {note('')}
+          </div>
+          <div className="min-w-0">
+            <div aria-busy={stale || undefined} className={dimmed}>
+              {notKept ? (
+                <div className="flex min-w-0 flex-col gap-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="min-w-0 text-sheet-title text-ink">
+                      {notKeptLabel}
                     </h2>
-                    {weekSummary}
+                    <Segmented
+                      label="View"
+                      value={activeView}
+                      options={SCHEDULE_VIEW_OPTIONS}
+                      onChange={setView}
+                    />
                   </div>
-                  <Segmented
-                    label="View"
-                    value={activeView}
-                    options={SCHEDULE_VIEW_OPTIONS}
-                    onChange={setView}
-                  />
+                  {notKeptDay}
                 </div>
-                {weekView}
-              </div>
-            ) : (
-              <DayAgendaPanel
-                businessId={business._id}
-                businessSlug={business.slug}
-                state={business.state}
-                timezone={business.timezone}
-                selectedKey={selectedKey}
-                todayKey={today}
-                jobs={jobs}
-                members={members}
-                view={activeView}
-                onViewChange={setView}
-                onOpenJob={setOpenJobId}
-                // The desktop layout only renders in the browser (it
-                // waits on a media query), so this is always live.
-                onNewJob={() => setNewJobOpen(true)}
-                recurringDue={recurringDue}
-              />
-            )}
+              ) : shownView === 'week' ? (
+                <div className="flex min-w-0 flex-col gap-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="text-sheet-title text-ink">
+                        {formatWeekRange(weekStart)}
+                      </h2>
+                      {weekSummary}
+                    </div>
+                    <Segmented
+                      label="View"
+                      value={activeView}
+                      options={SCHEDULE_VIEW_OPTIONS}
+                      onChange={setView}
+                    />
+                  </div>
+                  {weekView}
+                </div>
+              ) : (
+                <DayAgendaPanel
+                  businessId={business._id}
+                  businessSlug={business.slug}
+                  state={business.state}
+                  timezone={business.timezone}
+                  selectedKey={selectedKey}
+                  todayKey={today}
+                  jobs={jobs}
+                  members={members}
+                  view={activeView}
+                  onViewChange={setView}
+                  onOpenJob={setOpenJobId}
+                  // The desktop layout only renders in the browser (it
+                  // waits on a media query), so this is always live.
+                  onNewJob={() => setNewJobOpen(true)}
+                  recurringDue={recurringDue}
+                  recurringKept={recurringKept}
+                />
+              )}
+            </div>
           </div>
         </section>
       ) : (
@@ -496,6 +678,12 @@ function SchedulePage() {
             />
           </div>
 
+          {/* Under the strip, clear of the no-signal notice's band. The
+              can't-reach one, taller for Try again and a waiting save, can
+              cover its first line while it shows; it says when the screen
+              was last updated itself. */}
+          {note()}
+
           <section
             aria-busy={stale || undefined}
             className={`px-4 pt-4 pb-6 ${dimmed}`}
@@ -503,11 +691,13 @@ function SchedulePage() {
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
                 <h2 className="section-label">
-                  {shownView === 'week'
-                    ? formatWeekRange(weekStart)
-                    : formatDayLabel(selectedKey)}
+                  {notKept
+                    ? notKeptLabel
+                    : shownView === 'week'
+                      ? formatWeekRange(weekStart)
+                      : formatDayLabel(selectedKey)}
                 </h2>
-                {shownView === 'week' && weekSummary}
+                {shownView === 'week' && !notKept && weekSummary}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Segmented
@@ -517,7 +707,7 @@ function SchedulePage() {
                   onChange={setView}
                 />
                 {/* The week is unfiltered: its numbers are the week's. */}
-                {shownView !== 'week' && (
+                {shownView !== 'week' && !notKept && (
                   <ScheduleFilterBar
                     jobs={jobs}
                     members={members}
@@ -531,16 +721,19 @@ function SchedulePage() {
               </div>
             </div>
 
-            {shownView !== 'week' && (
+            {shownView !== 'week' && !notKept && (
               <div className="mb-3 empty:hidden">
                 <RecurringDueNote
                   count={recurringDue}
                   businessSlug={business.slug}
+                  kept={recurringKept}
                 />
               </div>
             )}
 
-            {shownView === 'week' ? (
+            {notKept ? (
+              notKeptDay
+            ) : shownView === 'week' ? (
               weekView
             ) : jobs.length === 0 ? (
               <EmptyState

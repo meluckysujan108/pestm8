@@ -407,6 +407,22 @@ export class HandoverConvexClient extends ConvexReactClient {
   }
 
   /**
+   * The line as the kept copy reads it (lib/offline/keeper.ts): whether the
+   * socket is held for a sign-in token, and when the server last sent
+   * anything on any socket this page load opened. Never the end of a wait
+   * for a token, which `readLine` counts as hearing from the server: nothing
+   * came from the server then, so it says nothing about how fresh what is on
+   * screen is (R11 in the plan). Null until the server has said anything, and
+   * always where the line is not watched (`watchSocket`).
+   */
+  lineState(): LineState {
+    return {
+      pausedForSignIn: this.isPaused(),
+      lastServerMessageAt: this.sockets?.lastMessageAt ?? null,
+    }
+  }
+
+  /**
    * What the socket knows of itself, with a wait for a token counted as
    * hearing from the server (see `pauseEndedAt`).
    */
@@ -710,6 +726,12 @@ export function reconnectNow(client: ConvexReactClient): void {
 /** `currentToken`, for whichever client the router was handed. */
 export function currentToken(client: ConvexReactClient): string | null {
   return client instanceof HandoverConvexClient ? client.currentToken() : null
+}
+
+/** What `lineState` answers. */
+export type LineState = {
+  pausedForSignIn: boolean
+  lastServerMessageAt: number | null
 }
 
 /**

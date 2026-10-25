@@ -1,10 +1,14 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { QueryClient } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
 import { rq } from '#/lib/routeQueries'
 import { canSwitchWithoutSignal } from './BusinessSwitcher'
 import type { Id } from '../../../convex/_generated/dataModel'
+
+// The kept copy's keeper reads who is signed in (lib/rootState.ts), whose
+// server function needs a deployment's address to load at all.
+vi.mock('#/lib/initialState', () => ({ getInitialState: vi.fn() }))
 
 /**
  * With the line down, a switch of business goes ahead only on what the

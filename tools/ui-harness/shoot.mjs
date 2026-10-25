@@ -841,6 +841,16 @@ const PLAN = {
   'reach-offline': {},
   'reach-confirm': {},
   'reach-sheet': {},
+  'connection-notice-updated': {},
+  // The copy kept on the phone (lib/offline): the note under the strip, a
+  // day and a week drawn from it, a day it doesn't keep, and none at all.
+  'schedule-kept-day': { full: true },
+  'schedule-kept-week': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'schedule-not-kept-day': {},
+  'schedule-not-kept-page': { before: async (p) => p.waitForTimeout(300) },
   guide: { before: async (p) => p.waitForTimeout(500) },
   confirm: { before: async (p) => p.waitForTimeout(500) },
   inputs: { before: async (p) => p.waitForTimeout(600) },

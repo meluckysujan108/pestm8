@@ -55,7 +55,11 @@ const REWRITE_BATCH = 200
 /** Most services a typed-in one can be swapped for. */
 const MAX_SWAP_TARGETS = 10
 
-/** The list, for New Job, the job sheet and the report suggestions. Any member. */
+/**
+ * The list, for New Job, the job sheet and the report suggestions. Any member.
+ *
+ * Kept on phones: a renamed or removed field means bumping KEPT_SHAPE.
+ */
 export const list = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {

@@ -28,6 +28,18 @@
  */
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
+/*
+ * A page the service worker served from its own copy, a while after the
+ * server drew it: `keptInitScript` (src/lib/offline/useKept.ts) marks <html>
+ * with `data-kept` while the head is parsed, so the "Updated" note the server
+ * drew hidden (`hidden kept:flex`, KeptCopyNote) is there from the first
+ * paint rather than put in under a thumb once the page has hydrated.
+ */
+@custom-variant kept (&:where([data-kept], [data-kept] *));
+/* The same page with the phone saying it has no network as it was served:
+   the note's words for no signal, from the same first paint. */
+@custom-variant kept-offline (&:where([data-kept='no-signal'], [data-kept='no-signal'] *));
+
 /* Raw palette, light. Along with its dark twin below, the only thing a theme
    re-declares. */
 :root,

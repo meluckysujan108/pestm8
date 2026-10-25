@@ -23,6 +23,8 @@ import { authClient } from '#/lib/auth-client'
 import { openSignedOut } from '#/lib/convexClient'
 import { getInitialState } from '#/lib/initialState'
 import { notAMemberSlug, wipeKeptForBusiness } from '#/lib/offline/keptStore'
+import { keeper } from '#/lib/offline/keeper'
+import { keptInitScript } from '#/lib/offline/useKept'
 // For its listener: Chrome offers installing once, early, on whatever page
 // is open, and set-up's Home Screen card is only there to use it later.
 import '#/lib/installPrompt'
@@ -155,7 +157,10 @@ function RootComponent() {
       <SessionWatch />
       <NavProgress />
       <Outlet />
-      <ConnectionNotice convexClient={convexQueryClient.convexClient} />
+      <ConnectionNotice
+        convexClient={convexQueryClient.convexClient}
+        kept={keeper}
+      />
       <ConnectionDiagnostics convexClient={convexQueryClient.convexClient} />
     </ConvexBetterAuthProvider>
   )
@@ -246,9 +251,17 @@ function RootDocument({ children }: { children: React.ReactNode }) {
     // clobber later; suppressHydrationWarning covers the two attributes React
     // did not put there. It renders server-side only and removes its own node,
     // so the client's empty head matches.
+    //
+    // The second marks a page the service worker served from its own copy, a
+    // while after this render (`data-kept`, src/lib/offline/useKept.ts), so
+    // the schedule's "Updated" note shows from the first paint; the same
+    // suppressHydrationWarning covers that attribute. When this render
+    // happened is written into it: only the server's counts, and on the
+    // client ScriptOnce renders nothing.
     <html lang="en-AU" suppressHydrationWarning>
       <head>
         <ScriptOnce>{themeInitScript}</ScriptOnce>
+        <ScriptOnce>{keptInitScript(Date.now())}</ScriptOnce>
         <HeadContent />
       </head>
       <body>

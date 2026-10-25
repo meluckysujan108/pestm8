@@ -11,10 +11,11 @@ import { api } from '../../../convex/_generated/api'
 import { AppShell } from '#/components/shell/AppShell'
 import { SwitchBanner } from '#/components/shell/SwitchBanner'
 import { AccessProvider } from '#/lib/access'
+import { keeper } from '#/lib/offline/keeper'
 import { notAMemberOf } from '#/lib/offline/keptStore'
 import { signedInToken, signedOutAfterAll } from '#/lib/rootState'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
-import { rq, warm } from '#/lib/routeQueries'
+import { rq } from '#/lib/routeQueries'
 import type { FunctionReturnType } from 'convex/server'
 
 export const Route = createFileRoute('/$businessSlug')({
@@ -129,25 +130,23 @@ export const Route = createFileRoute('/$businessSlug')({
 })
 
 function BusinessLayout() {
-  const { business, membership, queryClient } = Route.useRouteContext()
+  const { business, membership } = Route.useRouteContext()
 
   // What New Job is made of — every client and site, the team, the job
   // types — asked for as soon as the business's pages are on screen, however
-  // they got there. A loader's or beforeLoad's warm runs only for a
-  // navigation inside the app, so a page opened from the Home Screen
-  // (rendered by the server, or a copy the service worker kept) had none of
-  // it until New Job asked: down the same line that had just died on a phone
-  // call, when someone is booking the caller (25 Oct 2026). Kept from then
-  // for as long as the app is open (root-provider.tsx), so New Job opens at
-  // once on what the phone already has.
-  useEffect(() => {
-    void warm(
-      queryClient,
-      rq.directory(business._id),
-      rq.roster(business._id),
-      rq.jobTypes(business._id),
-    )
-  }, [queryClient, business._id])
+  // they got there, and with them this week's and next week's days. A
+  // loader's or beforeLoad's warm runs only for a navigation inside the app,
+  // so a page opened from the Home Screen (rendered by the server, or a copy
+  // the service worker kept) had none of it until New Job asked: down the
+  // same line that had just died on a phone call, when someone is booking
+  // the caller (25 Oct 2026). Pinned from then for as long as the app is
+  // open, so New Job opens at once on what the phone already has, and kept
+  // on the phone for opening with no signal (lib/offline/keeper.ts).
+  const { _id: businessId, slug, timezone } = business
+  useEffect(
+    () => keeper.enter({ _id: businessId, slug, timezone }),
+    [businessId, slug, timezone],
+  )
 
   return (
     <AccessProvider businessId={business._id}>

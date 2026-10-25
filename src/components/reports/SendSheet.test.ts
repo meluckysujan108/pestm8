@@ -14,6 +14,10 @@ import {
 } from './SendSheet'
 import { splitPasted } from './RecipientPicker'
 
+// The kept copy's keeper reads who is signed in (lib/rootState.ts), whose
+// server function needs a deployment's address to load at all.
+vi.mock('#/lib/initialState', () => ({ getInitialState: vi.fn() }))
+
 describe('the addresses the send sheet offers', () => {
   const jane = {
     address: 'jane@gmail.com',
