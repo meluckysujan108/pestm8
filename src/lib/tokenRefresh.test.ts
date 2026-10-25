@@ -6,7 +6,7 @@ import {
   retryDelayMs,
   withRefreshRetry,
 } from './tokenRefresh'
-import type { RefreshRetry } from './tokenRefresh'
+import type { RefreshRetry, SessionAnswer } from './tokenRefresh'
 
 describe('readSessionAnswer', () => {
   it('is signed out only when the server said so', () => {
@@ -39,9 +39,9 @@ describe('retryDelayMs', () => {
 })
 
 describe('attemptLimitMs', () => {
-  it('gives each attempt longer, up to 30 seconds', () => {
+  it('gives the first attempt 4 seconds, and each after it longer, up to 30', () => {
     expect([0, 1, 2, 3, 10].map(attemptLimitMs)).toEqual([
-      10_000, 20_000, 30_000, 30_000, 30_000,
+      4_000, 10_000, 20_000, 30_000, 30_000,
     ])
   })
 })
@@ -84,6 +84,63 @@ describe('withRefreshRetry', () => {
 
     expect(await token).toBe('fresh')
     expect(fetchToken).toHaveBeenCalledTimes(2)
+  })
+
+  it('goes again at once after no answer, without asking Better Auth or waiting', async () => {
+    // Asking whether anyone is signed in would travel the same dead line.
+    const askSession = vi.fn(async (): Promise<SessionAnswer> => 'signedIn')
+    const pause = vi.fn(async () => {})
+    const limits: Array<number> = []
+    const givingUp: Array<() => void> = []
+    const retry: RefreshRetry = {
+      askSession,
+      pause,
+      bound: (request, fallback, attempt) => {
+        limits.push(attempt)
+        return Promise.race([
+          request,
+          new Promise<typeof fallback>((resolve) =>
+            givingUp.push(() => resolve(fallback)),
+          ),
+        ])
+      },
+    }
+    const fetchToken = vi
+      .fn()
+      .mockImplementationOnce(never)
+      .mockImplementationOnce(never)
+      .mockResolvedValueOnce('fresh')
+    const fetch = withRefreshRetry(fetchToken, retry, () => true)
+
+    const token = fetch({ forceRefreshToken: true })
+    await vi.waitFor(() => expect(fetchToken).toHaveBeenCalledTimes(1))
+    givingUp.splice(0).forEach((stop) => stop())
+    await vi.waitFor(() => expect(fetchToken).toHaveBeenCalledTimes(2))
+    givingUp.splice(0).forEach((stop) => stop())
+
+    expect(await token).toBe('fresh')
+    // Each attempt given longer than the one before.
+    expect(limits).toEqual([0, 1, 2])
+    expect(askSession).not.toHaveBeenCalled()
+    expect(pause).not.toHaveBeenCalled()
+  })
+
+  it('still asks Better Auth, and waits, after a refresh answered with nothing', async () => {
+    const askSession = vi.fn(async (): Promise<SessionAnswer> => 'signedIn')
+    const pause = vi.fn(async () => {})
+    const fetchToken = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce('fresh')
+    const fetch = withRefreshRetry(
+      fetchToken,
+      { askSession, pause },
+      () => true,
+    )
+
+    expect(await fetch({ forceRefreshToken: true })).toBe('fresh')
+    expect(askSession).toHaveBeenCalledTimes(1)
+    expect(pause).toHaveBeenCalledWith(0)
   })
 
   it('gives up on asking Better Auth when it never answers, and carries on', async () => {
@@ -235,7 +292,7 @@ describe('browserRefreshRetry', () => {
     page({ onLine: true })
     const retry = browserRefreshRetry(vi.fn())
     let settled: string | undefined
-    void retry.bound!(never(), 'gave up', 1).then((value) => (settled = value))
+    void retry.bound!(never(), 'gave up', 2).then((value) => (settled = value))
 
     await vi.advanceTimersByTimeAsync(19_999)
     expect(settled).toBeUndefined()

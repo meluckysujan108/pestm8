@@ -56,6 +56,24 @@ describe('sampleReach', () => {
     expect(run(flapping, 14_000).stuck).toBe(true)
   })
 
+  it('says which wait it is stuck on: the socket first, then a save, then a query', () => {
+    const at = (overrides: Partial<ReachSample>) =>
+      sampleReach(
+        { visibleSince: 0, socketDownSince: 0, lastAt: 59_000 },
+        { ...healthy, now: 60_000, ...overrides },
+      ).why
+    expect(at({})).toBeNull()
+    expect(at({ oldestPendingQueryAt: 0 })).toBe('query')
+    expect(at({ oldestPendingQueryAt: 0, oldestRequestAt: 0 })).toBe('save')
+    expect(
+      at({
+        oldestPendingQueryAt: 0,
+        oldestRequestAt: 0,
+        socketConnected: false,
+      }),
+    ).toBe('socket')
+  })
+
   it('is not stuck as soon as the socket is back', () => {
     const { state } = run(() => ({ socketConnected: false }), 20_000)
     expect(sampleReach(state, { ...healthy, now: 21_000 }).stuck).toBe(false)
@@ -123,7 +141,7 @@ describe('sampleReach', () => {
     const { state } = run(() => ({ socketConnected: false }), 20_000)
     expect(
       sampleReach(state, { ...healthy, now: 21_000, visible: false }),
-    ).toEqual({ state: REACH_START, stuck: false })
+    ).toEqual({ state: REACH_START, stuck: false, why: null })
   })
 })
 

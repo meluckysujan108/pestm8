@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from 'convex/server'
 import { v } from 'convex/values'
 import { clientStatus } from './lib/clientRecord'
+import { connectionEntry } from './lib/diagnostics'
 
 /**
  * In the Recycle bin (convex/lib/bin.ts): what a client, property, job or
@@ -2687,4 +2688,30 @@ export default defineSchema({
     .index('by_client', ['clientId'])
     // The reconciler: rows overdue anywhere, whose drain must have died.
     .index('by_dueAt', ['dueAt']),
+
+  /**
+   * What a phone's connection to PestM8 was doing, as the phone noted it
+   * (src/lib/connectionLog.ts) and sent over HTTP (convex/diagnostics.ts).
+   * On 25 Oct 2026 the server could say only that it had answered everything
+   * quickly; why a phone had hung, only the phone knew. One row per report,
+   * up to 100 notes each: times and states, never anything anyone typed.
+   * `userId` is the Better Auth user's id, a string (that table lives in the
+   * component). Kept 30 days (`diagnostics.prune`). New table, so nothing to
+   * migrate.
+   */
+  clientDiagnostics: defineTable({
+    userId: v.string(),
+    /** A random name the browser keeps for itself, to tell one phone's
+     * notes from the same person's laptop. */
+    device: v.string(),
+    /** The build that made the notes (src/lib/appVersion.ts). */
+    app: v.string(),
+    /** The Home Screen app, rather than a browser tab. */
+    standalone: v.boolean(),
+    /** The browser's own description of itself. */
+    agent: v.string(),
+    entries: v.array(connectionEntry),
+  })
+    // A person's reports, newest first; and the throttle.
+    .index('by_userId', ['userId']),
 })
