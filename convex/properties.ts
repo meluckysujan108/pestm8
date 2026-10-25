@@ -15,10 +15,19 @@ import type { MutationCtx, QueryCtx } from './_generated/server'
 import { requireActor } from './lib/actor'
 import { unbinned } from './lib/bin'
 import { ensureClientInXero, markClientForXero } from './lib/xeroHooks'
+import {
+  checkClientRequestId,
+  clientRequestIdArg,
+  noteRepeat,
+  propertyMadeBy,
+} from './lib/clientRequest'
 
 /** Embeds the owning client alongside a property — the detail-view shape
  * (mirrors how `jobs.get` embeds `assignee`/`property` wholesale). */
-export async function withClient<T extends Doc<'properties'>>(ctx: QueryCtx, property: T) {
+export async function withClient<T extends Doc<'properties'>>(
+  ctx: QueryCtx,
+  property: T,
+) {
   const client = await ctx.db.get(property.clientId)
   return { ...property, client }
 }
@@ -166,12 +175,17 @@ const propertyAddressObject = v.object(propertyAddressFields)
  * site added from the client sheet and one added while booking are the same
  * record. Queues the client for Xero: a person's address there is their
  * oldest live site, and this may be their first.
+ *
+ * `requestId` is the phone's id for the save that made it
+ * (lib/clientRequest.ts): given by `create` and `createForClient`, never for
+ * a site made while booking, which the job's or series' own id covers.
  */
 async function insertPropertyForClient(
   ctx: MutationCtx,
   businessId: Id<'businesses'>,
   clientId: Id<'clients'>,
   input: Infer<typeof propertyAddressObject>,
+  requestId?: string,
 ): Promise<Id<'properties'>> {
   const siteContactName = siteContactField(input.siteContactName)
   // The number the job card's Call dials for this site, so one that can never
@@ -192,6 +206,7 @@ async function insertPropertyForClient(
       addressCheckedAt: now,
     }),
     createdAt: now,
+    ...(requestId !== undefined && { clientRequestId: requestId }),
   })
   await markClientForXero(ctx, clientId)
   return propertyId
@@ -210,6 +225,15 @@ async function requireClientOf(
   return client
 }
 
+/** What `noteRepeat` compares of a site sent again. */
+const SITE_FIELDS = [
+  'clientId',
+  'addressLine',
+  'suburb',
+  'state',
+  'postcode',
+] as const
+
 /** Adds another property to an existing client — the client detail sheet's
  * "add another property" action, distinct from `create` which makes a new
  * client and its first property together in one step. */
@@ -218,11 +242,32 @@ export const createForClient = mutation({
     businessId: v.id('businesses'),
     clientId: v.id('clients'),
     ...propertyAddressFields,
+    clientRequestId: clientRequestIdArg,
   },
-  handler: async (ctx, { businessId, clientId, ...input }) => {
+  handler: async (
+    ctx,
+    { businessId, clientId, clientRequestId: rawRequestId, ...input },
+  ) => {
+    const requestId = checkClientRequestId(rawRequestId)
     await requireMembership(ctx, businessId)
+    if (requestId !== undefined) {
+      // Before the client is checked: a save repeated because its answer was
+      // lost gets its site back, even if the client was binned since.
+      const made = await propertyMadeBy(ctx, businessId, requestId)
+      if (made) {
+        if (made.row) {
+          noteRepeat(
+            'properties',
+            made.row,
+            { clientId, ...input },
+            SITE_FIELDS,
+          )
+        }
+        return made.id
+      }
+    }
     await requireClientOf(ctx, businessId, clientId)
-    return insertPropertyForClient(ctx, businessId, clientId, input)
+    return insertPropertyForClient(ctx, businessId, clientId, input, requestId)
   },
 })
 
@@ -272,6 +317,7 @@ async function insertClientAndProperty(
   ctx: MutationCtx,
   businessId: Id<'businesses'>,
   input: NewClient,
+  requestId?: string,
 ): Promise<Id<'properties'>> {
   const kind = input.kind ?? 'person'
   const isBusiness = kind === 'business'
@@ -310,17 +356,23 @@ async function insertClientAndProperty(
     })
   }
   // A person client has no site contact: the client IS who is on site.
-  const propertyId = await insertPropertyForClient(ctx, businessId, clientId, {
-    addressLine: input.addressLine,
-    suburb: input.suburb,
-    state: input.state,
-    postcode: input.postcode,
-    addressCheck: input.addressCheck,
-    ...(isBusiness && {
-      siteContactName: input.siteContactName,
-      siteContactPhone: input.siteContactPhone,
-    }),
-  })
+  const propertyId = await insertPropertyForClient(
+    ctx,
+    businessId,
+    clientId,
+    {
+      addressLine: input.addressLine,
+      suburb: input.suburb,
+      state: input.state,
+      postcode: input.postcode,
+      addressCheck: input.addressCheck,
+      ...(isBusiness && {
+        siteContactName: input.siteContactName,
+        siteContactPhone: input.siteContactPhone,
+      }),
+    },
+    requestId,
+  )
   // Every new client, however it was made — `properties.create`, or booked
   // straight from New Job (`resolvePropertyId`). A lead is queued too: the
   // sync holds it back until its first job is booked, so it need not be
@@ -403,10 +455,25 @@ export const create = mutation({
   args: {
     businessId: v.id('businesses'),
     ...newClientFields.fields,
+    // On the site it makes, which is what this returns (lib/clientRequest.ts).
+    clientRequestId: clientRequestIdArg,
   },
-  handler: async (ctx, { businessId, ...input }) => {
+  handler: async (
+    ctx,
+    { businessId, clientRequestId: rawRequestId, ...input },
+  ) => {
+    const requestId = checkClientRequestId(rawRequestId)
     await requireMembership(ctx, businessId)
-    return insertClientAndProperty(ctx, businessId, input)
+    if (requestId !== undefined) {
+      // Before the details are checked: a save repeated because its answer
+      // was lost gets its site back, and numbers no second client.
+      const made = await propertyMadeBy(ctx, businessId, requestId)
+      if (made) {
+        if (made.row) noteRepeat('properties', made.row, input, SITE_FIELDS)
+        return made.id
+      }
+    }
+    return insertClientAndProperty(ctx, businessId, input, requestId)
   },
 })
 

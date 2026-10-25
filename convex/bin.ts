@@ -15,6 +15,7 @@ import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { WriteEnvelope } from './lib/actor'
 import { dropAlsoGoing } from './lib/jobPeople'
+import { keepWipedRequest } from './lib/clientRequest'
 import {
   countXeroLinksOf,
   dropXeroLinksForClient,
@@ -57,7 +58,10 @@ import {
  * are the exception, as they are everywhere in this app (reports.ts
  * `purgeReport`): a file's id is not proof it belongs to this job alone, and
  * deleting one a signed certificate also holds cannot be undone. A note's
- * pictures, which the notes feature owns outright, go with the note.
+ * pictures, which the notes feature owns outright, go with the note. One more
+ * thing stays: for a job, Recurring Job or site that a phone's request id
+ * made, that id and the gone record's id (`wipedClientRequests`), so a phone
+ * sending the save again is answered that it was made, not given a new one.
  */
 
 /**
@@ -942,6 +946,7 @@ export const wipeStep = internalMutation({
           await dropJobPhotoFile(ctx, photo)
         }
         await dropAlsoGoing(ctx, job._id)
+        await keepWipedRequest(ctx, job, { kind: 'job', id: job._id })
         await ctx.db.delete('jobs', job._id)
       }
       return again()
@@ -952,7 +957,10 @@ export const wipeStep = internalMutation({
       .withIndex('by_binEntryId', (q) => q.eq('binEntryId', entryId))
       .take(ROW_BATCH)
     if (series.length > 0) {
-      for (const row of series) await ctx.db.delete('recurrences', row._id)
+      for (const row of series) {
+        await keepWipedRequest(ctx, row, { kind: 'series', id: row._id })
+        await ctx.db.delete('recurrences', row._id)
+      }
       return again()
     }
 
@@ -963,7 +971,10 @@ export const wipeStep = internalMutation({
     if (properties.length > 0) {
       // xero: exempt — its client was queued when it went into the bin, and
       // a site in the bin is already no one's address there
-      for (const row of properties) await ctx.db.delete('properties', row._id)
+      for (const row of properties) {
+        await keepWipedRequest(ctx, row, { kind: 'site', id: row._id })
+        await ctx.db.delete('properties', row._id)
+      }
       return again()
     }
 

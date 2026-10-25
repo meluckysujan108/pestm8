@@ -25,6 +25,13 @@ const binFields = {
   binEntryId: v.optional(v.id('binEntries')),
 }
 
+/** Every row of `wipedClientRequests`, whichever kind of record it was. */
+const wipedRequestFields = {
+  businessId: v.id('businesses'),
+  clientRequestId: v.string(),
+  wipedAt: v.number(),
+}
+
 /**
  * `contractor` is new: a member who has a team of subcontractors, sees their
  * own jobs, dispatches to their team, and can be given read-write access to
@@ -786,10 +793,19 @@ export default defineSchema({
      * what it keeps, but a site brought in by a list is still not one
      * "added recently" by hand (src/lib/propertyOptions.ts). */
     importedFrom: v.optional(v.id('clientImports')),
+    /** The id the phone gave the save that made this site
+     * (convex/lib/clientRequest.ts), so a save sent again finds it instead
+     * of making a second. Only on a site made by `properties.create` or
+     * `createForClient`; one made while booking is covered by the job's. */
+    clientRequestId: v.optional(v.string()),
     ...binFields,
   })
     .index('by_business', ['businessId'])
     .index('by_client', ['clientId'])
+    .index('by_businessId_and_clientRequestId', [
+      'businessId',
+      'clientRequestId',
+    ])
     // Restore and wipe find a Recycle bin group by its entry (convex/bin.ts).
     .index('by_binEntryId', ['binEntryId'])
     // An import asks "is this site already here?" by postcode, then compares
@@ -966,9 +982,17 @@ export default defineSchema({
      * invoiced, since the invoice already carries it.
      */
     workOrder: v.optional(v.string()),
+    /** The id the phone gave the booking (convex/lib/clientRequest.ts): a
+     * booking sent again because its answer was lost finds this job by it
+     * instead of making a second. Never on a projected visit. */
+    clientRequestId: v.optional(v.string()),
     ...binFields,
   })
     .index('by_business_date', ['businessId', 'scheduledAt'])
+    .index('by_businessId_and_clientRequestId', [
+      'businessId',
+      'clientRequestId',
+    ])
     .index('by_assignee_date', ['assignedMembershipId', 'scheduledAt'])
     .index('by_property', ['propertyId'])
     .index('by_business_status', ['businessId', 'status'])
@@ -1070,9 +1094,16 @@ export default defineSchema({
     firstVisitNotes: v.optional(v.string()),
     /** Who typed `firstVisitNotes`: the note it becomes is theirs. */
     firstVisitNotesBy: v.optional(v.id('memberships')),
+    /** As `jobs.clientRequestId`, for a series booked from the phone. Its
+     * visits never carry it. */
+    clientRequestId: v.optional(v.string()),
     ...binFields,
   })
     .index('by_business', ['businessId'])
+    .index('by_businessId_and_clientRequestId', [
+      'businessId',
+      'clientRequestId',
+    ])
     // The Recurring Job view counts active series, not projected visits, so
     // it asks this question on every load for every business.
     .index('by_business_active', ['businessId', 'active'])
@@ -2315,6 +2346,42 @@ export default defineSchema({
     .index('by_businessId_and_deletedAt', ['businessId', 'deletedAt'])
     // The nightly purge: everything binned before the cut-off.
     .index('by_deletedAt', ['deletedAt']),
+
+  /**
+   * What a phone's request id made, once a wipe took it (Delete now, Empty
+   * bin, or 30 days on; convex/lib/clientRequest.ts). The record took its
+   * `clientRequestId` with it, so without this row a phone sending that save
+   * again would make it again, and `clientRequests.find` would answer that
+   * it was never made: a member's phone could undo the owner's delete for
+   * good, and book a new client into Xero twice.
+   *
+   * Written by `bin.wipeStep` in the transaction that deletes the record,
+   * only for one that carries an id. Holds a random id and the gone record's
+   * id, nothing of the client, so it is kept.
+   */
+  wipedClientRequests: defineTable(
+    v.union(
+      v.object({
+        ...wipedRequestFields,
+        kind: v.literal('job'),
+        id: v.id('jobs'),
+      }),
+      v.object({
+        ...wipedRequestFields,
+        kind: v.literal('series'),
+        id: v.id('recurrences'),
+      }),
+      v.object({
+        ...wipedRequestFields,
+        kind: v.literal('site'),
+        id: v.id('properties'),
+      }),
+    ),
+  ).index('by_businessId_and_kind_and_clientRequestId', [
+    'businessId',
+    'kind',
+    'clientRequestId',
+  ]),
 
   /**
    * One Xero sign-in's tokens (convex/xeroTokens.ts). SERVER ONLY: no public
