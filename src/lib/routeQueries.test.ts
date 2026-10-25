@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { browserOnly, keptOutOfHtml, rq } from './routeQueries'
+import {
+  browserOnly,
+  joinWindowStart,
+  keptOutOfHtml,
+  loaderWaitMs,
+  rq,
+  settleInBrowser,
+} from './routeQueries'
 import type { Id } from '../../convex/_generated/dataModel'
 
 /**
@@ -13,6 +20,7 @@ const membershipId = 'm1' as Id<'memberships'>
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 
 describe('keptOutOfHtml', () => {
@@ -45,5 +53,82 @@ describe('browserOnly', () => {
     vi.stubGlobal('window', {})
     const query = rq.memberLicences(businessId, membershipId)
     expect(browserOnly(query)).toEqual([query])
+  })
+})
+
+describe('the join notices’ window', () => {
+  test('starts a fortnight back, at a UTC midnight', () => {
+    expect(joinWindowStart(Date.UTC(2026, 9, 25, 23, 59))).toBe(
+      Date.UTC(2026, 9, 11),
+    )
+    // 8am in Perth: the window moves on mid-morning.
+    expect(joinWindowStart(Date.UTC(2026, 9, 26))).toBe(Date.UTC(2026, 9, 12))
+  })
+
+  test('asks with the window it is given', () => {
+    expect(rq.teamJoins(businessId, 123).queryKey).toEqual([
+      'convexQuery',
+      'teamJoins:recent',
+      { businessId, since: 123 },
+    ])
+  })
+
+  test('or with the current one', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.UTC(2026, 9, 25, 3))
+    expect(rq.teamJoins(businessId).queryKey).toEqual(
+      rq.teamJoins(businessId, Date.UTC(2026, 9, 11)).queryKey,
+    )
+  })
+})
+
+/** Whether `promise` has settled once `ms` of fake time has passed. */
+async function settledAfter(promise: Promise<void>, ms: number) {
+  let settled = false
+  void promise.then(() => {
+    settled = true
+  })
+  await vi.advanceTimersByTimeAsync(ms)
+  return settled
+}
+
+describe('settleInBrowser', () => {
+  const never = () => new Promise<void>(() => {})
+  const after = (ms: number) =>
+    new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+  test('waits to the end on the server', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('window', undefined)
+    const wait = settleInBrowser(100, after(20_000))
+    expect(await settledAfter(wait, 19_999)).toBe(false)
+    expect(await settledAfter(wait, 1)).toBe(true)
+  })
+
+  test('gives up after `ms` in the browser', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('window', {})
+    const wait = settleInBrowser(100, never())
+    expect(await settledAfter(wait, 99)).toBe(false)
+    expect(await settledAfter(wait, 1)).toBe(true)
+  })
+
+  test('and is done as soon as the work is', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('window', {})
+    const wait = settleInBrowser(8_000, after(50))
+    expect(await settledAfter(wait, 50)).toBe(true)
+  })
+})
+
+describe('loaderWaitMs', () => {
+  test('no wait at all when the phone says it has no signal', () => {
+    vi.stubGlobal('navigator', { onLine: false })
+    expect(loaderWaitMs()).toBe(0)
+  })
+
+  test('a while otherwise: “online” can be one bar', () => {
+    vi.stubGlobal('navigator', { onLine: true })
+    expect(loaderWaitMs()).toBe(8_000)
   })
 })

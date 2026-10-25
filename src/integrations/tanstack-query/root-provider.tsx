@@ -2,6 +2,8 @@ import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query'
 import { ConvexQueryClient } from '@convex-dev/react-query'
 import { authClient } from '#/lib/auth-client'
 import { HandoverConvexClient } from '#/lib/convexClient'
+import { KEPT_FNS } from '#/lib/offline/keptSet'
+import { watchLineDown } from '#/lib/offline/useLineDown'
 import { browserRefreshRetry } from '#/lib/tokenRefresh'
 import { flagIfTwoStepNeeded, watchForTwoStepRefusals } from '#/lib/twoStep'
 
@@ -143,11 +145,38 @@ export function getContext() {
     queryClient.setQueryDefaults(['convexQuery', name], { gcTime: Infinity })
   }
 
+  // The queries this phone keeps a copy of (lib/offline/keptSet.ts) are
+  // asked even when the phone says it has no signal. React-query's default
+  // holds a fetch back, before its query function runs, from the moment the
+  // browser fires `offline` until it fires `online`, and the kept copy can
+  // only answer from inside the query function: a day opened after the
+  // signal went would never be asked for. 'offlineFirst' calls it once and
+  // holds back only the retries. Where nothing answers from the phone, the
+  // call waits on the Convex socket instead, as the held fetch waited on
+  // react-query, and ConnectionNotice counts it as waiting either way. Every
+  // other query keeps the default.
+  for (const name of KEPT_FNS) {
+    const key = ['convexQuery', name]
+    queryClient.setQueryDefaults(key, {
+      // Merged with the pin above: a second default for the same key would
+      // replace it.
+      ...queryClient.getQueryDefaults(key),
+      networkMode: 'offlineFirst',
+    })
+  }
+
   // Pushed refusals (see the top of this file). Only on the client: the
   // server renders a request at a time and has nobody to prompt.
   if (typeof window !== 'undefined') watchForTwoStepRefusals(queryClient)
 
   convexQueryClient.connect(queryClient)
+
+  // Whether the line is down, for the words above a save that waits for it
+  // (lib/offline/useLineDown.ts). From now, so a socket that dies before New
+  // Job opens has had its time counted by then. A page to watch from only.
+  if (typeof document !== 'undefined') {
+    watchLineDown(convexQueryClient.convexClient)
+  }
 
   return { queryClient, convexQueryClient }
 }

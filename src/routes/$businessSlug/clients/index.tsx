@@ -46,8 +46,10 @@ import { isMfaEnrolmentError } from '#/lib/twoStep'
 import {
   CLIENTS_PAGE,
   clientsFirstPage,
+  loaderWaitMs,
   rq,
   searchParam,
+  settleInBrowser,
   warm,
 } from '#/lib/routeQueries'
 import { HEADER_ADD_BUTTON } from '#/components/primitives/buttons'
@@ -72,14 +74,20 @@ export const Route = createFileRoute('/$businessSlug/clients/')({
   // search or A–Z (see the page). Read from the address here rather than
   // through `loaderDeps`: that would make every search a new match, and a
   // new match gets the route's placeholder — the search box with it, mid-word.
+  // In the browser it waits only so long (`loaderWaitMs`).
   loader: ({ context: { queryClient, business }, location }) => {
     const everyClient =
       (searchParam(location, 'q') ?? '').trim() !== '' ||
       searchParam(location, 'sort') === 'az'
-    return warm(
-      queryClient,
-      rq.clientOverview(business._id),
-      everyClient ? rq.directory(business._id) : clientsFirstPage(business._id),
+    return settleInBrowser(
+      loaderWaitMs(),
+      warm(
+        queryClient,
+        rq.clientOverview(business._id),
+        everyClient
+          ? rq.directory(business._id)
+          : clientsFirstPage(business._id),
+      ),
     )
   },
   component: ClientsPage,

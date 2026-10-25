@@ -16,9 +16,13 @@ import { LINK_BUTTON_COMPACT } from '#/components/primitives/buttons'
  */
 export function TeamJoinedNotices({
   businessId,
+  since,
   onGiveJob,
 }: {
   businessId: Id<'businesses'>
+  /** Since when a join counts as lately: the schedule loader's `joinSince`,
+   * so the page's first render asks what its HTML was rendered with. */
+  since: number
   /** New Job, starting out for this person. The notice goes once the job
    * is booked (`dismissJoined`), not when the sheet opens. */
   onGiveJob: (membershipId: Id<'memberships'>) => void
@@ -26,13 +30,14 @@ export function TeamJoinedNotices({
   const hydrated = useHydrated()
   const canManage = useCan('business.manage')
   // Warmed by the schedule's loader, so it is there with the day.
-  // The window moves on at a UTC midnight — mid-morning in Australia — and
-  // what was showing stays up while the new question is answered.
+  // The window moves on at a UTC midnight — mid-morning in Australia — the
+  // next time the loader runs, and what was showing stays up while the new
+  // question is answered.
   // 'skip' rather than `enabled`: a disabled query still holds its Convex
   // subscription.
   const { data: joined } = useQuery({
     ...(canManage
-      ? rq.teamJoins(businessId)
+      ? rq.teamJoins(businessId, since)
       : convexQuery(api.teamJoins.recent, 'skip')),
     placeholderData: keepPreviousData,
   })

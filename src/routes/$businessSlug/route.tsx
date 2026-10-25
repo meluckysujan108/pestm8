@@ -11,9 +11,11 @@ import { api } from '../../../convex/_generated/api'
 import { AppShell } from '#/components/shell/AppShell'
 import { SwitchBanner } from '#/components/shell/SwitchBanner'
 import { AccessProvider } from '#/lib/access'
+import { notAMemberOf } from '#/lib/offline/keptStore'
 import { signedInToken, signedOutAfterAll } from '#/lib/rootState'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { rq, warm } from '#/lib/routeQueries'
+import type { FunctionReturnType } from 'convex/server'
 
 export const Route = createFileRoute('/$businessSlug')({
   beforeLoad: async ({ context, params, location }) => {
@@ -67,13 +69,25 @@ export const Route = createFileRoute('/$businessSlug')({
       // or someone else on that phone, may not belong in this business.
       // The front door finds the business they do belong in.
       if (await signedOutAfterAll()) throw redirect({ to: '/login' })
-      business = await businessOverHttp(
+      const overHttp = await businessOverHttp(
         context.convexQueryClient.convexClient.url,
         params.businessSlug,
-      ).catch((error: unknown) =>
-        isMfaEnrolmentError(error) ? enrol(error) : null,
-      )
-      if (!business) throw notFound()
+      ).catch(enrol)
+      business = overHttp.business
+      if (!business) {
+        // The server itself answered that this person is not a member (any
+        // more): over HTTP just now, or, on the server, in the lookup above,
+        // which went out with the request's own token. So whatever this
+        // phone kept of the business goes, wiped by the root's "Not found"
+        // once it is on screen: the browser doesn't run this guard again for
+        // a page the server rendered. Never on a lookup that could not be
+        // asked or that failed: a phone with no signal is not someone
+        // removed.
+        const asked = typeof window === 'undefined' || overHttp.asked
+        throw notFound(
+          asked ? { data: notAMemberOf(params.businessSlug) } : undefined,
+        )
+      }
       // So the next tap reads it rather than doubting the same null again.
       // The socket's own answer replaces it once it has one.
       context.queryClient.setQueryData(bySlug.queryKey, business)
@@ -152,14 +166,32 @@ function BusinessLayout() {
  * `businesses.getBySlug` asked over plain HTTP, with the token of the server's
  * last "who is signed in" answer — which `signedOutAfterAll` has just
  * refreshed, unless it asked a moment ago. The socket plays no part, so an
- * answer it gave as nobody cannot come back this way. Null when there is no
- * such token to ask with: on the server, whose lookup already went out with
- * the request's own.
+ * answer it gave as nobody cannot come back this way.
+ *
+ * `asked` says whether the server answered at all. Not when there is no such
+ * token to ask with (on the server, whose lookup already went out with the
+ * request's own), and not when the request failed: no signal, or a server
+ * error. A null then says nothing about membership. Only a refusal to set up
+ * two-step sign-in is thrown, for the guard to send them there.
  */
-async function businessOverHttp(convexUrl: string, slug: string) {
+async function businessOverHttp(
+  convexUrl: string,
+  slug: string,
+): Promise<{
+  asked: boolean
+  business: FunctionReturnType<typeof api.businesses.getBySlug>
+}> {
   const token = signedInToken()
-  if (!token) return null
-  const client = new ConvexHttpClient(convexUrl)
-  client.setAuth(token)
-  return client.query(api.businesses.getBySlug, { slug })
+  if (!token) return { asked: false, business: null }
+  try {
+    const client = new ConvexHttpClient(convexUrl)
+    client.setAuth(token)
+    return {
+      asked: true,
+      business: await client.query(api.businesses.getBySlug, { slug }),
+    }
+  } catch (error) {
+    if (isMfaEnrolmentError(error)) throw error
+    return { asked: false, business: null }
+  }
 }

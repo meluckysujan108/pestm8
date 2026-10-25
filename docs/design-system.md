@@ -570,8 +570,17 @@ A signature is drawn on a screen of its own and kept as the pen's strokes (`lib/
 | Owner only                   | `EmptyState` titled "Owners only" and a body saying who can change it                                                                                                                                                                               |
 | A page failed to load        | `ErrorScreen`, via the route's error boundary                                                                                                                                                                                                       |
 | A query failed inside a page | `LoadFailed` where its placeholder was, with `onRetry` set to the query's `refetch`. A suspending query throws to the route's `ErrorScreen` instead                                                                                                 |
-| Offline                      | Show what is kept on the phone and say so ("No signal — showing the copy kept on this phone."). An edit that needs signal says "Editing needs signal."                                                                                              |
+| Offline                      | Show what is kept on the phone and say so ("No signal — showing the copy kept on this phone."). An edit that needs signal says "Editing needs signal." A save that waits for signal says so above its button (below).                               |
 | Can’t reach PestM8           | Nothing to build: `ConnectionNotice` says so for the whole app once a wait has gone on, in a sheet as well as on the page, and goes when PestM8 answers. A placeholder stays a placeholder; a query refused by the server says so with `LoadFailed` |
+
+**Waiting for signal.** A save the Convex client holds until the line is back, rather than failing at once (Book job, Save client, Add property; Saving, rule 6), keeps its button and its words. While the line is down (`useLineDown`, `lib/offline/useLineDown.ts`: the phone has no network, or the socket to PestM8 has been down for 8 s on screen), a `text-caption text-ink-2` line just above the button says what will happen, in that sheet's words, and describes the button:
+
+- "No signal — the booking goes when you have signal. Keep PestM8 open until then."
+- "Could not reach PestM8 — the booking goes once it can. Keep PestM8 open until then."
+
+Switching business with the line down goes only to a business the phone already holds enough of to open. Any other is refused, with an amber line under the list (`role="alert" text-caption text-amber-ink`): "Switching business needs signal."
+
+Settings → Sign out and the business switcher ask `confirmLeave` first (`lib/offline/leaveGuard.ts`), so anything kept on the phone that leaving would lose can ask the person before it goes. The other ways to sign out (the two-step screen, the join and start pages, set-up's and the no-business screen's) don't ask yet. A new way to sign out or switch from inside a business asks it too.
 
 ### What only the device knows
 
@@ -592,7 +601,7 @@ The server can't know which phone this is, so anything decided by the device (th
    - The report builder and the template editor save automatically (`useAutosave`) and show the state in their own bar.
    - A switch or a colour saves the moment it changes.
 5. **No toasts.** The app has none. Say it where the eye already is: the button, the row, the sheet closing. A copy button says "Copied" with a tick for two seconds.
-6. **A save that reaches someone else, or can't be undone, never waits for signal.** An email, a lock, an invitation link, a delete for good: its `mutationFn` checks `isOffline()` first and throws `Error('offline')`, and its copy map's `offline` words say so at once ("Could not send: this device is offline. Nothing was sent — try again when you have signal."). Otherwise it says "Sending…" until the signal comes back, then goes through after the person has given up. An autosave, or a save that only keeps the person's own work, may wait. `ARCHITECTURE.md` §5.5 lists which do which.
+6. **A save that reaches someone else, or can't be undone, never waits for signal.** An email, a lock, an invitation link, a delete for good: its `mutationFn` checks `isOffline()` first and throws `Error('offline')`, and its copy map's `offline` words say so at once ("Could not send: this device is offline. Nothing was sent — try again when you have signal."). Otherwise it says "Sending…" until the signal comes back, then goes through after the person has given up. An autosave, or a save that only keeps the person's own work, may wait, and a create that waits says so above its button while the line is down (States). `ARCHITECTURE.md` §5.5 lists which do which.
 
 ### Destructive actions
 

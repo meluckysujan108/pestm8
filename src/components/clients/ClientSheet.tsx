@@ -44,6 +44,8 @@ import { Segmented } from '#/components/primitives/Segmented'
 import { loadLocalities } from '#/lib/addressVerify'
 import { todayKey } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
+import { useLineDown } from '#/lib/offline/useLineDown'
+import type { LineDown } from '#/lib/offline/useLineDown'
 import { SheetPending } from '#/components/shell/Pending'
 import { abnDigits, formatAbn } from '../../../convex/lib/abn'
 import {
@@ -1886,6 +1888,18 @@ function PropertyEditForm({
   )
 }
 
+/**
+ * Above Add property while the line is down (lib/offline/useLineDown.ts):
+ * the save isn't refused, it waits in the Convex client until the line is
+ * back, for as long as the app stays open.
+ */
+const PROPERTY_SAVE_WAITS: Record<LineDown, string> = {
+  'no-signal':
+    'No signal — the property is saved when you have signal. Keep PestM8 open until then.',
+  unreachable:
+    'Could not reach PestM8 — it’s saved once it can. Keep PestM8 open until then.',
+}
+
 function NewPropertyForClientForm({
   businessId,
   businessState,
@@ -1911,6 +1925,8 @@ function NewPropertyForClientForm({
   })
   const [addressCheck, setAddressCheck] = useState<AddressCheck>('typed')
   const hydrated = useHydrated()
+  const lineDown = useLineDown()
+  const lineDownId = useId()
   const warnings = useSaveWarnings()
   const [opened] = useState(value)
   useSheetLock(
@@ -1967,6 +1983,11 @@ function NewPropertyForClientForm({
         />
         <FormAlert error={create.isError ? create.error : null} />
         <SaveWarningsPanel />
+        {lineDown && (
+          <p id={lineDownId} className="text-caption text-ink-2">
+            {PROPERTY_SAVE_WAITS[lineDown]}
+          </p>
+        )}
         <div className="flex gap-2">
           <button
             type="button"
@@ -1978,6 +1999,7 @@ function NewPropertyForClientForm({
           <button
             type="submit"
             disabled={create.isPending || !hydrated}
+            aria-describedby={lineDown ? lineDownId : undefined}
             className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
           >
             {create.isPending ? 'Adding…' : warnings.saveLabel('Add property')}

@@ -24,8 +24,10 @@ import {
   JOBS_PAGE,
   jobsFirstPage,
   jobsPageArgs,
+  loaderWaitMs,
   rq,
   searchParam,
+  settleInBrowser,
   warm,
 } from '#/lib/routeQueries'
 import {
@@ -59,24 +61,31 @@ export const Route = createFileRoute('/$businessSlug/job/')({
   // `loaderDeps` on the status: that would make every pick in the filter a
   // new match, and a new match is the route's placeholder rather than the
   // list being filtered — with the filter itself gone from under the thumb.
-  loader: async ({ context: { queryClient, business }, location }) => {
+  // In the browser it waits only so long (`loaderWaitMs`).
+  loader: ({ context: { queryClient, business }, location }) => {
     const status = parseJobListStatus(searchParam(location, 'status'))
-    // Which list that is follows the view (`access.me`), which the layout's
-    // `beforeLoad` has always asked for already: this reads it back.
-    const access = await queryClient
-      .ensureQueryData(rq.access(business._id))
-      .catch(() => undefined)
-    const source = jobListSource(listsEverythingOf(access))
-    return warm(
-      queryClient,
-      ...(source === 'paged'
-        ? [
-            jobsFirstPage(business._id, status),
-            rq.jobCounts(business._id, status),
-          ]
-        : source === 'bounded'
-          ? [rq.jobsList(business._id, status)]
-          : [rq.jobsList(business._id)]),
+    return settleInBrowser(
+      loaderWaitMs(),
+      (async () => {
+        // Which list that is follows the view (`access.me`), which the
+        // layout's `beforeLoad` has always asked for already: this reads it
+        // back.
+        const access = await queryClient
+          .ensureQueryData(rq.access(business._id))
+          .catch(() => undefined)
+        const source = jobListSource(listsEverythingOf(access))
+        await warm(
+          queryClient,
+          ...(source === 'paged'
+            ? [
+                jobsFirstPage(business._id, status),
+                rq.jobCounts(business._id, status),
+              ]
+            : source === 'bounded'
+              ? [rq.jobsList(business._id, status)]
+              : [rq.jobsList(business._id)]),
+        )
+      })(),
     )
   },
   component: JobListPage,

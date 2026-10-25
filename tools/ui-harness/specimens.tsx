@@ -15,6 +15,7 @@ import { RecurringServices } from '#/components/schedule/RecurringServices'
 import { useBusinessDay } from '#/lib/useBusinessDay'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import { NewJobSheet } from '#/components/schedule/NewJobSheet'
+import { BusinessSwitcher } from '#/components/shell/BusinessSwitcher'
 import { JobTimeFields, useJobTimes } from '#/components/schedule/JobTimeFields'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { RecycleBinList } from '#/components/settings/RecycleBin'
@@ -249,6 +250,50 @@ function NewJob() {
         />
       </AccessProvider>
     </Phone>
+  )
+}
+
+/**
+ * The phone saying it has no network, as `isOffline()` reads it
+ * (lib/online.ts), from before anything inside renders. One specimen to a
+ * page load, so it never reaches another.
+ */
+function NoSignal({ children }: { children: ReactNode }) {
+  useState(() =>
+    Object.defineProperty(navigator, 'onLine', {
+      configurable: true,
+      get: () => false,
+    }),
+  )
+  return children
+}
+
+/** New Job with no signal: the caption above Book job says the booking
+ * goes when there is signal. */
+function NewJobNoSignal() {
+  return (
+    <NoSignal>
+      <NewJob />
+    </NoSignal>
+  )
+}
+
+/** The sidebar's business switcher with no signal, after a tap on a
+ * business this phone holds nothing of. */
+function BusinessSwitchNoSignal() {
+  return (
+    <NoSignal>
+      <Phone>
+        <AccessProvider businessId={bizId}>
+          <div className="w-64 p-2">
+            <BusinessSwitcher
+              current={{ _id: bizId, name: 'Swan River Pest Co', slug: 'demo' }}
+              membership={{ role: 'owner', colour: '#0A84FF' }}
+            />
+          </div>
+        </AccessProvider>
+      </Phone>
+    </NoSignal>
   )
 }
 
@@ -1973,6 +2018,8 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   jobcards: JobCards,
   jobdetail: JobDetail,
   newjob: NewJob,
+  'newjob-no-signal': NewJobNoSignal,
+  'business-switch-no-signal': BusinessSwitchNoSignal,
   jobtimes: JobTimes,
   'jobdetail-services': JobDetailServices,
   'jobdetail-contact': JobDetailContact,

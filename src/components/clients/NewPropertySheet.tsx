@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { useRouteContext } from '@tanstack/react-router'
@@ -25,7 +25,21 @@ import {
 import type { NewClientArgs, NewClientFieldsValue } from './NewClientFields'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
+import { useLineDown } from '#/lib/offline/useLineDown'
+import type { LineDown } from '#/lib/offline/useLineDown'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+
+/**
+ * Above Save client while the line is down (lib/offline/useLineDown.ts):
+ * the save isn't refused, it waits in the Convex client until the line is
+ * back, for as long as the app stays open.
+ */
+const SAVE_WAITS: Record<LineDown, string> = {
+  'no-signal':
+    'No signal — the client is saved when you have signal. Keep PestM8 open until then.',
+  unreachable:
+    'Could not reach PestM8 — it’s saved once it can. Keep PestM8 open until then.',
+}
 
 /**
  * Creates a client and its first property together in one step — a client
@@ -59,6 +73,8 @@ export function NewPropertySheet({
   const latestValue = useLatest(value)
 
   const hydrated = useHydrated()
+  const lineDown = useLineDown()
+  const lineDownId = useId()
   // The address, email and phone checks at Save: what may be wrong is listed
   // above the button, and a second press saves it as it is.
   const saveWarnings = useSaveWarnings()
@@ -120,15 +136,23 @@ export function NewPropertySheet({
           />
           <SaveWarningsPanel className="mt-3" />
 
-          <button
-            type="submit"
-            disabled={create.isPending || !hydrated}
-            className={`${PRIMARY_BUTTON} mt-5 w-full`}
-          >
-            {create.isPending
-              ? 'Saving…'
-              : saveWarnings.saveLabel('Save client')}
-          </button>
+          <div className="mt-5">
+            {lineDown && (
+              <p id={lineDownId} className="mb-2 text-caption text-ink-2">
+                {SAVE_WAITS[lineDown]}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={create.isPending || !hydrated}
+              aria-describedby={lineDown ? lineDownId : undefined}
+              className={`${PRIMARY_BUTTON} w-full`}
+            >
+              {create.isPending
+                ? 'Saving…'
+                : saveWarnings.saveLabel('Save client')}
+            </button>
+          </div>
         </form>
       </SaveWarningsProvider>
     </SheetShell>

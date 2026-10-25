@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useRouteContext } from '@tanstack/react-router'
@@ -46,6 +46,8 @@ import type {
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { IntervalUnit } from '../../../convex/lib/recurrence'
 import { useHydrated } from '#/lib/useHydrated'
+import { useLineDown } from '#/lib/offline/useLineDown'
+import type { LineDown } from '#/lib/offline/useLineDown'
 import { clientOptions, propertyOptions } from '#/lib/propertyOptions'
 import { sitesWithClients } from '#/lib/directory'
 import { rq } from '#/lib/routeQueries'
@@ -89,6 +91,19 @@ const BOOKING_ERROR_COPY: ErrorCopy = {
   TOO_MANY_PEOPLE: `Could not book this job: a job can have up to ${MAX_ALSO_GOING} people also going. Take someone off and try again.`,
   NOTES_TOO_LONG: `Could not book this job: the note is longer than ${MAX_JOB_NOTES_LENGTH} characters. Shorten it and try again.`,
   default: 'Could not book this job. Check your signal and try again.',
+}
+
+/**
+ * Above Book job while the line is down (lib/offline/useLineDown.ts). The
+ * booking isn't refused: the Convex client holds it until the line is back,
+ * then sends it, for as long as the app stays open. So it says that, rather
+ * than leave "Booking…" looking like a hang.
+ */
+const BOOKING_WAITS: Record<LineDown, string> = {
+  'no-signal':
+    'No signal — the booking goes when you have signal. Keep PestM8 open until then.',
+  unreachable:
+    'Could not reach PestM8 — the booking goes once it can. Keep PestM8 open until then.',
 }
 
 /**
@@ -365,6 +380,8 @@ function NewJobForm({
   }, [assignees, assignee, preferred])
 
   const hydrated = useHydrated()
+  const lineDown = useLineDown()
+  const lineDownId = useId()
   // The new client's or new site's address, email and phone, checked at Book:
   // what may be wrong is listed above the button, and a second press books it
   // as it is. An existing property has nothing to check.
@@ -918,16 +935,24 @@ function NewJobForm({
         />
         <SaveWarningsPanel className="mt-3" anywayLabel="Book anyway" />
 
-        <button
-          type="submit"
-          onClick={(e) => {
-            if (clientNeeded()) e.preventDefault()
-          }}
-          disabled={create.isPending || !hydrated || intervalIncomplete}
-          className={`${PRIMARY_BUTTON} mt-5 w-full`}
-        >
-          {bookLabel}
-        </button>
+        <div className="mt-5">
+          {lineDown && (
+            <p id={lineDownId} className="mb-2 text-caption text-ink-2">
+              {BOOKING_WAITS[lineDown]}
+            </p>
+          )}
+          <button
+            type="submit"
+            onClick={(e) => {
+              if (clientNeeded()) e.preventDefault()
+            }}
+            disabled={create.isPending || !hydrated || intervalIncomplete}
+            aria-describedby={lineDown ? lineDownId : undefined}
+            className={`${PRIMARY_BUTTON} w-full`}
+          >
+            {bookLabel}
+          </button>
+        </div>
       </form>
     </SaveWarningsProvider>
   )
