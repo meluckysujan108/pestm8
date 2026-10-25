@@ -357,6 +357,7 @@ export const overdueRecurringCount = query({
   },
 })
 
+// Kept on phones: a renamed or removed field means bumping KEPT_SHAPE.
 export const listDay = query({
   args: {
     businessId: v.id('businesses'),
@@ -747,6 +748,8 @@ export const recurringSummary = query({
  * projections away before the days are built — the rows are the same, and
  * so is the cost. No wall clock: which days have arrived is the caller's
  * question, asked against its own "today".
+ *
+ * Kept on phones: a renamed or removed field means bumping KEPT_SHAPE.
  */
 export const listWeek = query({
   args: { businessId: v.id('businesses'), startKey: v.string() },

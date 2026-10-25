@@ -296,7 +296,7 @@ export const clientsFirstPage = (businessId: B) =>
  * satisfy, so the call below is made through this shape instead. Nothing here
  * reads the data — it only warms the cache — so the data type is not needed.
  */
-type Warmable = { queryKey: ReadonlyArray<unknown> }
+export type Warmable = { queryKey: ReadonlyArray<unknown> }
 
 /**
  * The queries whose answers must never be written into a page's HTML: a

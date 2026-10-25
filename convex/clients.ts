@@ -98,6 +98,8 @@ const DIRECTORY_LIMIT = 8000
  * arrays are oldest first (`by_business`), as `properties.list` was: the
  * import matches the older of two same-named clients, and New report picks
  * the first site. Scoped as `properties.list` is.
+ *
+ * Kept on phones: a renamed or removed field means bumping KEPT_SHAPE.
  */
 export const directory = query({
   args: { businessId: v.id('businesses') },

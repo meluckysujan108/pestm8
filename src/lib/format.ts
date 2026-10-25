@@ -62,6 +62,27 @@ export function formatWhen(ts: number, timezone: string): string {
 }
 
 /**
+ * "9:42am", or "Sun 25 Oct, 9:42am" when it was another day: when what is on
+ * screen was last known to be right (the copy kept on the phone, the
+ * can't-reach notice), in the tenant's time zone.
+ *
+ * `thisDayKey` is today in the tenant's zone, passed in rather than read off
+ * the clock as `formatWhen` does: a page draws this from its loader's today,
+ * so the server render and the hydration render agree.
+ */
+export function formatUpdated(
+  ts: number,
+  timezone: string,
+  thisDayKey: string,
+): string {
+  const day = dayKeyOf(ts, timezone)
+  const time = formatTime(ts, timezone)
+  return day === thisDayKey
+    ? time
+    : `${formatJobDate(day, thisDayKey)}, ${time}`
+}
+
+/**
  * "9:30am – 10:15am · 45 min", or "11:00pm – Sat 1:00am · 2 hr" when the job
  * runs past midnight, in the tenant's time zone. An end exactly at midnight
  * still belongs to the day it ends, so it reads "12:00am" with no weekday.

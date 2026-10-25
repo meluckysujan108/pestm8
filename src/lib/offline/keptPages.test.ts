@@ -4,6 +4,7 @@ import { isOffline } from '#/lib/online'
 import { signedInUserId } from '#/lib/rootState'
 import {
   keepStartPage,
+  keepStartPageIfMissing,
   pagesToPurge,
   pagesToRefresh,
   purgeOtherBusinessPages,
@@ -410,6 +411,36 @@ describe('keepStartPage', () => {
     expect([...(storage.named.get(PAGES_CACHE)?.entries.keys() ?? [])]).toEqual(
       [],
     )
+  })
+})
+
+describe('keepStartPageIfMissing', () => {
+  test('fetches nothing when the marker names this business and its start page is a page', async () => {
+    await kept('/acme/schedule')
+    await markHome('/acme/schedule')
+
+    expect(await keepStartPageIfMissing('acme')).toBe(false)
+    expect(fetched).toEqual([])
+  })
+
+  test('keeps it when the marker is missing, names another business, or its page is only a redirect', async () => {
+    answers.set('/acme/schedule', () => page('schedule'))
+    expect(await keepStartPageIfMissing('acme')).toBe(true)
+    expect(await storage.text(PAGES_CACHE, HOME_MARKER)).toBe('/acme/schedule')
+
+    await markHome('/other/schedule')
+    expect(await keepStartPageIfMissing('acme')).toBe(true)
+    expect(await storage.text(PAGES_CACHE, HOME_MARKER)).toBe('/acme/schedule')
+
+    await (
+      await storage.open(PAGES_CACHE)
+    ).put('/acme/schedule', opaqueRedirect())
+    expect(await keepStartPageIfMissing('acme')).toBe(true)
+    expect(fetched.map(({ url }) => url)).toEqual([
+      '/acme/schedule',
+      '/acme/schedule',
+      '/acme/schedule',
+    ])
   })
 })
 

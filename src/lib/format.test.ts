@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest'
-import { formatJobDate, formatTimeRange, formatWhen } from './format'
+import {
+  formatJobDate,
+  formatTimeRange,
+  formatUpdated,
+  formatWhen,
+} from './format'
 
 const PERTH = 'Australia/Perth'
 const SYDNEY = 'Australia/Sydney'
@@ -68,5 +73,26 @@ describe('the moment something happened', () => {
   test('crosses midnight with the zone', () => {
     const late = at('2020-09-01T23:30:00', '+08:00')
     expect(formatWhen(late, SYDNEY)).toBe('Wed 2 Sept 2020, 1:30am')
+  })
+})
+
+describe('when what is on screen was last known right', () => {
+  test('the time alone on the day given as today', () => {
+    const at942 = at('2026-10-25T09:42', '+08:00')
+    expect(formatUpdated(at942, PERTH, '2026-10-25')).toBe('9:42am')
+  })
+
+  test('the day as well when it was another, from the day given, not the clock', () => {
+    const at942 = at('2026-10-25T09:42', '+08:00')
+    expect(formatUpdated(at942, PERTH, '2026-10-26')).toBe('Sun 25 Oct, 9:42am')
+    expect(formatUpdated(at942, PERTH, '2027-01-04')).toBe(
+      'Sun 25 Oct 2026, 9:42am',
+    )
+  })
+
+  test('in the business’s zone: late in Perth is the next day in Sydney', () => {
+    const late = at('2026-10-25T23:30', '+08:00')
+    expect(formatUpdated(late, PERTH, '2026-10-25')).toBe('11:30pm')
+    expect(formatUpdated(late, SYDNEY, '2026-10-25')).toBe('Mon 26 Oct, 2:30am')
   })
 })

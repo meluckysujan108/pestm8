@@ -160,11 +160,23 @@ export type WatchedSocket = {
  */
 export class WatchedSockets {
   current: WatchedSocket | null = null
+  /**
+   * When the server last sent anything down any of them, or null before it
+   * ever has: the last time this page load heard from PestM8 itself. Only
+   * the server's own messages count, not a socket opening, nor a wait for a
+   * sign-in token ending (which `readLine` in convexClient.ts counts as
+   * hearing, for judging a line): the kept copy says how old what is on
+   * screen is from this (lib/offline/keeper.ts).
+   */
+  lastMessageAt: number | null = null
 
   /** A WebSocket class for Convex's `webSocketConstructor` option. */
   wrap(Base: typeof WebSocket): typeof WebSocket {
     const adopt = (socket: WatchedSocket) => {
       this.current = socket
+    }
+    const heard = () => {
+      this.lastMessageAt = Date.now()
     }
     return class Watched extends Base {
       private readonly createdAt = Date.now()
@@ -183,6 +195,8 @@ export class WatchedSockets {
         this.addEventListener('message', () => {
           this.heardAt = Date.now()
           this.askedAt = null
+          // A socket given up is no longer read by the Convex client.
+          if (!this.givenUp) heard()
         })
         this.addEventListener('close', (event) => {
           logConnection('ws-close', {

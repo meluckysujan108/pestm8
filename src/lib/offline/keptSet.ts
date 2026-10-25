@@ -1,11 +1,30 @@
+import { addDaysToKey, startOfWeekKey } from '../../../convex/lib/dates'
+import { keptOutOfHtml, rq } from '#/lib/routeQueries'
+import { KEPT_FNS, KEPT_SHAPE } from './keptShape'
+import type { QueryKey } from '@tanstack/react-query'
+import type { Access } from '#/lib/access'
+import type { Warmable } from '#/lib/routeQueries'
+import type { Id } from '../../../convex/_generated/dataModel'
+import type { KeptFn } from './keptShape'
+import type { KeptOwner, KeptRow } from './keptStore'
+
 /**
  * What this phone keeps a copy of, for opening the schedule and New Job with
- * no signal, and the switches that govern it.
+ * no signal, and the rules for when a kept answer may be used: pure, so the
+ * keeper (keeper.ts) and its tests make the same decisions.
  *
- * Only the constants the clearing code needs so far. keptStore.ts imports
- * them, and through it rootState.ts and the root route, so nothing added here
- * may import either of those.
+ * keptStore.ts imports the constants, and through it rootState.ts and the
+ * root route, so nothing here may import either of those. Its one value
+ * import beyond the date helpers is routeQueries.ts, for the keys, which
+ * every loader already depends on and which imports neither.
+ *
+ * Which functions are kept, and the shape number, live in keptShape.ts, which
+ * imports nothing, so the server's test of that shape can read them; they are
+ * passed on from here.
  */
+
+export { KEPT_FNS, KEPT_SHAPE } from './keptShape'
+export type { KeptFn } from './keptShape'
 
 /**
  * The kill switch. False: nothing is read from the phone, nothing is served
@@ -18,28 +37,196 @@
 export const KEPT_ENABLED = true as boolean
 
 /**
- * Bumped whenever a kept query's answer changes shape (a field renamed or
- * removed), so a copy written by an older build is never read as this one's.
- */
-export const KEPT_SHAPE = 1
-
-/**
  * How long the page load's read of the kept copy may take before it is given
  * up on. Off the critical path either way: the read starts at module load.
  */
 export const PEEK_TIMEOUT_MS = 3_000
 
-/**
- * The Convex functions whose answers are kept: the schedule's days and
- * weeks, and what New Job is made of. Nothing `keptOutOfHtml` names, and
- * nothing that is already in every page's HTML.
- */
-export const KEPT_FNS = [
-  'jobs:listDay',
-  'jobs:listWeek',
-  'clients:directory',
-  'memberships:listForBusiness',
-  'jobTypes:list',
-] as const
+/** A kept answer older than this is never shown: three weeks. */
+export const KEPT_MAX_AGE_MS = 21 * 86_400_000
 
-export type KeptFn = (typeof KEPT_FNS)[number]
+/**
+ * How much later than a page's own answer a kept one must have been
+ * confirmed to replace it after hydration: the phone's clock and the
+ * server's can disagree by this much.
+ */
+export const KEPT_UPGRADE_MARGIN_MS = 2 * 60_000
+
+/**
+ * On a line that is working, how long the server is given to answer before
+ * the phone's copy is shown instead, so a page with signal rarely swaps what
+ * it shows.
+ */
+export const KEPT_GRACE_MS = 600
+
+/** How long after a change to a kept answer it is written to the phone… */
+export const KEPT_WRITE_DELAY_MS = 1_500
+/** …and for the client directory, the largest of them. */
+export const KEPT_DIRECTORY_DELAY_MS = 5_000
+/** An answer that keeps changing is written at most this long after the first. */
+export const KEPT_WRITE_MAX_DELAY_MS = 10_000
+/** How often the phone notes that every kept answer is still live. */
+export const KEPT_STAMP_MS = 30_000
+/** How often the keeper asks again for what has gone, and checks the week. */
+export const KEPT_TICK_MS = 60_000
+
+/** The days and weeks kept: this week and next, Monday to Sunday. */
+export type KeptWindow = {
+  weekStarts: readonly [string, string]
+  dayKeys: ReadonlyArray<string>
+}
+
+/**
+ * The fortnight kept for `todayKey` (a day in the business's time zone):
+ * the Monday-based week it falls in, and the one after, as the week strip
+ * and `listWeek` count them.
+ */
+export function keptWindow(todayKey: string): KeptWindow {
+  const first = startOfWeekKey(todayKey)
+  return {
+    weekStarts: [first, addDaysToKey(first, 7)],
+    dayKeys: Array.from({ length: 14 }, (_, i) => addDaysToKey(first, i)),
+  }
+}
+
+/**
+ * Every query kept for a business over `w`: both weeks, all fourteen days,
+ * the directory, the team and the job types. Built from `rq`, so each key is
+ * the very one a loader warms and a page reads.
+ */
+export function keptQueries(
+  businessId: Id<'businesses'>,
+  w: KeptWindow,
+): Array<Warmable> {
+  return [
+    ...w.weekStarts.map((startKey) => rq.week(businessId, startKey)),
+    ...w.dayKeys.map((dayKey) => rq.day(businessId, dayKey)),
+    rq.directory(businessId),
+    rq.roster(businessId),
+    rq.jobTypes(businessId),
+  ]
+}
+
+const KEPT_NAMES: ReadonlySet<string> = new Set(KEPT_FNS)
+
+/** A Convex query key's arguments, or null for anything else ('skip'). */
+export function argsOf(queryKey: QueryKey): Record<string, unknown> | null {
+  if (queryKey[0] !== 'convexQuery') return null
+  const args = queryKey[2]
+  return typeof args === 'object' && args !== null && !Array.isArray(args)
+    ? (args as Record<string, unknown>)
+    : null
+}
+
+/** The business a Convex query key asks about, or null. */
+export function businessOf(queryKey: QueryKey): string | null {
+  const id = argsOf(queryKey)?.businessId
+  return typeof id === 'string' ? id : null
+}
+
+/**
+ * Which kept function a query key is for, or null: anything else, a skipped
+ * key, and anything kept out of the HTML, which is never kept here either.
+ */
+export function keptFnOf(queryKey: QueryKey): KeptFn | null {
+  if (argsOf(queryKey) === null || keptOutOfHtml(queryKey)) return null
+  const name = queryKey[1]
+  return typeof name === 'string' && KEPT_NAMES.has(name)
+    ? (name as KeptFn)
+    : null
+}
+
+/** Whether a key's day or week is in `w`. True for anything not by date. */
+export function inWindow(queryKey: QueryKey, w: KeptWindow): boolean {
+  const args = argsOf(queryKey)
+  switch (keptFnOf(queryKey)) {
+    case 'jobs:listDay':
+      return typeof args?.dayKey === 'string' && w.dayKeys.includes(args.dayKey)
+    case 'jobs:listWeek':
+      return (
+        typeof args?.startKey === 'string' &&
+        w.weekStarts.includes(args.startKey)
+      )
+    default:
+      return true
+  }
+}
+
+/**
+ * Whose view of the business a kept answer is: the person's own membership
+ * and, for an owner, which of his views. Null while they work in someone
+ * else's account or look at it as them, when nothing is written and nothing
+ * is served: a phone never holds another member's clients.
+ */
+export function lensOf(a: Access | undefined): string | null {
+  if (!a) return null
+  if (a.actingAs !== null || a.viewingAs !== null) return null
+  if (a.view?.mode === 'account') return null
+  return `${a.membershipId}|${a.view?.mode ?? '-'}`
+}
+
+/** Whether `data` has the shape `fn` answers with: a list, or the directory. */
+export function shapeOk(fn: KeptFn, data: unknown): boolean {
+  if (fn !== 'clients:directory') return Array.isArray(data)
+  if (typeof data !== 'object' || data === null) return false
+  const { clients, sites } = data as { clients?: unknown; sites?: unknown }
+  return Array.isArray(clients) && Array.isArray(sites)
+}
+
+/** Where and when a kept row is being considered for use. */
+export type KeptUse = {
+  owner: KeptOwner
+  userId: string
+  businessId: string
+  lens: string
+  window: KeptWindow
+  now: number
+}
+
+/**
+ * Whether a kept row may answer for its key now: this build's shape, kept
+ * for this person, this business and this view, in the window, under three
+ * weeks old, and shaped as its function answers. Anything else is skipped,
+ * and dropped at the next write.
+ */
+export function usableRow(row: KeptRow, at: KeptUse): boolean {
+  const { owner } = at
+  return (
+    row.shape === KEPT_SHAPE &&
+    owner.userId === at.userId &&
+    owner.businessId === at.businessId &&
+    owner.lens === at.lens &&
+    row.businessId === at.businessId &&
+    row.lens === at.lens &&
+    businessOf(row.queryKey) === at.businessId &&
+    keptFnOf(row.queryKey) === row.fn &&
+    inWindow(row.queryKey, at.window) &&
+    at.now - row.savedAt < KEPT_MAX_AGE_MS &&
+    shapeOk(row.fn, row.data)
+  )
+}
+
+/**
+ * When a kept row was last known to be right: when it was written, or the
+ * last time the server spoke while every kept answer was live, if later.
+ */
+export function rowAsOf(row: KeptRow, owner: KeptOwner): number {
+  return Math.max(row.savedAt, owner.liveAt)
+}
+
+/**
+ * Whether a page's answer should give way to the kept one after hydration:
+ * never a live answer, never for the same data, and only when the kept one
+ * was confirmed clearly later than the page's (KEPT_UPGRADE_MARGIN_MS).
+ */
+export function shouldUpgrade(
+  entry: { dataUpdatedAt: number; live: boolean },
+  asOf: number,
+  differs: boolean,
+): boolean {
+  return (
+    !entry.live &&
+    differs &&
+    asOf > entry.dataUpdatedAt + KEPT_UPGRADE_MARGIN_MS
+  )
+}

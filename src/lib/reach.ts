@@ -21,6 +21,8 @@ import { useSyncExternalStore } from 'react'
  *   socket that looks open but isn't answering: held for its token, or a
  *   connection a VPN dropped without either end hearing. Longer than the
  *   others, because a big list on one bar can take a while and still come.
+ *   An answer from the copy kept on the phone counts as nothing yet, until
+ *   the server has confirmed it on this line (`waitingOnScreen`).
  *
  * Clocks only run while the page is on screen, and start again when it comes
  * back: a phone waking from sleep has a dead socket for a moment, which is
@@ -123,10 +125,30 @@ export function oldestPending(
   return oldest
 }
 
+/**
+ * Everything on screen still waiting on the server, by hash, for
+ * `oldestPending`: queries asked for that have had no answer, and answers
+ * from the copy kept on the phone the server hasn't confirmed on this line
+ * (`keeper.keptWaiting`, lib/offline/keeper.ts). Without the second, a page
+ * drawn from the phone's copy over a socket that looks open but never
+ * answers would never be noticed. A query the copy answered while it waited
+ * is the same hash in both, so its wait goes on from when it began.
+ */
+export function waitingOnScreen(
+  pending: Iterable<string>,
+  keptWaiting: Iterable<string>,
+): Array<string> {
+  return [...new Set([...pending, ...keptWaiting])]
+}
+
 /** What the notice says and offers, while it is up. */
 export type ReachNoticeModel = {
   online: boolean
   waitingToSave: boolean
+  /** When what is on screen was last known right ("9:42am"), when the
+   * phone's copy says (`keeper.screenAsOf`); otherwise null, and the notice
+   * says it may be out of date. */
+  updated: string | null
   /** Try again, its "Trying…", Reload once trying hasn't helped, and the
    * second tap Reload asks for while a change is waiting to save. */
   action: 'try' | 'trying' | 'reload' | 'reload-confirm'

@@ -1,9 +1,9 @@
 import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query'
-import { ConvexQueryClient } from '@convex-dev/react-query'
 import { authClient } from '#/lib/auth-client'
 import { HandoverConvexClient } from '#/lib/convexClient'
+import { KeepingConvexQueryClient } from '#/lib/offline/KeepingConvexQueryClient'
+import { keeper } from '#/lib/offline/keeper'
 import { KEPT_FNS } from '#/lib/offline/keptSet'
-import { watchLineDown } from '#/lib/offline/useLineDown'
 import { browserRefreshRetry } from '#/lib/tokenRefresh'
 import { flagIfTwoStepNeeded, watchForTwoStepRefusals } from '#/lib/twoStep'
 
@@ -65,7 +65,10 @@ export function getContext() {
   // died while the phone was on a call is given up within seconds of the app
   // coming back, rather than after the minute the Convex client waits
   // (lib/socketWatch.ts).
-  const convexQueryClient = new ConvexQueryClient(
+  //
+  // The adapter is the keeper's subclass, which hears every answer the
+  // server pushes: what makes a kept answer live (lib/offline/keeper.ts).
+  const convexQueryClient = new KeepingConvexQueryClient(
     new HandoverConvexClient(convexUrl, {
       holdForSignIn: typeof window !== 'undefined',
       // A page to watch from: not the server, nor a test with a `window` and
@@ -90,7 +93,9 @@ export function getContext() {
     defaultOptions: {
       queries: {
         queryKeyHashFn: convexQueryClient.hashFn(),
-        queryFn: convexQueryClient.queryFn(),
+        // Answers what this phone keeps a copy of from the copy when the
+        // server is slower to: at once with no signal (keeper.ts).
+        queryFn: keeper.wrap(convexQueryClient.queryFn()),
         // A Convex query is live while react-query keeps it, and react-query
         // drops it five minutes after the last FETCH — a push does not restart
         // that clock. So a tab opened six minutes ago had lost its
@@ -171,11 +176,14 @@ export function getContext() {
 
   convexQueryClient.connect(queryClient)
 
-  // Whether the line is down, for the words above a save that waits for it
-  // (lib/offline/useLineDown.ts). From now, so a socket that dies before New
-  // Job opens has had its time counted by then. A page to watch from only.
-  if (typeof document !== 'undefined') {
-    watchLineDown(convexQueryClient.convexClient)
+  // The kept copy, and whether the line is down (lib/offline/keeper.ts):
+  // after `connect()`, since the adapter can't yet be told of an entry
+  // written into the cache before it (it would throw as one is removed),
+  // and before the router hydrates, so the keeper sees every entry the HTML
+  // brings. From now, so a socket that dies before New Job opens has had its
+  // time counted by then. A page to watch from only.
+  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    keeper.attach(queryClient, convexQueryClient.convexClient)
   }
 
   return { queryClient, convexQueryClient }

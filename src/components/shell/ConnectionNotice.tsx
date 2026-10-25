@@ -3,14 +3,17 @@ import { useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, RotateCcw, WifiOff, X } from 'lucide-react'
 import { logConnection } from '#/lib/connectionLog'
 import { reconnectNow } from '#/lib/convexClient'
+import { formatUpdated, todayKey } from '#/lib/format'
 import { useOnline } from '#/lib/online'
 import {
   REACH_START,
   oldestPending,
   publishReachNotice,
   sampleReach,
+  waitingOnScreen,
 } from '#/lib/reach'
 import type { ReachNoticeModel, ReachWhy } from '#/lib/reach'
+import type { Keeper } from '#/lib/offline/keeper'
 import type { ConvexReactClient } from 'convex/react'
 
 /** How often the app checks. */
@@ -42,6 +45,12 @@ const RELOAD_AFTER_TRY_MS = 8_000
  * person may be halfway through a report. With a change waiting to save,
  * Reload asks for a second tap, since the change goes with the page.
  *
+ * A page drawn from the copy kept on the phone (`kept`, the keeper in
+ * lib/offline/keeper.ts) counts as waiting until the server has confirmed
+ * it, and the notice says how old that copy is: "What’s on screen was last
+ * updated 9:42am." The root hands the keeper in, so the sheets that draw
+ * `ReachNotice` from here don't load it, and who is signed in, with it.
+ *
  * Each time it appears, why (`ReachWhy`), how long until it went, and every
  * Try again and Reload go into the phone's connection notes
  * (lib/connectionLog.ts).
@@ -52,8 +61,10 @@ const RELOAD_AFTER_TRY_MS = 8_000
  */
 export function ConnectionNotice({
   convexClient,
+  kept,
 }: {
   convexClient: ConvexReactClient
+  kept?: Pick<Keeper, 'keptWaiting' | 'screenAsOf' | 'timezone'>
 }) {
   const queryClient = useQueryClient()
   const online = useOnline()
@@ -63,6 +74,7 @@ export function ConnectionNotice({
   const [shownAt, setShownAt] = useState<number | null>(null)
   const [triedAt, setTriedAt] = useState<number | null>(null)
   const [reloadArmed, setReloadArmed] = useState(false)
+  const [updated, setUpdated] = useState<string | null>(null)
   const [now, setNow] = useState(0)
   const firstSeen = useRef(new Map<string, number>())
 
@@ -78,16 +90,19 @@ export function ConnectionNotice({
       const connection = convexClient.connectionState()
       savesWaitingSince =
         connection.inflightMutations > 0 ? (savesWaitingSince ?? at) : null
-      const pending = queryClient
-        .getQueryCache()
-        .getAll()
-        .filter(
-          (query) =>
-            query.queryKey[0] === 'convexQuery' &&
-            query.state.status === 'pending' &&
-            query.state.fetchStatus !== 'idle',
-        )
-        .map((query) => query.queryHash)
+      const pending = waitingOnScreen(
+        queryClient
+          .getQueryCache()
+          .getAll()
+          .filter(
+            (query) =>
+              query.queryKey[0] === 'convexQuery' &&
+              query.state.status === 'pending' &&
+              query.state.fetchStatus !== 'idle',
+          )
+          .map((query) => query.queryHash),
+        kept?.keptWaiting() ?? [],
+      )
       const next = sampleReach(state, {
         now: at,
         visible: document.visibilityState === 'visible',
@@ -117,6 +132,15 @@ export function ConnectionNotice({
       }
       setStuck(next.stuck)
       setWaitingToSave(connection.inflightMutations > 0)
+      // How old the oldest answer on screen is, once any is not live, in
+      // the business's time.
+      const asOf = kept?.screenAsOf() ?? null
+      const timezone = kept?.timezone() ?? null
+      setUpdated(
+        asOf !== null && timezone !== null
+          ? formatUpdated(asOf, timezone, todayKey(timezone))
+          : null,
+      )
       setNow(at)
     }
     // Hidden, everything starts again; shown, it looks at once rather than
@@ -131,7 +155,7 @@ export function ConnectionNotice({
       clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [convexClient, queryClient])
+  }, [convexClient, queryClient, kept])
 
   // Try again and Reload only make sense with signal, so their clock only
   // runs with it: back from a spell with none, it is Try again first.
@@ -175,9 +199,26 @@ export function ConnectionNotice({
   const model = useMemo<ReachNoticeModel | null>(
     () =>
       showing
-        ? { online, waitingToSave, action, onTry, onReload, onDismiss }
+        ? {
+            online,
+            waitingToSave,
+            updated,
+            action,
+            onTry,
+            onReload,
+            onDismiss,
+          }
         : null,
-    [showing, online, waitingToSave, action, onTry, onReload, onDismiss],
+    [
+      showing,
+      online,
+      waitingToSave,
+      updated,
+      action,
+      onTry,
+      onReload,
+      onDismiss,
+    ],
   )
   useEffect(() => {
     publishReachNotice(model)
@@ -208,6 +249,7 @@ export function ConnectionNotice({
 export function ReachNotice({
   online,
   waitingToSave,
+  updated,
   action,
   onTry,
   onReload,
@@ -215,6 +257,10 @@ export function ReachNotice({
   placement = 'banner',
 }: ReachNoticeModel & { placement?: 'banner' | 'sheet' }) {
   const banner = placement === 'banner'
+  const onScreen =
+    updated === null
+      ? 'What’s on screen may be out of date.'
+      : `What’s on screen was last updated ${updated}.`
   return (
     <div
       data-reach-notice={placement}
@@ -236,8 +282,8 @@ export function ReachNotice({
         </p>
         <p>
           {online
-            ? 'What’s on screen may be out of date. Check your signal or VPN — it keeps trying.'
-            : 'What’s on screen may be out of date. It carries on when you have signal.'}
+            ? `${onScreen} Check your signal or VPN — it keeps trying.`
+            : `${onScreen} It carries on when you have signal.`}
         </p>
         {waitingToSave && (
           <p>

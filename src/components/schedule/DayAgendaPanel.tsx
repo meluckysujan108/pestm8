@@ -42,6 +42,7 @@ export function DayAgendaPanel({
   onNewJob,
   businessSlug,
   recurringDue = 0,
+  recurringKept = false,
 }: {
   businessId: Id<'businesses'>
   state: string
@@ -61,6 +62,9 @@ export function DayAgendaPanel({
   businessSlug: string
   /** Projected visits on this day when it is still ahead (`listWeek`). */
   recurringDue?: number
+  /** The day has arrived, but its list is a copy the phone kept from before
+   * it had: `recurringDue` are its visits, which the list doesn't have. */
+  recurringKept?: boolean
 }) {
   const mode = useViewMode()
   const acting = useActing()
@@ -133,7 +137,11 @@ export function DayAgendaPanel({
         />
       </div>
 
-      <RecurringDueNote count={recurringDue} businessSlug={businessSlug} />
+      <RecurringDueNote
+        count={recurringDue}
+        businessSlug={businessSlug}
+        kept={recurringKept}
+      />
 
       <ScheduleFilterBar
         jobs={jobs}

@@ -479,6 +479,23 @@ export function wipeKept(why: string): Promise<void> {
   return backend.wipe().catch(() => undefined)
 }
 
+/**
+ * Where the copy lives this page load (IndexedDB, or a test's), for the
+ * keeper's claims, writes and stamps (keeper.ts). Every one of those names
+ * its epoch and person, so a wipe still wins against any in flight.
+ */
+export function currentKeptBackend(): KeptBackend {
+  return backend
+}
+
+/**
+ * How many times the copy has been wiped this page load, so the keeper can
+ * tell a write or claim that a wipe overtook from one that landed.
+ */
+export function keptWipeCount(): number {
+  return wipes
+}
+
 /** Called the moment anything wipes the copy. Returns the way to stop. */
 export function onKeptWiped(listener: () => void): () => void {
   listeners.add(listener)

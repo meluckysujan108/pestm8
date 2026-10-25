@@ -7,6 +7,10 @@ import {
 import { isOffline } from '#/lib/online'
 import { getContext } from './root-provider'
 
+// The kept copy's keeper reads who is signed in (lib/rootState.ts), whose
+// server function needs a deployment's address to load at all.
+vi.mock('#/lib/initialState', () => ({ getInitialState: vi.fn() }))
+
 /**
  * A save shaped like the licence pages': it asks the phone first, and says
  * "offline" rather than wait on a socket that is not there.

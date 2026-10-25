@@ -35,9 +35,13 @@ import {
  * put into it reaches nobody. Opening it again after the fetch would make a
  * new 'pages' instead, with the last person's page in it.
  *
- * Only `refreshKeptPages` is called so far (from ServiceWorker.tsx). Until
- * something calls `keepStartPage` there is no HOME_MARKER, so a refresh
- * fetches only `/`; the worker's 14 days of older files cover the rest.
+ * `refreshKeptPages` is called from ServiceWorker.tsx; the others from the
+ * keeper (keeper.ts) as it claims the copy with signal: the purge and
+ * `keepStartPageIfMissing` before IndexedDB is asked, the first time a page
+ * load claims for a business, and `keepStartPage` once a claim finds the
+ * copy was another business's, nobody's or another view's. Until one has
+ * run there is no HOME_MARKER, so a refresh fetches only `/`; the worker's
+ * 14 days of older files cover the rest.
  *
  * Everything here is best-effort and never throws: without it, pages are
  * still kept the way they always were.
@@ -271,6 +275,32 @@ export async function keepStartPage(slug: string): Promise<void> {
   } catch {
     // Best-effort, as above.
   }
+}
+
+/**
+ * `keepStartPage`, unless HOME_MARKER already names this business and its
+ * start page is here as a page: for the keeper's first claim for a business,
+ * made before IndexedDB answers, which may fail or never come. Resolves true
+ * when it went on to keep it, so the caller needn't again.
+ */
+export async function keepStartPageIfMissing(slug: string): Promise<boolean> {
+  try {
+    if (typeof caches !== 'undefined' && (await caches.has(PAGES_CACHE))) {
+      const cache = await caches.open(PAGES_CACHE)
+      const kept = await cache.match(startPageOf(slug), { ignoreVary: true })
+      if (
+        slugOfHome(await markedHome(cache)) === slug &&
+        kept &&
+        opensAsPage(kept)
+      ) {
+        return false
+      }
+    }
+  } catch {
+    // Best-effort, as above: keeping it again does no harm.
+  }
+  await keepStartPage(slug)
+  return true
 }
 
 /**

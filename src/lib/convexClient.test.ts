@@ -848,11 +848,22 @@ function browserPage() {
   }
 }
 
+/** A server that, while `hushed`, says nothing on the sockets it accepts. */
+class HushedSocket extends ServerSocket {
+  static hushed = false
+
+  constructor(url: string) {
+    super(url)
+    if (HushedSocket.hushed) this.goQuiet()
+  }
+}
+
 describe('HandoverConvexClient, watching the line (lib/socketWatch.ts)', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
     ServerSocket.expired.clear()
+    HushedSocket.hushed = false
   })
 
   /** The app's client as root-provider.tsx builds it in a browser. */
@@ -1036,6 +1047,58 @@ describe('HandoverConvexClient, watching the line (lib/socketWatch.ts)', () => {
     await vi.waitFor(() => expect(answered.yes).toBe(true))
   })
 
+  it('lineState says when the server last spoke, never when a wait for a token ended', async () => {
+    browserPage()
+    const client = watched({ holdForSignIn: true })
+    subscribe(client)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(client.lineState()).toEqual({
+      pausedForSignIn: true,
+      lastServerMessageAt: null,
+    })
+
+    // The token lands on a line that has died: the wait is over, and the
+    // server has still said nothing.
+    serverSocket().goQuiet()
+    await vi.advanceTimersByTimeAsync(5_000)
+    client.setAuth(async () => 'token-1')
+    await vi.advanceTimersByTimeAsync(10)
+    expect(sentKinds()).toEqual(['Connect', 'Authenticate', 'ModifyQuerySet'])
+    expect(client.lineState()).toEqual({
+      pausedForSignIn: false,
+      lastServerMessageAt: null,
+    })
+  })
+
+  it('lineState keeps the old line’s last word until a new line speaks', async () => {
+    browserPage()
+    const client = new HandoverConvexClient(URL, {
+      webSocketConstructor: HushedSocket as unknown as typeof WebSocket,
+      unsavedChangesWarning: false,
+      watchSocket: true,
+      refreshRetry: betterAuth().retry,
+    })
+    clients.push(client)
+    watch(client)
+    await signedIn(client)
+    const spoke = client.lineState().lastServerMessageAt
+    expect(spoke).not.toBeNull()
+
+    await vi.advanceTimersByTimeAsync(5_000)
+    HushedSocket.hushed = true
+    reconnectNow(client)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(RecordingSocket.open).toHaveLength(2)
+    // Opened, asked, and not a word back: still the old line's last.
+    expect(client.lineState().lastServerMessageAt).toBe(spoke)
+
+    HushedSocket.hushed = false
+    reconnectNow(client)
+    await vi.waitFor(() =>
+      expect(client.lineState().lastServerMessageAt).toBeGreaterThan(spoke!),
+    )
+  })
+
   it('coming back with a token about to run out fetches the next early, and the client takes it', async () => {
     const page = browserPage()
     const client = watched()
@@ -1058,5 +1121,20 @@ describe('HandoverConvexClient, watching the line (lib/socketWatch.ts)', () => {
     serverSocket().rejectToken()
     await vi.waitFor(() => expect(everyIdentity().at(-1)).toBe(EARLY))
     expect(script.forced()).toBe(2)
+  })
+})
+
+describe('HandoverConvexClient, unwatched', () => {
+  it('lineState knows no message time where the line is not watched', async () => {
+    // The server render, and tests: no watched sockets, so nothing to say.
+    const client = connectToServer(betterAuth().retry)
+    signIn(client, tokens(LOADED, [RENEWED]).fetchToken)
+    await vi.waitFor(() =>
+      expect(socket().identities()).toEqual([LOADED, RENEWED]),
+    )
+    expect((client as HandoverConvexClient).lineState()).toEqual({
+      pausedForSignIn: false,
+      lastServerMessageAt: null,
+    })
   })
 })
