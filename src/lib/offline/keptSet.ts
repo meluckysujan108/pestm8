@@ -154,16 +154,45 @@ export function inWindow(queryKey: QueryKey, w: KeptWindow): boolean {
 }
 
 /**
- * Whose view of the business a kept answer is: the person's own membership
- * and, for an owner, which of his views. Null while they work in someone
- * else's account or look at it as them, when nothing is written and nothing
- * is served: a phone never holds another member's clients.
+ * Whose view of the business a kept answer is: the person's own membership,
+ * for an owner which of his views, and what the membership may see (its
+ * role, whether its lists show the whole business, and the capabilities
+ * granted). Null while they work in someone else's account or look at it as
+ * them, when nothing is written and nothing is served: a phone never holds
+ * another member's clients.
+ *
+ * What the membership may see is part of it so that narrowing it (a member
+ * made a subcontractor, or moved off seeing every job) makes what the phone
+ * kept under the wider view another view's: it is not served again, and the
+ * next claim with signal writes the narrower one in its place. Without it,
+ * a phone that was offline when the owner narrowed the member went on
+ * showing the wider copy until a session with signal wrote over it.
  */
 export function lensOf(a: Access | undefined): string | null {
   if (!a) return null
   if (a.actingAs !== null || a.viewingAs !== null) return null
   if (a.view?.mode === 'account') return null
-  return `${a.membershipId}|${a.view?.mode ?? '-'}`
+  const lists =
+    a.listsEverything === undefined ? '-' : a.listsEverything ? 'all' : 'own'
+  return `${a.membershipId}|${a.view?.mode ?? '-'}|${a.role}|${lists}|${capsDigest(a.caps)}`
+}
+
+/**
+ * A short, stable name for the capabilities granted: the same set always
+ * gives the same name, in any order (FNV-1a over the sorted names).
+ */
+function capsDigest(caps: Access['caps']): string {
+  const granted = Object.entries(caps)
+    .filter(([, on]) => on)
+    .map(([name]) => name)
+    .sort()
+    .join(',')
+  let hash = 0x811c9dc5
+  for (let i = 0; i < granted.length; i++) {
+    hash ^= granted.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(36)
 }
 
 /** Whether `data` has the shape `fn` answers with: a list, or the directory. */

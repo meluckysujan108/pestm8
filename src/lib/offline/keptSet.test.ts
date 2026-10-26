@@ -124,6 +124,13 @@ describe('inWindow', () => {
   })
 })
 
+/** Capabilities with just `granted` on. */
+function caps(...granted: Array<string>): Access['caps'] {
+  return Object.fromEntries(
+    granted.map((name) => [name, true]),
+  ) as unknown as Access['caps']
+}
+
 /** What access:me answers, with `extra` over a member in their own account. */
 function access(extra: Partial<Access> = {}): Access {
   return {
@@ -142,10 +149,50 @@ describe('lensOf', () => {
   const other = { membershipId: 'm2' as Id<'memberships'>, name: 'Sam' }
 
   test('a member in their own account, and an owner by his view', () => {
-    expect(lensOf(access())).toBe('m1|-')
-    expect(lensOf(access({ view: null }))).toBe('m1|-')
-    expect(lensOf(access({ view: { mode: 'everyone' } }))).toBe('m1|everyone')
-    expect(lensOf(access({ view: { mode: 'mine' } }))).toBe('m1|mine')
+    expect(lensOf(access())).toMatch(/^m1\|-\|owner\|-\|/)
+    expect(lensOf(access({ view: null }))).toBe(lensOf(access()))
+    expect(lensOf(access({ view: { mode: 'everyone' } }))).toMatch(
+      /^m1\|everyone\|/,
+    )
+    expect(lensOf(access({ view: { mode: 'mine' } }))).toMatch(/^m1\|mine\|/)
+  })
+
+  test('another view once what the member may see changes, so the wider copy is never served', () => {
+    const was = lensOf(
+      access({ listsEverything: true, caps: caps('jobs.dispatch') }),
+    )
+    expect(
+      lensOf(access({ listsEverything: false, caps: caps('jobs.dispatch') })),
+    ).not.toBe(was)
+    expect(
+      lensOf(
+        access({
+          role: 'subcontractor',
+          listsEverything: true,
+          caps: caps('jobs.dispatch'),
+        }),
+      ),
+    ).not.toBe(was)
+    expect(lensOf(access({ listsEverything: true, caps: caps() }))).not.toBe(
+      was,
+    )
+  })
+
+  test('the same whatever order the capabilities come in, and only the granted ones count', () => {
+    const one = {
+      'jobs.dispatch': true,
+      'clients.manage': true,
+      'team.manage': false,
+    } as unknown as Access['caps']
+    const reordered = {
+      'team.manage': false,
+      'clients.manage': true,
+      'jobs.dispatch': true,
+      'business.manage': false,
+    } as unknown as Access['caps']
+    expect(lensOf(access({ caps: one }))).toBe(
+      lensOf(access({ caps: reordered })),
+    )
   })
 
   test('nobody while working in or looking at someone else’s account', () => {
