@@ -48,6 +48,15 @@ export type Access = {
    * before paging, and the Job tab reads its old list.
    */
   listsEverything?: boolean
+  /**
+   * When this person was last removed from the business, if they ever were
+   * (and have since been invited back, or this would not answer): a rejoin
+   * makes the same membership active again, so this is all that tells a
+   * booking the phone kept in their earlier stint from one of this
+   * (lib/outbox/sender.ts). Optional for the same reason as `view`: absent
+   * reads as never removed, and nothing is told apart.
+   */
+  lastRemovedAt?: number | null
 }
 
 /** God view, just my jobs, or working in someone else's account. */

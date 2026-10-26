@@ -13,12 +13,15 @@ import {
   publishReachNotice,
   reloadClockSince,
   sampleReach,
+  savesWaiting,
+  savesWaitingSince,
   useDrawsNotice,
   useNoticeDrawn,
   waitingOnScreen,
 } from '#/lib/reach'
 import type { ReachNoticeModel, ReachWhy } from '#/lib/reach'
 import type { Keeper } from '#/lib/offline/keeper'
+import type { Sender } from '#/lib/outbox/sender'
 import type { ConvexReactClient } from 'convex/react'
 
 /** How often the app checks. */
@@ -66,6 +69,13 @@ const RELOAD_AFTER_TRY_MS = 8_000
  * kept note held it back, and every Try again and Reload go into the phone's
  * connection notes (lib/connectionLog.ts).
  *
+ * A booking kept on the phone and not sent yet (lib/outbox/) is not a change
+ * waiting to save: the outbox's own calls are left out of that
+ * (`savesWaiting`), since a reload loses none of them. The root hands the
+ * sender in (`outbox`), as it does the keeper; with none, nothing is left
+ * out. The model carries how many such bookings there are for the business
+ * on screen, for the line that will say so.
+ *
  * Screen readers hear it through a live region that is always there, with one
  * short line when it appears and when Reload is offered. The notice itself
  * is not the region, so its buttons are not read out each time they change.
@@ -73,9 +83,11 @@ const RELOAD_AFTER_TRY_MS = 8_000
 export function ConnectionNotice({
   convexClient,
   kept,
+  outbox,
 }: {
   convexClient: ConvexReactClient
   kept?: Pick<Keeper, 'keptWaiting' | 'screenAsOf' | 'timezone'>
+  outbox?: Pick<Sender, 'inflight' | 'notice'>
 }) {
   const queryClient = useQueryClient()
   const online = useOnline()
@@ -86,21 +98,26 @@ export function ConnectionNotice({
   const [triedAt, setTriedAt] = useState<number | null>(null)
   const [reloadArmed, setReloadArmed] = useState(false)
   const [updated, setUpdated] = useState<string | null>(null)
+  const [unsent, setUnsent] = useState(0)
+  const [unsentHeld, setUnsentHeld] = useState<'switched' | null>(null)
   const [now, setNow] = useState(0)
   const firstSeen = useRef(new Map<string, number>())
 
   useEffect(() => {
     let state = REACH_START
     // When saves were first seen waiting, for when an action is in flight
-    // too (see below).
-    let savesWaitingSince: number | null = null
+    // too (see below). Never the outbox's own calls (`savesWaiting`).
+    let waitingSince: number | null = null
     // The wait the notice is up for, and since when, for the notes.
     let noted: { why: ReachWhy; at: number } | null = null
     const sample = () => {
       const at = Date.now()
       const connection = convexClient.connectionState()
-      savesWaitingSince =
-        connection.inflightMutations > 0 ? (savesWaitingSince ?? at) : null
+      const saving = savesWaiting(
+        connection.inflightMutations,
+        outbox?.inflight() ?? 0,
+      )
+      waitingSince = savesWaitingSince(waitingSince, saving, at)
       const pending = waitingOnScreen(
         queryClient
           .getQueryCache()
@@ -125,7 +142,7 @@ export function ConnectionNotice({
         oldestRequestAt:
           connection.inflightActions === 0
             ? (connection.timeOfOldestInflightRequest?.getTime() ?? null)
-            : savesWaitingSince,
+            : waitingSince,
         oldestPendingQueryAt: oldestPending(firstSeen.current, pending, at),
       })
       state = next.state
@@ -142,7 +159,10 @@ export function ConnectionNotice({
         noted = null
       }
       setStuck(next.stuck)
-      setWaitingToSave(connection.inflightMutations > 0)
+      setWaitingToSave(saving)
+      const unsentNow = outbox?.notice() ?? null
+      setUnsent(unsentNow?.count ?? 0)
+      setUnsentHeld(unsentNow?.held ?? null)
       // How old the oldest answer on screen is, once any is not live, in
       // the business's time.
       const asOf = kept?.screenAsOf() ?? null
@@ -166,7 +186,7 @@ export function ConnectionNotice({
       clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [convexClient, queryClient, kept])
+  }, [convexClient, queryClient, kept, outbox])
 
   // Try again and Reload only make sense with signal, so their clock only
   // runs with it: back from a spell with none, it is Try again first. And
@@ -215,6 +235,7 @@ export function ConnectionNotice({
         ? {
             online,
             waitingToSave,
+            outbox: unsent > 0 ? { count: unsent, held: unsentHeld } : null,
             updated,
             action,
             onTry,
@@ -226,6 +247,8 @@ export function ConnectionNotice({
       showing,
       online,
       waitingToSave,
+      unsent,
+      unsentHeld,
       updated,
       action,
       onTry,

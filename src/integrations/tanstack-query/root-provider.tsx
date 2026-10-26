@@ -4,6 +4,8 @@ import { HandoverConvexClient } from '#/lib/convexClient'
 import { KeepingConvexQueryClient } from '#/lib/offline/KeepingConvexQueryClient'
 import { keeper } from '#/lib/offline/keeper'
 import { KEPT_FNS } from '#/lib/offline/keptSet'
+import { browserLocks } from '#/lib/outbox/outboxLocks'
+import { sender } from '#/lib/outbox/sender'
 import { browserRefreshRetry } from '#/lib/tokenRefresh'
 import { flagIfTwoStepNeeded, watchForTwoStepRefusals } from '#/lib/twoStep'
 
@@ -182,8 +184,22 @@ export function getContext() {
   // and before the router hydrates, so the keeper sees every entry the HTML
   // brings. From now, so a socket that dies before New Job opens has had its
   // time counted by then. A page to watch from only.
+  //
+  // Then the bookings kept on the phone, not sent yet (lib/outbox/sender.ts),
+  // which go by themselves while PestM8 is open with signal: whether or not
+  // keeping new ones is switched on, so one already on a phone still goes.
+  // Only where Web Locks exist, which nothing is kept without.
   if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     keeper.attach(queryClient, convexQueryClient.convexClient)
+    const locks = browserLocks()
+    if (locks) {
+      sender.attach({
+        convex: convexQueryClient.convexClient,
+        qc: queryClient,
+        keeper,
+        locks,
+      })
+    }
   }
 
   return { queryClient, convexQueryClient }

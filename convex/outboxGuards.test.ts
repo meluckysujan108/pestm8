@@ -334,6 +334,32 @@ describe('asMembership: only the person it names, as themselves', () => {
     expect((await row(s, jobId)).assignedMembershipId).toBe(s.kevinMembershipId)
   })
 
+  test('access:me says when they were last removed, which is all that tells the two stints apart', async () => {
+    // The phone (src/lib/outbox/sender.ts) lets a booking it kept before
+    // then go, as the removal would have taken it had it heard of it.
+    const s = await setup()
+    const me = (who: TestActor) =>
+      who.as.query(api.access.me, { businessId: s.businessId })
+    expect((await me(s.kevin)).lastRemovedAt).toBeNull()
+    expect((await me(s.owner)).lastRemovedAt).toBeNull()
+
+    const before = Date.now()
+    await s.owner.as.mutation(api.team.remove, {
+      businessId: s.businessId,
+      membershipId: s.kevinMembershipId,
+    })
+    const after = Date.now()
+    const kevin = await addSession(s.t, s.kevin)
+    await joinBusiness(s.t, s.owner, kevin, s.businessId, 'subcontractor')
+
+    const back = await me(kevin)
+    expect(back.membershipId).toBe(s.kevinMembershipId)
+    expect(back.lastRemovedAt).toBeGreaterThanOrEqual(before)
+    expect(back.lastRemovedAt).toBeLessThanOrEqual(after)
+    // Nobody else's changes.
+    expect((await me(s.owner)).lastRemovedAt).toBeNull()
+  })
+
   test('a repeat gets its record back, whatever the name would now say', async () => {
     const s = await setup()
     const job = booking(s, {

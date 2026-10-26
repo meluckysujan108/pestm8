@@ -89,6 +89,18 @@ export const me = query({
        */
       listsEverything: listsEverything(env),
 
+      /**
+       * When this person was last removed from the business, or null if
+       * they never were. Someone removed and invited back gets the same
+       * membership again (`invitations.redeem` makes the old row active),
+       * so nothing else tells their earlier stint from this one: a phone
+       * holding a booking it kept before then, which it never heard the
+       * removal of, lets it go as the removal would have taken it
+       * (src/lib/outbox/sender.ts). The row was read for the actor
+       * already. Added field.
+       */
+      lastRemovedAt: (await ctx.db.get(env.actor.real._id))?.removedAt ?? null,
+
       /** The older read-only "view as", which still exists and is not the same
        * thing: it shows another person's rows and grants nothing. */
       viewingAs:

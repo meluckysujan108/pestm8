@@ -25,6 +25,7 @@ import { getInitialState } from '#/lib/initialState'
 import { notAMemberSlug, wipeKeptForBusiness } from '#/lib/offline/keptStore'
 import { keeper } from '#/lib/offline/keeper'
 import { keptInitScript } from '#/lib/offline/useKept'
+import { sender } from '#/lib/outbox/sender'
 // For its listener: Chrome offers installing once, early, on whatever page
 // is open, and set-up's Home Screen card is only there to use it later.
 import '#/lib/installPrompt'
@@ -166,6 +167,7 @@ function RootComponent() {
       <ConnectionNotice
         convexClient={convexQueryClient.convexClient}
         kept={keeper}
+        outbox={sender}
       />
       <ConnectionDiagnostics convexClient={convexQueryClient.convexClient} />
     </ConvexBetterAuthProvider>
