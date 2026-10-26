@@ -28,7 +28,11 @@ import type { MutationCtx, QueryCtx } from '../_generated/server'
  * `properties.createForClient` may only ever be widened: a field a phone's
  * held save still carries, dropped or narrowed, refuses that save's repeat
  * (an ArgumentValidationError, not a ConvexError) before its lookup can
- * answer it.
+ * answer it. That includes the ones only a booking kept on the phone sends
+ * (lib/outboxGuards.ts): `asMembership` on both bookings, and
+ * `refuseBackfill` on `recurrences.create`. Like every other check, theirs
+ * come after the lookup. `convex/outboxArgs.test.ts` sends the bookings a
+ * phone keeps, written out as the first phones to keep them do.
  *
  * And once any row carries an id, a schema without the field (or without
  * `wipedClientRequests`) can't be pushed to that deployment: Convex checks

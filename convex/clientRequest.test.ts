@@ -206,6 +206,15 @@ function visitsOf(s: Setup, recurrenceId: Id<'recurrences'>) {
   )
 }
 
+/** The visit booked by hand with a series: the one at its start. */
+async function visitAtStart(s: Setup, recurrenceId: Id<'recurrences'>) {
+  const { anchorDate } = await row(s, recurrenceId)
+  const visit = (await visitsOf(s, recurrenceId)).find(
+    (each) => each.scheduledAt === anchorDate,
+  )
+  return visit!._id
+}
+
 /** The job's own visit to the Recycle bin. */
 function binJob(s: Setup, jobId: Id<'jobs'>) {
   return s.owner.as.mutation(api.bin.deleteJob, {
@@ -654,7 +663,7 @@ describe('a repeat gets its record back, whatever changed since', () => {
     expect(await everything(s)).toEqual(before)
     expect(
       await findAs(s.owner, s.businessId, 'job', job.clientRequestId!),
-    ).toEqual({ kind: 'job', id: jobId })
+    ).toEqual({ kind: 'job', id: jobId, propertyId: s.propertyId })
   })
 
   test('the switch it was booked under ran out: not SWITCH_EXPIRED', async () => {
@@ -803,18 +812,23 @@ describe('an id is the business’s, behind its membership', () => {
       expect(await findAs(who, businessId, 'job', keys.job)).toEqual({
         kind: 'job',
         id: made.job,
+        propertyId: made.site,
       })
       expect(await findAs(who, businessId, 'series', keys.series)).toEqual({
         kind: 'series',
         id: made.arrangement,
+        propertyId: made.site,
+        firstJobId: await visitAtStart(s, made.arrangement),
       })
       expect(await findAs(who, businessId, 'site', keys.site)).toEqual({
         kind: 'site',
         id: made.site,
+        propertyId: made.site,
       })
       expect(await findAs(who, businessId, 'site', keys.client)).toEqual({
         kind: 'site',
         id: made.clientSite,
+        propertyId: made.clientSite,
       })
     }
   })
@@ -844,6 +858,7 @@ describe('an id is the business’s, behind its membership', () => {
     expect(await findAs(s.owner, s.businessId, 'site', key)).toEqual({
       kind: 'site',
       id: siteId,
+      propertyId: siteId,
     })
     expect(
       await s.owner.as.mutation(api.properties.createForClient, site),
@@ -851,6 +866,7 @@ describe('an id is the business’s, behind its membership', () => {
     expect(await findAs(s.owner, s.businessId, 'job', key)).toEqual({
       kind: 'job',
       id: kevinsJob,
+      propertyId: siteId,
     })
     expect(await findAs(s.owner, s.businessId, 'series', key)).toBeNull()
   })
@@ -1153,19 +1169,38 @@ describe('clientRequests.find', () => {
       },
     )
 
-    expect(await find('job', job)).toEqual({ kind: 'job', id: jobId })
+    expect(await find('job', job)).toEqual({
+      kind: 'job',
+      id: jobId,
+      propertyId: s.propertyId,
+    })
     expect(await find('series', arrangement)).toEqual({
       kind: 'series',
       id: recurrenceId,
+      propertyId: s.propertyId,
+      firstJobId: await visitAtStart(s, recurrenceId),
     })
-    expect(await find('site', client)).toEqual({ kind: 'site', id: clientSite })
-    expect(await find('site', site)).toEqual({ kind: 'site', id: extraSite })
+    expect(await find('site', client)).toEqual({
+      kind: 'site',
+      id: clientSite,
+      propertyId: clientSite,
+    })
+    expect(await find('site', site)).toEqual({
+      kind: 'site',
+      id: extraSite,
+      propertyId: extraSite,
+    })
     // Only the kind asked about: the job's id made no site.
     expect(await find('site', job)).toBeNull()
     expect(await find('job', arrangement)).toBeNull()
 
+    // In the bin it is still there, and so is where it was.
     await binJob(s, jobId)
-    expect(await find('job', job)).toEqual({ kind: 'job', id: jobId })
+    expect(await find('job', job)).toEqual({
+      kind: 'job',
+      id: jobId,
+      propertyId: s.propertyId,
+    })
   })
 
   test('refuses someone not on the team, and an id the phone would not make', async () => {
@@ -1188,5 +1223,217 @@ describe('clientRequests.find', () => {
     expect(
       await findAs(other, other.businessId, 'job', clientRequestId),
     ).toBeNull()
+  })
+})
+
+describe('clientRequests.find: where it went', () => {
+  // For the phone's next step once it knows a booking was made: the site it
+  // is at, for a booking kept for the same new client, and the first visit
+  // the card for a Recurring Job becomes.
+
+  test('a booking: the site it is at, however the site came', async () => {
+    const s = await setup()
+    const keys = {
+      atSite: newKey(),
+      withClient: newKey(),
+      withSite: newKey(),
+      series: newKey(),
+    }
+    const atSite = await s.owner.as.mutation(
+      api.jobs.create,
+      booking(s, { clientRequestId: keys.atSite }),
+    )
+    const withClient = await s.owner.as.mutation(api.jobs.create, {
+      ...booking(s, { propertyId: undefined }),
+      newClient: priya,
+      clientRequestId: keys.withClient,
+    })
+    const withSite = await s.owner.as.mutation(api.jobs.create, {
+      ...booking(s, { propertyId: undefined }),
+      newProperty: { clientId: s.clientId, ...secondSite },
+      clientRequestId: keys.withSite,
+    })
+    const recurrenceId = await s.owner.as.mutation(api.recurrences.create, {
+      ...series(s, { propertyId: undefined }),
+      newClient: { ...priya, clientName: 'Dev Shah' },
+      clientRequestId: keys.series,
+    })
+
+    const find = (kind: 'job' | 'series', key: string) =>
+      findAs(s.owner, s.businessId, kind, key)
+    expect(await find('job', keys.atSite)).toEqual({
+      kind: 'job',
+      id: atSite,
+      propertyId: s.propertyId,
+    })
+    // The site made with it, which is the job's own.
+    const clientSite = (await row(s, withClient)).propertyId
+    expect(clientSite).not.toBe(s.propertyId)
+    expect(await find('job', keys.withClient)).toEqual({
+      kind: 'job',
+      id: withClient,
+      propertyId: clientSite,
+    })
+    const newSite = (await row(s, withSite)).propertyId
+    expect(newSite).not.toBe(s.propertyId)
+    expect((await row(s, newSite)).clientId).toBe(s.clientId)
+    expect(await find('job', keys.withSite)).toEqual({
+      kind: 'job',
+      id: withSite,
+      propertyId: newSite,
+    })
+    const seriesSite = (await row(s, recurrenceId)).propertyId
+    expect(await find('series', keys.series)).toEqual({
+      kind: 'series',
+      id: recurrenceId,
+      propertyId: seriesSite,
+      firstJobId: await visitAtStart(s, recurrenceId),
+    })
+  })
+
+  test('moved since: the site it is at now, not the one it made', async () => {
+    // Booked for a new client, so it made that client's site, then moved by
+    // the office to Jane's before the phone asked. The answer names Jane's:
+    // the phone can't take it as the site the booking made.
+    const s = await setup()
+    const key = newKey()
+    const jobId = await s.owner.as.mutation(api.jobs.create, {
+      ...booking(s, { propertyId: undefined }),
+      newClient: priya,
+      clientRequestId: key,
+    })
+    const priyasSite = (await row(s, jobId)).propertyId
+    expect(priyasSite).not.toBe(s.propertyId)
+    await s.owner.as.mutation(api.jobs.update, {
+      businessId: s.businessId,
+      jobId,
+      propertyId: s.propertyId,
+    })
+
+    expect(await findAs(s.owner, s.businessId, 'job', key)).toEqual({
+      kind: 'job',
+      id: jobId,
+      propertyId: s.propertyId,
+    })
+  })
+
+  test('a Recurring Job: its first visit, or none while it has none', async () => {
+    const s = await setup()
+    // Started more than a day ago, so its first visit is the engine's next.
+    const [late, yearly] = [newKey(), newKey()]
+    const lateId = await s.owner.as.mutation(
+      api.recurrences.create,
+      series(s, { anchorDate: Date.now() - 3 * DAY, clientRequestId: late }),
+    )
+    // And a yearly one started the same way, whose next visit is further
+    // ahead than the engine books: no visit yet.
+    const yearlyId = await s.owner.as.mutation(
+      api.recurrences.create,
+      series(s, {
+        anchorDate: Date.now() - 3 * DAY,
+        intervalUnit: 'year',
+        clientRequestId: yearly,
+      }),
+    )
+
+    const visits = await visitsOf(s, lateId)
+    expect(visits.length).toBeGreaterThan(0)
+    const earliest = visits.reduce((a, b) =>
+      b.scheduledAt < a.scheduledAt ? b : a,
+    )
+    expect(earliest.scheduledAt).toBeGreaterThan(Date.now())
+    expect(await findAs(s.owner, s.businessId, 'series', late)).toEqual({
+      kind: 'series',
+      id: lateId,
+      propertyId: s.propertyId,
+      firstJobId: earliest._id,
+    })
+
+    expect(await visitsOf(s, yearlyId)).toHaveLength(0)
+    expect(await findAs(s.owner, s.businessId, 'series', yearly)).toEqual({
+      kind: 'series',
+      id: yearlyId,
+      propertyId: s.propertyId,
+    })
+  })
+
+  test('a site: itself', async () => {
+    const s = await setup()
+    const [client, site] = [newKey(), newKey()]
+    const clientSite = await s.owner.as.mutation(api.properties.create, {
+      businessId: s.businessId,
+      ...priya,
+      clientRequestId: client,
+    })
+    const extraSite = await s.owner.as.mutation(
+      api.properties.createForClient,
+      {
+        businessId: s.businessId,
+        clientId: s.clientId,
+        ...secondSite,
+        clientRequestId: site,
+      },
+    )
+    expect(await findAs(s.owner, s.businessId, 'site', client)).toEqual({
+      kind: 'site',
+      id: clientSite,
+      propertyId: clientSite,
+    })
+    expect(await findAs(s.owner, s.businessId, 'site', site)).toEqual({
+      kind: 'site',
+      id: extraSite,
+      propertyId: extraSite,
+    })
+  })
+
+  test('neither once the record is wiped for good: only that it was made', async () => {
+    vi.useFakeTimers()
+    const s = await setup()
+    const keys = { job: newKey(), series: newKey(), site: newKey() }
+    const jobId = await s.owner.as.mutation(
+      api.jobs.create,
+      booking(s, { clientRequestId: keys.job }),
+    )
+    const recurrenceId = await s.owner.as.mutation(
+      api.recurrences.create,
+      series(s, { clientRequestId: keys.series }),
+    )
+    const siteId = await s.owner.as.mutation(api.properties.createForClient, {
+      businessId: s.businessId,
+      clientId: s.clientId,
+      ...secondSite,
+      clientRequestId: keys.site,
+    })
+    await settle(s)
+
+    await s.owner.as.mutation(api.bin.wipe, {
+      businessId: s.businessId,
+      entryId: await binJob(s, jobId),
+    })
+    await settle(s)
+    const [visit] = await visitsOf(s, recurrenceId)
+    await s.owner.as.mutation(api.bin.deleteSeries, {
+      businessId: s.businessId,
+      jobId: visit._id,
+    })
+    await s.owner.as.mutation(api.bin.deleteProperty, {
+      businessId: s.businessId,
+      propertyId: siteId,
+    })
+    await s.owner.as.mutation(api.bin.empty, { businessId: s.businessId })
+    await settle(s)
+    for (const id of [jobId, recurrenceId, siteId]) {
+      expect(await isGone(s, id)).toBe(true)
+    }
+
+    for (const [kind, key, id] of [
+      ['job', keys.job, jobId],
+      ['series', keys.series, recurrenceId],
+      ['site', keys.site, siteId],
+    ] as const) {
+      const found = await findAs(s.owner, s.businessId, kind, key)
+      expect(found, kind).toEqual({ kind, id })
+      expect(Object.keys(found!).sort(), kind).toEqual(['id', 'kind'])
+    }
   })
 })
