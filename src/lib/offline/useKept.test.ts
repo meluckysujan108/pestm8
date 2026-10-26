@@ -6,12 +6,16 @@ import { rq } from '#/lib/routeQueries'
 import { keeper } from './keeper'
 import {
   KEPT_PAGE_AGE_MS,
+  firstKeptMode,
   firstNoteLatch,
   keptInitScript,
+  nextKeptMode,
   nextNoteLatch,
+  noteAbout,
   notePhase,
   subscribeLineDown,
   useKeptBeforeDay,
+  useKeptMode,
   useKeptNote,
   useLineDown,
   useReadable,
@@ -19,7 +23,7 @@ import {
 } from './useKept'
 import { RENDERED_AT_KEY, pageRenderedAt } from './keptSet'
 import type { ReactElement } from 'react'
-import type { KeptNoteTone, NoteLatch } from './useKept'
+import type { KeptMode, KeptNoteTone, NoteLatch } from './useKept'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 // The kept copy's keeper reads who is signed in (lib/rootState.ts), whose
@@ -61,6 +65,18 @@ describe('on the server', () => {
         String(useKeptBeforeDay(key, 'Australia/Perth', '2026-10-25')),
       ),
     ).toBe('<p>false</p>')
+  })
+
+  test('a page draws as the server does, and asks nothing of the phone yet', () => {
+    vi.stubGlobal('navigator', { onLine: false })
+    const decide = vi.fn(() => true)
+    expect(onServer(() => String(useKeptMode(decide, false)))).toBe(
+      '<p>false</p>',
+    )
+    expect(onServer(() => String(useKeptMode(decide, true)))).toBe(
+      '<p>false</p>',
+    )
+    expect(decide).not.toHaveBeenCalled()
   })
 
   test('the note is hydrating, neutral, and as old as the HTML’s answers', () => {
@@ -133,6 +149,61 @@ describe('the head script that marks a kept page', () => {
   })
 })
 
+describe('whether a page draws from the phone’s copy, decided once', () => {
+  /** The choice through a run of renders, as `useKeptMode` folds them. */
+  function renders(
+    ...each: Array<{ hydrating?: boolean; drawn?: boolean; kept?: boolean }>
+  ): { mode: KeptMode; asked: number } {
+    let asked = 0
+    const at = (render: (typeof each)[number]) => ({
+      hydrating: render.hydrating ?? false,
+      drawn: render.drawn ?? false,
+      decide: () => {
+        asked++
+        return render.kept ?? false
+      },
+    })
+    const [first, ...rest] = each
+    let mode = firstKeptMode(at(first))
+    for (const render of rest) mode = nextKeptMode(mode, at(render))
+    return { mode, asked }
+  }
+
+  test('a page reached in the app takes it, or not, as it first draws', () => {
+    expect(renders({ kept: true }).mode).toBe(true)
+    expect(renders({ drawn: true }).mode).toBe(false)
+  })
+
+  test('never changed once made: the list never changes source under a thumb', () => {
+    expect(renders({ kept: true }, { drawn: true }).mode).toBe(true)
+    const usual = renders({ drawn: true }, { kept: true }, { kept: true })
+    expect(usual.mode).toBe(false)
+    // And not asked again.
+    expect(usual.asked).toBe(1)
+  })
+
+  test('a page still on its placeholder can take it later, as nothing on screen moves', () => {
+    const waiting = renders({}, {})
+    expect(waiting.mode).toBeNull()
+    expect(renders({}, {}, { kept: true }).mode).toBe(true)
+    // Until it has drawn from its usual source.
+    expect(renders({}, { drawn: true }, { kept: true }).mode).toBe(false)
+  })
+
+  test('what the hydration render drew from the usual source stays, whatever the phone says after', () => {
+    const hydrated = renders(
+      { hydrating: true, drawn: true },
+      { drawn: true, kept: true },
+    )
+    expect(hydrated.mode).toBe(false)
+    expect(hydrated.asked).toBe(0)
+    // Nothing is asked while hydrating.
+    expect(renders({ hydrating: true }, { hydrating: true }).asked).toBe(0)
+    // A hydration render on its placeholder decides once hydrated.
+    expect(renders({ hydrating: true }, { kept: true }).mode).toBe(true)
+  })
+})
+
 describe('whether the note shows, decided once', () => {
   const ABOUT = 'today'
 
@@ -145,6 +216,7 @@ describe('whether the note shows, decided once', () => {
       tone?: KeptNoteTone
       about?: string
       now?: number
+      empty?: boolean
     }>
   ): NoteLatch {
     return each.reduce(
@@ -155,6 +227,7 @@ describe('whether the note shows, decided once', () => {
           tone: at.tone ?? 'kept',
           about: at.about ?? ABOUT,
           now: at.now ?? 0,
+          empty: at.empty,
         }),
       latch,
     )
@@ -215,6 +288,51 @@ describe('whether the note shows, decided once', () => {
   test('the same latch back when nothing changed', () => {
     const shown = firstNoteLatch(false, true)
     expect(renders(shown, { tone: 'kept' })).toBe(shown)
+  })
+
+  test('never over a page with nothing to draw: hidden from the first render, or gone for good once that is known', () => {
+    const down = firstNoteLatch(false, true)
+    expect(
+      notePhase(renders(down, { tone: 'no-signal', empty: true }), false),
+    ).toBe('hidden')
+    const later = renders(down, { tone: 'no-signal' }, { empty: true })
+    expect(notePhase(later, false)).toBe('hidden')
+    // A list that comes after all brings no note back above it.
+    expect(notePhase(renders(later, { tone: 'live' }), false)).toBe('hidden')
+    // While hydrating, nothing is known to be missing yet.
+    expect(
+      notePhase(
+        renders(firstNoteLatch(true, true), { hydrating: true, empty: true }),
+        true,
+      ),
+    ).toBe('hydrating')
+  })
+
+  test('a search, order or filter the page names is part of what it is about', () => {
+    const keys = [rq.directory(B).queryKey]
+    expect(noteAbout('2026-10-25', keys, '["Beat"]')).not.toBe(
+      noteAbout('2026-10-25', keys, '["Bea"]'),
+    )
+    expect(noteAbout('2026-10-25', keys)).not.toBe(
+      noteAbout('2026-10-26', keys),
+    )
+    expect(noteAbout('2026-10-25', keys)).not.toBe(
+      noteAbout('2026-10-25', [rq.day(B, '2026-10-25').queryKey]),
+    )
+    // Live on the Clients page, then a new search: the note goes.
+    const live = renders(firstNoteLatch(false, true), {
+      tone: 'live',
+      about: noteAbout('2026-10-25', keys, '["",""]'),
+    })
+    expect(
+      notePhase(
+        renders(live, {
+          tone: 'live',
+          about: noteAbout('2026-10-25', keys, '["B",""]'),
+        }),
+        false,
+      ),
+    ).toBe('hidden')
   })
 })
 

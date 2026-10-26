@@ -851,6 +851,37 @@ const PLAN = {
   },
   'schedule-not-kept-day': {},
   'schedule-not-kept-page': { before: async (p) => p.waitForTimeout(300) },
+  // A job opened with no signal, from its day, and one no day lists; the
+  // Clients page from the copy, with the note under the search box; and a
+  // client opened from it, and one the phone's client list doesn't have.
+  // Each `-notice` adds the no-signal notice as a phone shows it once the
+  // line has been down a while: the band over the Clients page's note, and
+  // the copy over each sheet's own line.
+  'jobsheet-kept': { before: async (p) => p.waitForTimeout(900) },
+  'jobsheet-kept-notice': { before: async (p) => p.waitForTimeout(900) },
+  'jobsheet-not-kept': { before: async (p) => p.waitForTimeout(900) },
+  'clients-kept': { full: true, before: async (p) => p.waitForTimeout(600) },
+  'clients-kept-notice': { before: async (p) => p.waitForTimeout(600) },
+  'clientsheet-kept': { before: async (p) => p.waitForTimeout(900) },
+  'clientsheet-kept-notice': { before: async (p) => p.waitForTimeout(900) },
+  'clientsheet-kept-scrolled': {
+    spec: 'clientsheet-kept',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.evaluate(() => {
+        const el = [
+          ...document.querySelectorAll('[data-vaul-drawer] div'),
+        ].find(
+          (d) =>
+            d.scrollHeight > d.clientHeight + 20 &&
+            getComputedStyle(d).overflowY === 'auto',
+        )
+        if (el) el.scrollTop = el.scrollHeight
+      })
+      await p.waitForTimeout(300)
+    },
+  },
+  'clientsheet-not-kept': { before: async (p) => p.waitForTimeout(900) },
   guide: { before: async (p) => p.waitForTimeout(500) },
   confirm: { before: async (p) => p.waitForTimeout(500) },
   inputs: { before: async (p) => p.waitForTimeout(600) },

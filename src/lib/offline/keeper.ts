@@ -703,6 +703,23 @@ export class Keeper {
 
   // ── Reading ──────────────────────────────────────────────────────────────
 
+  /**
+   * Whether the phone's copy has been read this page load, or given up on:
+   * until then, a page can't yet say something is not on this phone.
+   * Always where nothing is kept (the server, the UI harness).
+   */
+  copyRead(): boolean {
+    return this.qc === null || this.peekDone
+  }
+
+  /**
+   * When the server last said anything on this connection: how recently an
+   * answer that is still live was known right. Null before it has spoken.
+   */
+  heardAt(): number | null {
+    return this.lastServerMessageAt()
+  }
+
   /** Whether `queryKey`'s answer is live, pushed on this connection. */
   isLive(queryKey: QueryKey): boolean {
     return this.qc !== null && this.isLiveHash(this.hashOf(queryKey))
@@ -826,8 +843,11 @@ export class Keeper {
   }
 
   /**
-   * A job as its day lists it, for the job sheet with no signal: from a day
-   * in memory first, then from the phone's copy.
+   * A job as its day lists it, for the job sheet with no answer: from a day
+   * in memory first, then from the phone's copy as it would answer, but
+   * never a kept day memory has an answer for. That answer is the newer, and
+   * one that no longer lists the job (cancelled, moved, given to someone
+   * else) is right not to.
    */
   findDayRow(jobId: Id<'jobs'>): {
     row: DayRow
@@ -852,8 +872,9 @@ export class Keeper {
         live: asOf === null,
       }
     }
-    for (const kept of this.rows.values()) {
+    for (const [hash, kept] of this.rows) {
       if (kept.fn !== 'jobs:listDay') continue
+      if (qc.getQueryCache().get(hash)?.state.data !== undefined) continue
       const found = this.usableFor(kept.queryKey)
       const row = found && findJob(found.row.data, jobId)
       const dayKey = argsOf(kept.queryKey)?.dayKey

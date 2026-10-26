@@ -40,6 +40,7 @@ import { rq } from '#/lib/routeQueries'
 import { prepareUpload } from '#/lib/images/prepareUpload'
 import { personLabel, roleLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
+import { KeptJobView, NotKeptJob, useKeptJob } from './KeptJobView'
 import { JobTimeFields, useJobTimes } from './JobTimeFields'
 import { PropertyHistory } from './PropertyHistory'
 import { nextVisit } from '#/lib/jobHistory'
@@ -208,6 +209,13 @@ function JobDetailBody({
 }) {
   const jobQuery = useQuery(convexQuery(api.jobs.get, { businessId, jobId }))
   const job = jobQuery.data
+  // With no answer yet, and the line down or the answer late, the job as
+  // its day lists it, read-only, until the answer comes (KeptJobView).
+  const kept = useKeptJob(
+    businessId,
+    jobId,
+    job === undefined && !jobQuery.isError,
+  )
   // Everyone going beside the lead. Read as possibly absent: a backend older
   // than shared jobs sends no such field.
   const alsoGoingHere: ReadonlyArray<{
@@ -862,6 +870,16 @@ function JobDetailBody({
             onRetry={() => void jobQuery.refetch()}
           />
         </div>
+      ) : kept.state === 'kept' && kept.day ? (
+        <KeptJobView
+          job={kept.day.row}
+          asOf={kept.day.asOf}
+          down={kept.down}
+          timezone={timezone}
+          roster={rosterQuery.data}
+        />
+      ) : kept.state === 'not-kept' ? (
+        <NotKeptJob />
       ) : (
         // The sheet's own shape while the job loads, so it opens at its
         // height instead of opening short and jumping up.

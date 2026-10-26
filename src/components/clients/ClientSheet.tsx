@@ -75,6 +75,11 @@ import type { ClientStatus } from '../../../convex/lib/clientRecord'
 import { LoadFailed } from '#/components/primitives/EmptyState'
 import { KIND_CHOICES, KIND_LABELS } from '#/lib/clientFilters'
 import { ClientXeroLines } from '#/components/xero/ClientXeroLines'
+import {
+  KeptClientView,
+  NotKeptClient,
+  useKeptClient,
+} from '#/components/clients/KeptClientView'
 
 type ClientKind = 'person' | 'business'
 
@@ -182,6 +187,14 @@ function ClientBody({
     convexQuery(api.clients.get, { businessId, clientId }),
   )
   const client = clientQuery.data
+  // With no answer yet, and the line down or the answer late, the client as
+  // the phone's client list has them, read-only, until the answer comes
+  // (KeptClientView).
+  const kept = useKeptClient(
+    businessId,
+    clientId,
+    client === undefined && !clientQuery.isError,
+  )
   // The contact person is the primary contact (Prompt 6.1), not a field of
   // its own. The same query the Contacts section runs, so no second fetch.
   // Read for a person client too: flipping one back to business in the edit
@@ -241,6 +254,19 @@ function ClientBody({
   }
 
   if (client === undefined) {
+    if (kept.state === 'kept' && kept.kept) {
+      return (
+        <KeptClientView
+          client={kept.kept.client}
+          sites={kept.kept.sites}
+          asOf={kept.asOf}
+          down={kept.down}
+          timezone={timezone}
+          xero={kept.xero}
+        />
+      )
+    }
+    if (kept.state === 'not-kept') return <NotKeptClient />
     return (
       // The sheet's own shape while the client loads, so it opens at its
       // height instead of opening short and jumping up.

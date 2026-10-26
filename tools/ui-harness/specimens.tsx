@@ -5,6 +5,13 @@ import { ErrorScreen as AppErrorScreen } from '#/components/shell/ErrorScreen'
 import { ReachNotice } from '#/components/shell/ConnectionNotice'
 import { KeptCopyNote } from '#/components/shell/KeptCopyNote'
 import { NotKeptDay } from '#/components/schedule/NotKeptDay'
+import { KeptJobView, NotKeptJob } from '#/components/schedule/KeptJobView'
+import {
+  KeptClientView,
+  NotKeptClient,
+} from '#/components/clients/KeptClientView'
+import { clientRows } from '#/lib/directory'
+import { clientCountLabel, directoryCount } from '#/lib/offline/keptClients'
 import { ScheduleNotKept } from '#/components/schedule/ScheduleNotKept'
 import { RecurringDueNote } from '#/components/schedule/RecurringDueNote'
 import { WeekStrip } from '#/components/schedule/WeekStrip'
@@ -60,7 +67,7 @@ import { ReportsLibrary } from '#/components/reports/ReportsLibrary'
 import type { Segment } from '#/components/reports/ReportsLibrary'
 import { getTemplate } from '#/lib/reportTemplates'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
-import { Sheet } from '#/components/primitives/Sheet'
+import { Sheet, SheetShell } from '#/components/primitives/Sheet'
 import { Segmented } from '#/components/primitives/Segmented'
 import { SearchBox } from '#/components/primitives/SearchBox'
 import { LoadMore } from '#/components/primitives/LoadMore'
@@ -994,6 +1001,243 @@ function ScheduleNotKeptPage() {
       </SidebarProvider>
     </Phone>
   )
+}
+
+/** A sample job as `jobs.listDay` lists it, which is what the job sheet
+ * shows with no answer from PestM8 (KeptJobView). */
+function keptDayRow(id: string, extra: Record<string, unknown> = {}) {
+  const job = JOBS.find((each) => each._id === id)
+  return { alsoGoing: [], businessId: BIZ, ...job, ...extra } as never
+}
+
+/**
+ * A business's job opened with no signal, from the day the phone kept
+ * yesterday evening: the line saying so, the site contact's Call and Text
+ * beside the Map, the note and the work order.
+ */
+function JobSheetKept() {
+  return (
+    <Phone>
+      <Header title="Schedule" />
+      <SheetShell open onClose={() => {}}>
+        <KeptJobView
+          job={keptDayRow('j2', {
+            workOrder: 'PO 88213',
+            notePreview:
+              'Side gate code 4471 · Priya has the key to the store room.',
+          })}
+          asOf={perthAt(addDays(perthTodayKey(), -1), '17:10')}
+          down="no-signal"
+          timezone={TZ}
+          roster={MEMBERS as never}
+        />
+      </SheetShell>
+    </Phone>
+  )
+}
+
+/** A job opened with no signal that no day the phone holds lists. */
+function JobSheetNotKept() {
+  return (
+    <Phone>
+      <Header title="Schedule" />
+      <SheetShell open onClose={() => {}}>
+        <NotKeptJob />
+      </SheetShell>
+    </Phone>
+  )
+}
+
+/**
+ * A business client opened with no signal, from the copy of the client list
+ * kept yesterday evening: the line saying so, Call and Text, each site with
+ * Map and the first's site contact, and what opens when there is signal.
+ * The client the `client` specimen opens, so the two sit side by side.
+ */
+function ClientSheetKept() {
+  const createdAt = Date.now() - 400 * 24 * 60 * 60 * 1000
+  return (
+    <Phone>
+      <Header title="Clients" />
+      <SheetShell open onClose={() => {}}>
+        <KeptClientView
+          client={
+            {
+              _id: 'c1',
+              _creationTime: createdAt,
+              name: 'Subi Café Group',
+              kind: 'business',
+              phone: '08 9381 2200',
+              abn: '51824753556',
+              clientNumber: 1916,
+              status: 'active',
+              createdAt,
+            } as never
+          }
+          sites={
+            [
+              {
+                _id: 'p1',
+                clientId: 'c1',
+                addressLine: '220 Hay St',
+                suburb: 'Subiaco',
+                postcode: '6008',
+                siteContactName: 'Priya',
+                siteContactPhone: '0433 111 222',
+                createdAt,
+              },
+              {
+                _id: 'p2',
+                clientId: 'c1',
+                addressLine: '9 Rokeby Rd',
+                suburb: 'Subiaco',
+                postcode: '6008',
+                createdAt,
+              },
+            ] as never
+          }
+          asOf={perthAt(addDays(perthTodayKey(), -1), '17:10')}
+          down="no-signal"
+          timezone={TZ}
+        />
+      </SheetShell>
+    </Phone>
+  )
+}
+
+/** A client opened with no signal that the phone's client list doesn't
+ * have. */
+function ClientSheetNotKept() {
+  return (
+    <Phone>
+      <Header title="Clients" />
+      <SheetShell open onClose={() => {}}>
+        <NotKeptClient />
+      </SheetShell>
+    </Phone>
+  )
+}
+
+/**
+ * The Clients page with no signal, as the route draws it then: every client
+ * from the copy kept on the phone (`clients.directory`), counted and
+ * filtered from what it holds, newest first, with the note under the search
+ * box. The route needs the router, so this is its page, drawn from props.
+ * With `notice`, the no-signal notice's band too, as it is once the line has
+ * been down a while: fixed under the header, over the note's first line.
+ */
+function ClientsKept({ notice = false }: { notice?: boolean }) {
+  const { data } = useQuery(rq.directory(bizId))
+  const filters = useClientFilters()
+  const rows = data
+    ? clientRows(data).sort(
+        (a, b) =>
+          b.client.createdAt - a.client.createdAt ||
+          b.client._creationTime - a.client._creationTime,
+      )
+    : []
+  const today = perthTodayKey()
+  return (
+    <Phone>
+      <Header
+        kicker={data ? clientCountLabel(directoryCount(data)) : '\u00a0'}
+        title="Clients"
+      />
+      <div className="flex px-4 pt-3">
+        <SearchBox
+          value=""
+          onChange={() => {}}
+          label="Search by name or address"
+          placeholder="Search by name, address or #number"
+        />
+      </div>
+      <KeptCopyNote
+        phase="shown"
+        tone="no-signal"
+        asOf={perthAt(today, '07:42')}
+        timezone={TZ}
+        todayKey={today}
+      />
+      <div className="px-4 pt-3">
+        <Segmented
+          label="Sort clients"
+          value="newest"
+          onChange={() => {}}
+          options={[
+            { value: 'newest', label: 'Newest first' },
+            { value: 'az', label: 'A–Z' },
+          ]}
+        />
+      </div>
+      <section className="px-4 pb-6 pt-4">
+        <div className="mb-3">
+          <ClientFilterBar
+            facets={clientFacets(rows)}
+            kind={filters.kind}
+            setKind={filters.setKind}
+            suburb={filters.suburb}
+            setSuburb={filters.setSuburb}
+            status={filters.status}
+            setStatus={filters.setStatus}
+            tag={filters.tag}
+            setTag={filters.setTag}
+            filtered={filters.filtersActive}
+            onClear={filters.clearFilters}
+          />
+        </div>
+        <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch">
+          {rows.slice(0, CLIENTS_PAGE).map((row) => (
+            <ClientCard
+              key={row.client._id}
+              client={row.client}
+              properties={row.properties}
+              onOpen={() => {}}
+            />
+          ))}
+        </div>
+      </section>
+      {notice && (
+        <ReachNotice
+          updated="7:42am"
+          online={false}
+          waitingToSave={false}
+          action="try"
+          onTry={() => {}}
+          onReload={() => {}}
+          onDismiss={() => {}}
+        />
+      )}
+    </Phone>
+  )
+}
+
+function ClientsKeptNotice() {
+  return <ClientsKept notice />
+}
+
+/**
+ * The notice as a phone with no signal shows it over an open sheet, under
+ * the grab handle and above the kept view's own line: what ConnectionNotice
+ * publishes once the line has been down a while.
+ */
+const NO_SIGNAL_IN_SHEET: ReachNoticeModel = {
+  online: false,
+  waitingToSave: false,
+  updated: '5:10pm',
+  action: 'try',
+  onTry: () => {},
+  onReload: () => {},
+  onDismiss: () => {},
+}
+
+function JobSheetKeptNotice() {
+  publishReachNotice(NO_SIGNAL_IN_SHEET)
+  return <JobSheetKept />
+}
+
+function ClientSheetKeptNotice() {
+  publishReachNotice(NO_SIGNAL_IN_SHEET)
+  return <ClientSheetKept />
 }
 
 /**
@@ -2250,6 +2494,14 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'schedule-kept-week': ScheduleKeptWeek,
   'schedule-not-kept-day': ScheduleNotKeptDay,
   'schedule-not-kept-page': ScheduleNotKeptPage,
+  'jobsheet-kept': JobSheetKept,
+  'jobsheet-not-kept': JobSheetNotKept,
+  'jobsheet-kept-notice': JobSheetKeptNotice,
+  'clients-kept': ClientsKept,
+  'clients-kept-notice': ClientsKeptNotice,
+  'clientsheet-kept': ClientSheetKept,
+  'clientsheet-kept-notice': ClientSheetKeptNotice,
+  'clientsheet-not-kept': ClientSheetNotKept,
   empty: Empty,
   guide: Guide,
   confirm: Confirm,

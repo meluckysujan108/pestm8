@@ -1,15 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
-import {
-  useQuery,
-  useQueryClient,
-  useSuspenseQuery,
-} from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { Plus, Upload } from 'lucide-react'
 import { z } from 'zod'
 import { api } from '../../../../convex/_generated/api'
 import { clientFacets } from '../../../../convex/lib/clientFacets'
+import { KeptCopyNote } from '#/components/shell/KeptCopyNote'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { CardCells, ListPending } from '#/components/shell/Pending'
 import {
@@ -30,7 +27,24 @@ import {
 } from '#/components/clients/ClientFilterBar'
 import { Segmented } from '#/components/primitives/Segmented'
 import { useHydrated } from '#/lib/useHydrated'
-import { useOnline } from '#/lib/online'
+import { useToday } from '#/lib/useToday'
+import { todayKey as todayKeyIn } from '#/lib/format'
+import { logConnection } from '#/lib/connectionLog'
+import { keeper } from '#/lib/offline/keeper'
+import {
+  KEPT_CLIENTS_WAIT_MS,
+  clientCountLabel,
+  directoryCount,
+  keptClientsMode,
+  newestDrawn,
+} from '#/lib/offline/keptClients'
+import {
+  useInMemory,
+  useKeptMode,
+  useKeptNote,
+  useLineDown,
+  useReadable,
+} from '#/lib/offline/useKept'
 import { useStillPendingAfter } from '#/components/products/hooks'
 import {
   filterClientRows,
@@ -57,6 +71,7 @@ import type {
   ClientPropertyRow,
   ClientRow,
 } from '#/components/clients/ClientCard'
+import type { ClientFacets } from '../../../../convex/lib/clientFacets'
 
 export const Route = createFileRoute('/$businessSlug/clients/')({
   // One way to read clients: the cards. The List and Table views were
@@ -74,21 +89,31 @@ export const Route = createFileRoute('/$businessSlug/clients/')({
   // search or A–Z (see the page). Read from the address here rather than
   // through `loaderDeps`: that would make every search a new match, and a
   // new match gets the route's placeholder — the search box with it, mid-word.
-  // In the browser it waits only so long (`loaderWaitMs`).
-  loader: ({ context: { queryClient, business }, location }) => {
+  // In the browser it waits only so long (`loaderWaitMs`), and not at all
+  // with the line down (`keeper.lineDown`), when the page reads every client
+  // from the phone's copy, which answers at once, and nothing else answers.
+  //
+  // It also says what today is, for the "Updated" note's first render: the
+  // server's, so a copy of the page the service worker kept from yesterday
+  // still hydrates as it was rendered.
+  loader: async ({ context: { queryClient, business }, location }) => {
+    const today = todayKeyIn(business.timezone)
+    const down = keeper.lineDown()
     const everyClient =
+      down ||
       (searchParam(location, 'q') ?? '').trim() !== '' ||
       searchParam(location, 'sort') === 'az'
-    return settleInBrowser(
-      loaderWaitMs(),
+    await settleInBrowser(
+      down ? 0 : loaderWaitMs(),
       warm(
         queryClient,
-        rq.clientOverview(business._id),
+        ...(down ? [] : [rq.clientOverview(business._id)]),
         everyClient
           ? rq.directory(business._id)
           : clientsFirstPage(business._id),
       ),
     )
+    return { today }
   },
   component: ClientsPage,
 })
@@ -115,14 +140,24 @@ const byName = (a: Sortable, b: Sortable) =>
 
 /** How long every client may take before the page says the signal is the
  * trouble: the directory is a few hundred KB for the largest book, which a
- * weak 3G signal takes several seconds to bring. With no signal at all the
- * page says so at once (`useOnline`). */
+ * weak 3G signal takes several seconds to bring. With the line down and no
+ * copy of them on the phone, the page says so at once (`useReadable`). */
 const EVERY_CLIENT_LATE_MS = 15_000
 
 const NO_ROWS: Array<never> = []
 
+/** No choices yet: the filter row has its type control and nothing else. */
+const NO_FACETS: ClientFacets = {
+  suburbs: [],
+  tags: [],
+  statuses: { active: 0, lead: 0, inactive: 0 },
+}
+
 function ClientsPage() {
   const { business } = Route.useRouteContext()
+  const loaded = Route.useLoaderData()
+  // The loader's today until the page has hydrated, then the phone's.
+  const today = useToday(business.timezone, loaded.today)
   const canManageClients = useCan('clients.manage')
   const canRenumber = useCan('business.manage')
   const { q, sort = 'newest' } = Route.useSearch()
@@ -166,13 +201,63 @@ function ClientsPage() {
    * suspended on changing it would swap the whole page for the route's
    * placeholder, header and search box included. Each shows its own
    * placeholder in the list's place instead.
+   *
+   * With the line down, the page reads every client (`keptMode`): the phone
+   * keeps the directory, and neither the first page nor the server's counts.
+   * So too on a line that looks up when the newest clients don't come and
+   * the directory is in memory. Decided as the page first draws, or later
+   * while the list is still on its placeholder, and never once the newest
+   * clients are on screen, so the list never changes source under a thumb;
+   * the hydration render draws what the server did, and that stays
+   * (`keptClientsMode`, `useKeptMode`).
    */
-  const everyClient = searching || sort === 'az' || filtersActive
+  const down = useLineDown()
+  const directoryKey = rq.directory(business._id).queryKey
+  const wantsEveryClient = searching || sort === 'az' || filtersActive
+  const firstPageInMemory =
+    queryClient.getQueryData(clientsFirstPage(business._id).queryKey) !==
+    undefined
+  const newestOnScreen =
+    !wantsEveryClient &&
+    newestDrawn({
+      firstPageInMemory,
+      overviewInMemory:
+        queryClient.getQueryData(rq.clientOverview(business._id).queryKey) !==
+        undefined,
+      lineDown: down !== null,
+    })
+  const newestLate = useStillPendingAfter(
+    !wantsEveryClient && !newestOnScreen,
+    KEPT_CLIENTS_WAIT_MS,
+  )
+  const directoryInMemory = useInMemory(directoryKey)
+  const keptMode = useKeptMode(
+    () =>
+      keptClientsMode({
+        lineDown: keeper.lineDown(),
+        directoryReadable: keeper.readable(directoryKey),
+        copyRead: keeper.copyRead(),
+        firstPageInMemory,
+        directoryInMemory,
+        late: newestLate,
+      }),
+    newestOnScreen,
+  )
+  const everyClient = keptMode || wantsEveryClient
 
   // How many clients, and the filters' choices for the whole book, worked
   // out on the server: the page no longer has every client to count. Warmed
-  // by the loader whichever list it read.
-  const { data: overview } = useSuspenseQuery(rq.clientOverview(business._id))
+  // by the loader whichever list it read. Not suspended on: it is never kept
+  // on the phone, and with the line down would never come. Then the count
+  // is the phone's copy's, and the choices are worked out from it, as for a
+  // search (below). The newest clients wait for it (`newestDrawn`), so its
+  // row of choices never lands above cards already there.
+  const overviewQuery = useQuery(
+    keptMode
+      ? convexQuery(api.clients.overview, 'skip')
+      : rq.clientOverview(business._id),
+  )
+  const overview = overviewQuery.data
 
   const paged = usePagedList({
     query: api.clients.page,
@@ -209,9 +294,13 @@ function ClientsPage() {
   // Until every client is here, the whole book's choices: the filter row
   // keeps its dropdowns rather than losing them and getting them back.
   const facets = useMemo(
-    () => (searched ? clientFacets(searched) : overview),
+    () => (searched ? clientFacets(searched) : (overview ?? NO_FACETS)),
     [searched, overview],
   )
+  // The header's count: the server's, or with every client here and no
+  // count from the server (the line down), every client the phone holds.
+  const count =
+    overview ?? (directory.data ? directoryCount(directory.data) : undefined)
 
   // A new search, order or filter starts the list again from its first 30.
   const listKey = everyClient
@@ -229,25 +318,32 @@ function ClientsPage() {
   ) {
     throw directory.error
   }
+  // A refused count is the route's to show, as it was when the page
+  // suspended on it.
+  if (overview === undefined && overviewQuery.error) throw overviewQuery.error
 
   const rows: ReadonlyArray<CardRow> = everyClient
     ? revealed.visible
     : paged.rows
-  // Every client, still not here — no signal, or a signal too weak to
-  // bring them. A Convex read waits rather than failing, so without this a
-  // search with no signal would leave the placeholder up for good, where the
-  // page should say why and offer to try again. (The first page, the counts
-  // and whatever was kept from earlier still come from the phone.)
-  const online = useOnline()
+  // Every client, still not here — the line down and no copy of them on the
+  // phone, or a signal too weak to bring them. A Convex read waits rather
+  // than failing, so without this a search with no signal would leave the
+  // placeholder up for good, where the page should say why and offer to try
+  // again. With the line down that is known at once (`useReadable`): the
+  // phone's copy answers in a moment, or there is none. (The first page and
+  // the counts still come from memory, when they are there.)
+  const directoryReadable = useReadable(directoryKey)
   const everyClientLate = useStillPendingAfter(
     everyClient && directory.data === undefined && directory.error === null,
     EVERY_CLIENT_LATE_MS,
   )
   const failed = everyClient
     ? directory.data === undefined &&
-      (directory.error !== null || !online || everyClientLate)
+      (directory.error !== null || !directoryReadable || everyClientLate)
     : paged.error != null
-  const loading = everyClient ? filtered === undefined : paged.loading
+  const loading = everyClient
+    ? filtered === undefined
+    : paged.loading || (overview === undefined && down === null)
   // Only a list read to its end is empty: a first page can come back with
   // nothing in it and more behind it.
   const empty = everyClient ? filtered?.length === 0 : paged.empty
@@ -260,12 +356,38 @@ function ClientsPage() {
   const wantEveryClient = () =>
     void warm(queryClient, rq.directory(business._id))
 
+  // What is on screen is drawn from these: the note under the search box
+  // says when they were last known right, if they are the phone's copy. A
+  // search, order or filter redraws the list too, and once all of it is
+  // live the note goes with the next. With no copy to draw, it goes for
+  // good, rather than say one is on screen over "Could not load".
+  const keptNote = useKeptNote(
+    keptMode
+      ? [directoryKey]
+      : [
+          rq.clientOverview(business._id).queryKey,
+          everyClient ? directoryKey : clientsFirstPage(business._id).queryKey,
+        ],
+    business.timezone,
+    today,
+    {
+      about: JSON.stringify([searchTerm, sort, kind, suburb, status, tag]),
+      empty: keptMode && failed,
+    },
+  )
+  // For the phone's connection notes: a list the phone keeps no copy of.
+  useEffect(() => {
+    if (keptMode && failed) logConnection('kept-not-here', { what: 'clients' })
+  }, [keptMode, failed])
+
   return (
     <>
       <PageHeader
         businessId={business._id}
         businessSlug={business.slug}
-        kicker={`${overview.total}${overview.capped ? '+' : ''} ${overview.total === 1 && !overview.capped ? 'client' : 'clients'}`}
+        // A line kept for the count while it is on its way, so the title
+        // doesn't move when it lands.
+        kicker={count ? clientCountLabel(count) : '\u00a0'}
         title="Clients"
         action={
           <>
@@ -322,6 +444,15 @@ function ClientsPage() {
         />
       </div>
 
+      {/* Under the search box, where the Products page says it. The
+          no-signal notice's band, fixed under the header, can cover it
+          while it shows; it says when the screen was last updated itself. */}
+      <KeptCopyNote
+        {...keptNote}
+        timezone={business.timezone}
+        todayKey={today}
+      />
+
       <div
         className="px-4 pt-3"
         onPointerDown={(event) => {
@@ -368,7 +499,7 @@ function ClientsPage() {
 
         {failed ? (
           <LoadFailed
-            what={everyClient ? 'every client to search' : 'the clients'}
+            what={wantsEveryClient ? 'every client to search' : 'the clients'}
             onRetry={everyClient ? () => void directory.refetch() : paged.retry}
           />
         ) : loading ? (
