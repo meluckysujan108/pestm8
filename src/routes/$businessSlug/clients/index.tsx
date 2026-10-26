@@ -501,9 +501,10 @@ function ClientsPage() {
         />
       </div>
 
-      {/* Under the search box, where the Products page says it. The
-          no-signal notice's band, fixed under the header, can cover it
-          while it shows; it says when the screen was last updated itself. */}
+      {/* Under the search box, where the Products page says it. While it
+          says the line is down, the notice gives way to it unless a change
+          is waiting to save; then its band, fixed under the header, can
+          cover it, and says when the screen was last updated itself. */}
       <KeptCopyNote
         {...keptNote}
         timezone={business.timezone}

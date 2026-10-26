@@ -855,13 +855,27 @@ const PLAN = {
   // Clients page from the copy, with the note under the search box; and a
   // client opened from it, and one the phone's client list doesn't have.
   // Each `-notice` adds the no-signal notice as a phone shows it once the
-  // line has been down a while: the band over the Clients page's note, and
-  // the copy at the top of each sheet.
+  // line has been down a while with a change waiting to save: the band over
+  // the Clients page's note, and the copy at the top of each sheet. Each
+  // `-notice-held` has only reads waiting, so the notice gives way to the
+  // kept line and the shot matches the one without it; scrolled until the
+  // note is out of sight (`-scrolled`), the band is back a moment later.
   'jobsheet-kept': { before: async (p) => p.waitForTimeout(900) },
   'jobsheet-kept-notice': { before: async (p) => p.waitForTimeout(900) },
+  'jobsheet-kept-notice-held': { before: async (p) => p.waitForTimeout(900) },
   'jobsheet-not-kept': { before: async (p) => p.waitForTimeout(900) },
   'clients-kept': { full: true, before: async (p) => p.waitForTimeout(600) },
   'clients-kept-notice': { before: async (p) => p.waitForTimeout(600) },
+  'clients-kept-notice-held': { before: async (p) => p.waitForTimeout(600) },
+  'clients-kept-notice-held-scrolled': {
+    spec: 'clients-kept-notice-held',
+    before: async (p) => {
+      await p.waitForTimeout(600)
+      await p.evaluate(() => window.scrollTo(0, 600))
+      // Past the 1.5 s a note that has gone still counts for.
+      await p.waitForTimeout(2_000)
+    },
+  },
   'clientsheet-kept': { before: async (p) => p.waitForTimeout(900) },
   'clientsheet-kept-notice': { before: async (p) => p.waitForTimeout(900) },
   'clientsheet-kept-scrolled': {

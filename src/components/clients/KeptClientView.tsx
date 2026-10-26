@@ -25,6 +25,7 @@ import {
   xeroKnown,
 } from '#/lib/offline/keptClient'
 import { KEPT_JOB_WAIT_MS, keptJobInset } from '#/lib/offline/keptJob'
+import { useShowsKept } from '#/lib/offline/keptOnScreen'
 import { argsOf } from '#/lib/offline/keptSet'
 import {
   useKeeperReads,
@@ -168,7 +169,8 @@ export function useKeptClient(
  *
  * Typed from `clients.directory`'s rows rather than `clients.get`'s: a
  * change to the list's fields shows here as a type error, not as a sheet
- * missing a line.
+ * missing a line. Its line says why, so the sheet's own can't-reach notice
+ * gives way to it, as the job's does (lib/offline/keptOnScreen.ts).
  */
 export function KeptClientView({
   client,
@@ -194,6 +196,7 @@ export function KeptClientView({
    * Text, as on the live sheet. */
   email?: string
 }) {
+  useShowsKept(true)
   // Drawn only in the browser, with the line down, so the phone's clock
   // gives today here.
   const todayKey = dayKeyOf(Date.now(), timezone)

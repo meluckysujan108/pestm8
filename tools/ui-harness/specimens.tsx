@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
 import { ErrorComponent } from '@tanstack/react-router'
 import { ErrorScreen as AppErrorScreen } from '#/components/shell/ErrorScreen'
-import { ReachNotice } from '#/components/shell/ConnectionNotice'
+import {
+  PageReachNotice,
+  ReachNotice,
+} from '#/components/shell/ConnectionNotice'
 import { KeptCopyNote } from '#/components/shell/KeptCopyNote'
 import { NotKeptDay } from '#/components/schedule/NotKeptDay'
 import { KeptJobView, NotKeptJob } from '#/components/schedule/KeptJobView'
@@ -1135,10 +1138,13 @@ function ClientSheetNotKept() {
  * from the copy kept on the phone (`clients.directory`), counted and
  * filtered from what it holds, newest first, with the note under the search
  * box. The route needs the router, so this is its page, drawn from props.
- * With `notice`, the no-signal notice's band too, as it is once the line has
- * been down a while: fixed under the header, over the note's first line.
+ * With `notice`, what ConnectionNotice would have decided once the line has
+ * been down a while, drawn by the page's own rule (`PageReachNotice`): the
+ * note says no signal, so a notice waiting only on reads gives way to it,
+ * and one with a change waiting to save shows its band, fixed under the
+ * header, over the note's first line.
  */
-function ClientsKept({ notice = false }: { notice?: boolean }) {
+function ClientsKept({ notice }: { notice?: ReachNoticeModel }) {
   const { data } = useQuery(rq.directory(bizId))
   const filters = useClientFilters()
   const rows = data
@@ -1208,42 +1214,63 @@ function ClientsKept({ notice = false }: { notice?: boolean }) {
           ))}
         </div>
       </section>
-      {notice && (
-        <ReachNotice
-          updated="7:42am"
-          online={false}
-          waitingToSave={false}
-          action="try"
-          onTry={() => {}}
-          onReload={() => {}}
-          onDismiss={() => {}}
-        />
-      )}
+      {notice && <PageReachNotice notice={notice} />}
     </Phone>
   )
 }
 
-function ClientsKeptNotice() {
-  return <ClientsKept notice />
-}
-
-/**
- * The notice as a phone with no signal shows it over an open sheet, under
- * the grab handle and above the kept view's head: what ConnectionNotice
- * publishes once the line has been down a while.
- */
-const NO_SIGNAL_IN_SHEET: ReachNoticeModel = {
+/** ConnectionNotice's word once the line has been down a while: only reads
+ * waiting, and a change waiting to save too. */
+const NO_SIGNAL_READING: ReachNoticeModel = {
   online: false,
   waitingToSave: false,
-  updated: '5:10pm',
+  updated: '7:42am',
   action: 'try',
   onTry: () => {},
   onReload: () => {},
   onDismiss: () => {},
 }
+const NO_SIGNAL_SAVING: ReachNoticeModel = {
+  ...NO_SIGNAL_READING,
+  waitingToSave: true,
+}
+
+/** A change waiting to save (a job booked with no signal): the band shows
+ * over the note, since only it says so. */
+function ClientsKeptNotice() {
+  return <ClientsKept notice={NO_SIGNAL_SAVING} />
+}
+
+/** Only reads waiting: the band gives way to the note, which says the same,
+ * so the page looks as `clients-kept` does; scrolled until the note is out
+ * of sight (`clients-kept-notice-held-scrolled`), the band is back. */
+function ClientsKeptNoticeHeld() {
+  return <ClientsKept notice={NO_SIGNAL_READING} />
+}
+
+/**
+ * The notice as a phone with no signal shows it over an open sheet, under
+ * the grab handle and above the kept view's head: what ConnectionNotice
+ * publishes once the line has been down a while. Over a kept view only with
+ * a change waiting to save; with only reads waiting it gives way to the
+ * view's own line, so the sheet looks as `jobsheet-kept` does.
+ */
+const NO_SIGNAL_IN_SHEET: ReachNoticeModel = {
+  ...NO_SIGNAL_SAVING,
+  updated: '5:10pm',
+}
+const NO_SIGNAL_READING_IN_SHEET: ReachNoticeModel = {
+  ...NO_SIGNAL_IN_SHEET,
+  waitingToSave: false,
+}
 
 function JobSheetKeptNotice() {
   publishReachNotice(NO_SIGNAL_IN_SHEET)
+  return <JobSheetKept />
+}
+
+function JobSheetKeptNoticeHeld() {
+  publishReachNotice(NO_SIGNAL_READING_IN_SHEET)
   return <JobSheetKept />
 }
 
@@ -2509,8 +2536,10 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'jobsheet-kept': JobSheetKept,
   'jobsheet-not-kept': JobSheetNotKept,
   'jobsheet-kept-notice': JobSheetKeptNotice,
+  'jobsheet-kept-notice-held': JobSheetKeptNoticeHeld,
   'clients-kept': ClientsKept,
   'clients-kept-notice': ClientsKeptNotice,
+  'clients-kept-notice-held': ClientsKeptNoticeHeld,
   'clientsheet-kept': ClientSheetKept,
   'clientsheet-kept-notice': ClientSheetKeptNotice,
   'clientsheet-not-kept': ClientSheetNotKept,

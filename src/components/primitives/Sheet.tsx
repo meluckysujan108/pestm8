@@ -12,7 +12,8 @@ import { X } from 'lucide-react'
 import { useBlocker, useRouter } from '@tanstack/react-router'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 import { ReachNotice } from '#/components/shell/ConnectionNotice'
-import { useReachNotice } from '#/lib/reach'
+import { KeptPlace, useKeptHere } from '#/lib/offline/keptOnScreen'
+import { noticeOverKept, useDrawsNotice, useReachNotice } from '#/lib/reach'
 import type { ReactNode, Ref, RefObject } from 'react'
 
 /**
@@ -109,6 +110,9 @@ export function SheetShell({
   initialFocusRef?: RefObject<HTMLElement | null>
 }) {
   const overSheet = useContext(InSheet)
+  // This sheet's own place for a kept view's line, which its notice gives
+  // way to: not the page's, nor a sheet's under it.
+  const keptPlace = useId()
   const [locks, setLocks] = useState<ReadonlyMap<string, Lock>>(() => new Map())
   const register = useCallback((id: string, lock: Lock | null) => {
     setLocks((current) => {
@@ -212,10 +216,12 @@ export function SheetShell({
             aria-hidden
             className={`mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline ${locked ? 'invisible' : ''}`}
           />
-          <SheetReachNotice />
-          <LockRegistry.Provider value={register}>
-            <InSheet.Provider value>{children}</InSheet.Provider>
-          </LockRegistry.Provider>
+          <KeptPlace.Provider value={keptPlace}>
+            <SheetReachNotice />
+            <LockRegistry.Provider value={register}>
+              <InSheet.Provider value>{children}</InSheet.Provider>
+            </LockRegistry.Provider>
+          </KeptPlace.Provider>
           <SheetCloseButton onClick={requestClose} />
         </Drawer.Content>
       </Drawer.Portal>
@@ -448,9 +454,19 @@ export function Sheet({
  * banner is under every sheet, and a sheet is where most saves are made and
  * left on "Saving…", so it says the same here, with the same Try again and
  * Reload; the sheet's ✕ is its dismiss.
+ *
+ * It gives way to a job or client shown in this sheet from the copy kept on
+ * the phone (KeptJobView, KeptClientView), whose own line already says
+ * "No signal — showing the copy kept on this phone…", unless a change is
+ * waiting to save (`noticeOverKept`). A note on the page behind the sheet
+ * doesn't count: it is not in this sheet. A kept view counts wherever it is
+ * in the sheet, scrolled into view or not: this line is in the sheet's flow,
+ * and one that came and went with the scroll would move what is under a
+ * thumb.
  */
 function SheetReachNotice() {
-  const notice = useReachNotice()
+  const notice = noticeOverKept(useReachNotice(), useKeptHere())
+  useDrawsNotice(notice !== null)
   return notice && <ReachNotice {...notice} placement="sheet" />
 }
 

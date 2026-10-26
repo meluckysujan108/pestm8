@@ -1,5 +1,11 @@
+import { useState } from 'react'
 import { Check, WifiOff } from 'lucide-react'
 import { formatUpdated } from '#/lib/format'
+import {
+  useNoteHolds,
+  useOnScreen,
+  useShowsKept,
+} from '#/lib/offline/keptOnScreen'
 import type { KeptNote, KeptNoteTone } from '#/lib/offline/useKept'
 
 /**
@@ -35,6 +41,13 @@ const TONES = Object.keys(FIRST_LINE) as Array<KeptNoteTone>
  * in the same place, all but one unseen, which makes it as tall as the
  * wordiest of them at this width, and the "Updated" line is always there.
  *
+ * While it says the line is down ("No signal — …", "Could not reach
+ * PestM8 — …"), and is on screen, the can't-reach banner gives way to it,
+ * but for a change waiting to save (`useNoteHolds`, `useOnScreen`,
+ * lib/offline/keptOnScreen.ts): the two said the same, one over the other.
+ * So too for a while once the line is back and it says "Showing the copy
+ * kept on this phone.", until PestM8 has answered on the new line.
+ *
  * `todayKey` is the loader's today, so the server and the hydration render
  * word the time alike.
  */
@@ -51,11 +64,17 @@ export function KeptCopyNote({
   /** Where it sits: under the week strip on a phone, by default. */
   className?: string
 }) {
+  // Where it is drawn, for whether it is on screen.
+  const [node, setNode] = useState<HTMLDivElement | null>(null)
+  const holds = useNoteHolds({ phase, tone })
+  const onScreen = useOnScreen(node)
+  useShowsKept(holds && onScreen)
   if (phase === 'hidden') return null
   const hydrating = phase === 'hydrating'
   const live = !hydrating && tone === 'live'
   return (
     <div
+      ref={setNode}
       role="status"
       data-kept-note={tone}
       className={`${hydrating ? 'hidden kept:flex' : 'flex'} items-start gap-2 rounded-xl bg-surface-2 px-3 py-2 text-caption text-ink-2 ${className}`}

@@ -17,6 +17,7 @@ import {
 import { cardActionsFor, cardButtonsFor } from '#/lib/jobCardActions'
 import { mapsUrl } from '#/lib/maps'
 import { keeper } from '#/lib/offline/keeper'
+import { useShowsKept } from '#/lib/offline/keptOnScreen'
 import {
   INVOICED_LOCKED,
   KEPT_JOB_WAIT_MS,
@@ -180,6 +181,12 @@ const NO_HEAD: KeptJobHead = { readOnly: false, clientNumber: undefined }
  * day's fields shows here as a type error, not as a sheet missing a line.
  * The rest of the live sheet (notes, reports, photos, history, editing)
  * needs PestM8, and comes back with it.
+ *
+ * Its line says why, so the sheet's own can't-reach notice gives way to it
+ * while it shows, but for a change waiting to save
+ * (lib/offline/keptOnScreen.ts): on a line that looks up too, where the
+ * line says "Could not reach PestM8 — …" itself, and Try again is on the
+ * page's banner behind the sheet.
  */
 export function KeptJobView({
   job,
@@ -200,6 +207,7 @@ export function KeptJobView({
    * (`useKeptJob`). */
   head?: KeptJobHead
 }) {
+  useShowsKept(true)
   const { readOnly, clientNumber } = head
   // Drawn only in the browser, after a wait or with the line down, so the
   // phone's clock gives today here.
