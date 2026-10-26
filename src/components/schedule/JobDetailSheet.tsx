@@ -40,6 +40,9 @@ import { rq } from '#/lib/routeQueries'
 import { prepareUpload } from '#/lib/images/prepareUpload'
 import { personLabel, roleLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
+import { KeptJobView, NotKeptJob, useKeptJob } from './KeptJobView'
+import { INVOICED_LOCKED, SOMEONE_ELSES_JOB } from '#/lib/offline/keptJob'
+import { useHandOverBody } from '#/lib/offline/useKept'
 import { JobTimeFields, useJobTimes } from './JobTimeFields'
 import { PropertyHistory } from './PropertyHistory'
 import { nextVisit } from '#/lib/jobHistory'
@@ -208,6 +211,22 @@ function JobDetailBody({
 }) {
   const jobQuery = useQuery(convexQuery(api.jobs.get, { businessId, jobId }))
   const job = jobQuery.data
+  // With no answer yet, and the line down or the answer late, the job as
+  // its day lists it, read-only, until the answer comes (KeptJobView).
+  const kept = useKeptJob(
+    businessId,
+    jobId,
+    job === undefined && !jobQuery.isError,
+  )
+  // The sheet's one scrolling body, for the job from its day and then the
+  // live sheet in its place: scrolled where it was, and as tall, so no Call
+  // moves when PestM8 answers (useHandOverBody).
+  const body = useHandOverBody(
+    job === undefined &&
+      !jobQuery.isError &&
+      kept.state === 'kept' &&
+      kept.day !== null,
+  )
   // Everyone going beside the lead. Read as possibly absent: a backend older
   // than shared jobs sends no such field.
   const alsoGoingHere: ReadonlyArray<{
@@ -365,7 +384,11 @@ function JobDetailBody({
   return (
     <>
       {job ? (
-        <div className={`${SHEET_BODY} pt-3`}>
+        <div
+          ref={body.ref}
+          style={body.style}
+          className={`${SHEET_BODY} pt-3`}
+        >
           {/* A short, sayable number — the opaque Convex id is useless over
               the phone or on a paper docket (older jobs predate this field
               and simply have none). */}
@@ -476,13 +499,12 @@ function JobDetailBody({
               is gone for both. These used to sit under everything else. */}
           {!job.canEdit && (
             <p className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5 text-caption text-amber-ink">
-              This job is assigned to someone else, so it is read-only.
+              {SOMEONE_ELSES_JOB}
             </p>
           )}
           {job.status === 'invoiced' && (
             <p className="mt-3 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5 text-caption text-ink-2">
-              This job has been invoiced, so its details are locked. Change
-              its status to edit them.
+              {INVOICED_LOCKED}
             </p>
           )}
 
@@ -862,6 +884,24 @@ function JobDetailBody({
             onRetry={() => void jobQuery.refetch()}
           />
         </div>
+      ) : kept.state === 'kept' && kept.day ? (
+        // The live sheet's own body, so the live sheet lands in it.
+        <div
+          ref={body.ref}
+          style={body.style}
+          className={`${SHEET_BODY} pt-3`}
+        >
+          <KeptJobView
+            job={kept.day.row}
+            asOf={kept.day.asOf}
+            down={kept.down}
+            timezone={timezone}
+            roster={rosterQuery.data}
+            head={kept.head}
+          />
+        </div>
+      ) : kept.state === 'not-kept' ? (
+        <NotKeptJob />
       ) : (
         // The sheet's own shape while the job loads, so it opens at its
         // height instead of opening short and jumping up.

@@ -1257,6 +1257,186 @@ describe('refusals and readability', () => {
     vi.stubGlobal('navigator', { onLine: true })
     expect(h.keeper.readable(day(TOMORROW))).toBe(true)
   })
+
+  test('on the phone: in memory, or in the copy once read; never on the line’s word, nor where nothing is kept', async () => {
+    const backend = await phoneKeeps([{ key: day(TODAY), data: [] }])
+    let release = () => {}
+    const slow = new Promise<void>((resolve) => (release = resolve))
+    const peek = backend.peek.bind(backend)
+    backend.peek = async (): Promise<KeptPeek | null> => {
+      await slow
+      return peek()
+    }
+    expect(new Keeper().onPhone(day(TODAY))).toBe(false)
+    const h = harness(backend)
+    h.html(accessKey(), own)
+    h.html(day(TOMORROW), [], NOW - 60_000)
+
+    // The line up, and the copy still being read: only what is in memory.
+    expect(h.keeper.readable(day(TODAY))).toBe(true)
+    expect(h.keeper.onPhone(day(TODAY))).toBe(false)
+    expect(h.keeper.onPhone(day(TOMORROW))).toBe(true)
+    release()
+    await vi.advanceTimersByTimeAsync(10)
+    expect(h.keeper.onPhone(day(TODAY))).toBe(true)
+    expect(h.keeper.onPhone(day('2026-10-27'))).toBe(false)
+  })
+
+  test('the answer on the phone, without asking for it: memory’s, else the copy’s once read', async () => {
+    const backend = await phoneKeeps([
+      { key: day(TODAY), data: [job('kept')] },
+      { key: day(TOMORROW), data: [job('older')] },
+    ])
+    let release = () => {}
+    const slow = new Promise<void>((resolve) => (release = resolve))
+    const peek = backend.peek.bind(backend)
+    backend.peek = async (): Promise<KeptPeek | null> => {
+      await slow
+      return peek()
+    }
+    expect(new Keeper().answerOnPhone(day(TODAY))).toBeUndefined()
+    const h = harness(backend)
+    h.html(accessKey(), own)
+    h.html(day(TOMORROW), [job('shown')], NOW - 60_000)
+
+    expect(h.keeper.answerOnPhone(day(TODAY))).toBeUndefined()
+    release()
+    await vi.advanceTimersByTimeAsync(10)
+    expect(h.keeper.answerOnPhone(day(TODAY))).toEqual([job('kept')])
+    // Memory's answer is the newer.
+    expect(h.keeper.answerOnPhone(day(TOMORROW))).toEqual([job('shown')])
+    expect(h.keeper.answerOnPhone(day('2026-10-27'))).toBeUndefined()
+    // Nothing was asked for.
+    expect(h.convex.asked).toEqual([])
+  })
+
+  test('the copy counts as read once the page load has read it, and always where nothing is kept', async () => {
+    const backend = await phoneKeeps([{ key: day(TODAY), data: [] }])
+    let release = () => {}
+    const slow = new Promise<void>((resolve) => (release = resolve))
+    const peek = backend.peek.bind(backend)
+    backend.peek = async (): Promise<KeptPeek | null> => {
+      await slow
+      return peek()
+    }
+    expect(new Keeper().copyRead()).toBe(true)
+    const h = harness(backend)
+    expect(h.keeper.copyRead()).toBe(false)
+    release()
+    await vi.advanceTimersByTimeAsync(10)
+    expect(h.keeper.copyRead()).toBe(true)
+  })
+})
+
+describe('a job from its day, for the job sheet with no answer', () => {
+  test('from a day in memory first, then from the phone’s copy, as it would answer', async () => {
+    const h = harness(
+      await phoneKeeps([{ key: day(TOMORROW), data: [job('kept')] }]),
+    )
+    h.html(accessKey(), own)
+    h.html(day(TODAY), [job('shown')], NOW - 60_000)
+    goOffline()
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect(h.keeper.findDayRow('shown' as Id<'jobs'>)).toMatchObject({
+      row: job('shown'),
+      dayKey: TODAY,
+      asOf: NOW - 60_000,
+      live: false,
+    })
+    expect(h.keeper.findDayRow('kept' as Id<'jobs'>)).toMatchObject({
+      row: job('kept'),
+      dayKey: TOMORROW,
+      asOf: NOW - 3_600_000,
+      live: false,
+    })
+    expect(h.keeper.findDayRow('nowhere' as Id<'jobs'>)).toBeNull()
+
+    // Never the phone's copy while working in someone else's account.
+    h.html(
+      accessKey(),
+      {
+        ...own,
+        actingAs: { membershipId: 'm2' as Id<'memberships'>, name: 'Sam' },
+      },
+      Date.now(),
+    )
+    expect(h.keeper.findDayRow('kept' as Id<'jobs'>)).toBeNull()
+  })
+
+  test('never from a kept day memory has a newer answer for, which no longer lists the job', async () => {
+    // Kept yesterday with the job on it; since cancelled, or given to
+    // someone else, and the page's own HTML has the day without it.
+    const h = harness(
+      await phoneKeeps([
+        { key: day(TOMORROW), data: [job('moved'), job('stays')] },
+      ]),
+    )
+    h.html(accessKey(), own)
+    h.html(day(TOMORROW), [job('stays')], NOW - 60_000)
+    goOffline()
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect(h.keeper.findDayRow('moved' as Id<'jobs'>)).toBeNull()
+    expect(h.keeper.findDayRow('stays' as Id<'jobs'>)).toMatchObject({
+      row: job('stays'),
+      dayKey: TOMORROW,
+      asOf: NOW - 60_000,
+    })
+  })
+
+  test('any row a match takes, looked for as a job is: for what a day says of a client', async () => {
+    const at = (propertyId: string, id: string) => ({
+      ...job(id),
+      propertyId,
+      clientEmail: `${id}@example.com`,
+    })
+    const h = harness(
+      await phoneKeeps([
+        { key: day(TOMORROW), data: [at('p_kept', 'kept')] },
+        { key: day('2026-10-27'), data: [at('p_gone', 'gone')] },
+      ]),
+    )
+    h.html(accessKey(), own)
+    h.html(day(TODAY), [at('p_shown', 'shown')], NOW - 60_000)
+    // Memory's answer for the day, which no longer lists the visit.
+    h.html(day('2026-10-27'), [], NOW - 60_000)
+    goOffline()
+    await vi.advanceTimersByTimeAsync(10)
+
+    const of = (propertyId: string) =>
+      h.keeper.findDayRowWhere(
+        (row) => (row as { propertyId?: string }).propertyId === propertyId,
+      )
+    expect(of('p_shown')).toMatchObject({
+      row: { clientEmail: 'shown@example.com' },
+      dayKey: TODAY,
+      live: false,
+    })
+    expect(of('p_kept')).toMatchObject({
+      row: { clientEmail: 'kept@example.com' },
+      dayKey: TOMORROW,
+      asOf: NOW - 3_600_000,
+    })
+    expect(of('p_gone')).toBeNull()
+    expect(of('p_nowhere')).toBeNull()
+  })
+
+  test('a day still live is as old as the server’s last word', async () => {
+    const h = harness()
+    await claimed(h)
+    h.html(day(TODAY), [job('live')], NOW - 3_600_000)
+    h.convex.answer(day(TODAY), [job('live')])
+    await vi.advanceTimersByTimeAsync(10)
+    h.convex.ping()
+    const heard = h.convex.lastMessageAt
+
+    expect(h.keeper.heardAt()).toBe(heard)
+    expect(h.keeper.findDayRow('live' as Id<'jobs'>)).toMatchObject({
+      asOf: heard,
+      live: true,
+    })
+  })
 })
 
 describe('what the can’t-reach notice is told', () => {

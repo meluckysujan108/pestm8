@@ -106,6 +106,15 @@ export type KeptBusiness = {
 /** A job as a kept day lists it. */
 export type DayRow = FunctionReturnType<typeof api.jobs.listDay>[number]
 
+/** A row as a day lists it (`findDayRow`): its day, and how old that is. */
+export type FoundDayRow = {
+  row: DayRow
+  dayKey: string
+  /** When the day was last known right; while live, the server's last word. */
+  asOf: number
+  live: boolean
+}
+
 /**
  * What the keeper reads of the Convex client: the browser's
  * HandoverConvexClient, or a test's.
@@ -703,6 +712,23 @@ export class Keeper {
 
   // ── Reading ──────────────────────────────────────────────────────────────
 
+  /**
+   * Whether the phone's copy has been read this page load, or given up on:
+   * until then, a page can't yet say something is not on this phone.
+   * Always where nothing is kept (the server, the UI harness).
+   */
+  copyRead(): boolean {
+    return this.qc === null || this.peekDone
+  }
+
+  /**
+   * When the server last said anything on this connection: how recently an
+   * answer that is still live was known right. Null before it has spoken.
+   */
+  heardAt(): number | null {
+    return this.lastServerMessageAt()
+  }
+
   /** Whether `queryKey`'s answer is live, pushed on this connection. */
   isLive(queryKey: QueryKey): boolean {
     return this.qc !== null && this.isLiveHash(this.hashOf(queryKey))
@@ -722,6 +748,31 @@ export class Keeper {
     if (!this.peekDone) return true
     if (this.usableFor(queryKey)) return true
     return !this.lineDown()
+  }
+
+  /**
+   * Whether `queryKey` can be shown with nothing from PestM8: there is an
+   * answer in memory, or the phone's copy has one that would answer for it
+   * now. Unlike `readable`, never on the line's word alone, and not while
+   * the copy is still being read. Never on the server.
+   */
+  onPhone(queryKey: QueryKey): boolean {
+    return this.answerOnPhone(queryKey) !== undefined
+  }
+
+  /**
+   * `queryKey`'s answer with nothing from PestM8 (`onPhone`), without asking
+   * for it: the one in memory, else the phone's copy as it would answer for
+   * it now. Undefined where there is neither, or nothing is kept here (the
+   * server).
+   */
+  answerOnPhone(queryKey: QueryKey): unknown {
+    const qc = this.qc
+    if (!qc) return undefined
+    const query = qc.getQueryCache().get(this.hashOf(queryKey))
+    if (query?.state.data !== undefined) return query.state.data
+    if (!this.peekDone) return undefined
+    return this.usableFor(queryKey)?.row.data
   }
 
   /**
@@ -826,22 +877,30 @@ export class Keeper {
   }
 
   /**
-   * A job as its day lists it, for the job sheet with no signal: from a day
-   * in memory first, then from the phone's copy.
+   * A job as its day lists it, for the job sheet with no answer: from a day
+   * in memory first, then from the phone's copy as it would answer, but
+   * never a kept day memory has an answer for. That answer is the newer, and
+   * one that no longer lists the job (cancelled, moved, given to someone
+   * else) is right not to.
    */
-  findDayRow(jobId: Id<'jobs'>): {
-    row: DayRow
-    dayKey: string
-    asOf: number
-    live: boolean
-  } | null {
+  findDayRow(jobId: Id<'jobs'>): FoundDayRow | null {
+    return this.findDayRowWhere((row) => row._id === jobId)
+  }
+
+  /**
+   * The first row `match` takes, as `findDayRow` looks for a job: a day in
+   * memory first, then the phone's copy as it would answer, never a kept day
+   * memory has an answer for. For what a row says of its client (their
+   * email, on the client sheet with no answer).
+   */
+  findDayRowWhere(match: (row: DayRow) => boolean): FoundDayRow | null {
     const qc = this.qc
     if (!qc) return null
     const days = qc
       .getQueryCache()
       .findAll({ queryKey: ['convexQuery', 'jobs:listDay'] })
     for (const query of days) {
-      const row = findJob(query.state.data, jobId)
+      const row = findRow(query.state.data, match)
       const dayKey = argsOf(query.queryKey)?.dayKey
       if (!row || typeof dayKey !== 'string') continue
       const asOf = this.asOfHash(query.queryHash)
@@ -852,10 +911,11 @@ export class Keeper {
         live: asOf === null,
       }
     }
-    for (const kept of this.rows.values()) {
+    for (const [hash, kept] of this.rows) {
       if (kept.fn !== 'jobs:listDay') continue
+      if (qc.getQueryCache().get(hash)?.state.data !== undefined) continue
       const found = this.usableFor(kept.queryKey)
-      const row = found && findJob(found.row.data, jobId)
+      const row = found && findRow(found.row.data, match)
       const dayKey = argsOf(kept.queryKey)?.dayKey
       if (!found || !row || typeof dayKey !== 'string') continue
       return {
@@ -1575,10 +1635,11 @@ export class Keeper {
   }
 }
 
-function findJob(data: unknown, jobId: string): DayRow | undefined {
-  return Array.isArray(data)
-    ? (data as Array<DayRow>).find((row) => row._id === jobId)
-    : undefined
+function findRow(
+  data: unknown,
+  match: (row: DayRow) => boolean,
+): DayRow | undefined {
+  return Array.isArray(data) ? (data as Array<DayRow>).find(match) : undefined
 }
 
 /** The page load's keeper (root-provider.tsx attaches it). */

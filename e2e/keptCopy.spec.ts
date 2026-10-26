@@ -126,12 +126,14 @@ function book(
   clientName: string,
   dayKey: string,
   jobType = 'General Pest Control',
+  phone?: string,
 ) {
   return owner.client.mutation(api.jobs.create, {
     businessId,
     newClient: {
       kind: 'person',
       clientName,
+      ...(phone ? { phone } : {}),
       // An address of its own, so each is a client of its own.
       addressLine: `${clientName.length} ${clientName.split(' ')[0]} Street`,
       suburb: 'Wellard',
@@ -385,12 +387,15 @@ test('with no signal, the schedule and New Job open from the copy kept on the ph
     name: 'Possum Proofing',
     report: 'serviceReport',
   })
+  // With a number, for the job sheet's Call with no signal.
   await book(
     s.owner,
     s.businessId,
     s.ownerMembershipId,
     'Arthur Wellard',
     today,
+    'General Pest Control',
+    '0412 345 678',
   )
   await signInViaUi(page, s.owner.email)
   await openSchedule(page, s.slug)
@@ -468,8 +473,42 @@ test('with no signal, the schedule and New Job open from the copy kept on the ph
     await expect(
       types.getByRole('checkbox', { name: 'Possum Proofing', exact: true }),
     ).toBeVisible()
-    // The job sheet with no signal (KeptJobView) comes with the Clients
-    // page's copy, and is tested with it.
+
+    // A job opened with no signal: read-only, from the day the phone keeps,
+    // with the card's Call (a hold, never a `tel:` link) and why it can't
+    // be changed. `jobs.get` is never kept.
+    await page.keyboard.press('Escape')
+    await expect(types).toHaveCount(0)
+    // New Job asks before the client chosen goes.
+    await page.keyboard.press('Escape')
+    await page
+      .getByRole('alertdialog')
+      .filter({ hasText: 'Discard your changes?' })
+      .getByRole('button', { name: 'Discard' })
+      .click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    const job = page.getByRole('dialog')
+    await clickUntil(
+      page.getByRole('button', { name: /Arthur Wellard/ }).first(),
+      () =>
+        expect(
+          job.getByRole('heading', {
+            name: 'General Pest Control',
+            exact: true,
+          }),
+        ).toBeVisible({ timeout: 3_000 }),
+    )
+    await expect(
+      job.getByText(
+        /^No signal — showing the copy kept on this phone, updated \S.*\. Editing needs signal\.$/,
+      ),
+    ).toBeVisible()
+    await expect(
+      job.getByRole('button', { name: 'Call Arthur Wellard' }),
+    ).toBeVisible()
+    await expect(
+      job.getByRole('button', { name: 'Edit job details' }),
+    ).toHaveCount(0)
   } finally {
     await context.setOffline(false)
   }
@@ -893,6 +932,147 @@ test('switching business takes the last one’s copy and pages off the phone', a
     await expect(page).toHaveURL(new RegExp(`/${b.slug}/schedule`))
     await expect(page.getByText('Beatrice Byford')).toBeVisible()
     await expect(page.getByText('Arthur Wellard')).toHaveCount(0)
+  } finally {
+    await context.setOffline(false)
+  }
+})
+
+test('with no signal, the Clients page lists every client from the copy kept on the phone, and opens one', async ({
+  page,
+  context,
+}) => {
+  const s = await ownerWithBusiness('kept-clients')
+  await book(
+    s.owner,
+    s.businessId,
+    s.ownerMembershipId,
+    'Arthur Wellard',
+    perthDay(0),
+  )
+  // Not on the schedule's day: the page lists every client the phone
+  // keeps, not only today's. With a number, for the client sheet's Call
+  // with no signal.
+  await book(
+    s.owner,
+    s.businessId,
+    s.ownerMembershipId,
+    'Beatrice Byford',
+    perthDay(7),
+    'General Pest Control',
+    '0412 555 019',
+  )
+  await signInViaUi(page, s.owner.email)
+  await openSchedule(page, s.slug)
+  await keepPageInWorker(page)
+  await waitForKeptCopy(page, s.businessId)
+
+  await page.clock.setSystemTime(Date.now() + PAGE_AGE_MS)
+  await context.setOffline(true)
+  try {
+    await page.goto('/')
+    await expect(newJobButton(page)).toBeEnabled()
+
+    // Neither the newest clients' page nor the server's count is kept: the
+    // page reads the client list New Job picks from, and counts that.
+    await page
+      .getByRole('navigation', { name: 'Tabs' })
+      .getByRole('link', { name: 'Clients', exact: true })
+      .click()
+    await expect(
+      page.getByRole('heading', { name: 'Clients', level: 1 }),
+    ).toBeVisible()
+    await expect(page.getByText('2 clients', { exact: true })).toBeVisible()
+    await expect(page.getByText('Arthur Wellard')).toBeVisible()
+    await expect(page.getByText('Beatrice Byford')).toBeVisible()
+    await expect(keptNote(page)).toHaveAttribute('data-kept-note', 'no-signal')
+    await expect(keptWords(page)).toHaveText(
+      'No signal — showing the copy kept on this phone.',
+    )
+    await expect(keptNote(page)).toContainText(/Updated \S/)
+    await expect(page.getByText(/Could not load/)).toHaveCount(0)
+
+    // A search runs over the copy, as it does over the live list.
+    await page.getByLabel('Search by name or address').fill('Beat')
+    await expect(page.getByText('Beatrice Byford')).toBeVisible()
+    await expect(page.getByText('Arthur Wellard')).toHaveCount(0)
+
+    // A client opened with no signal: read-only, from their row in the
+    // client list the phone keeps, with Call (a hold, never a `tel:` link)
+    // and each site's Map, and why it can't be changed. `clients.get` is
+    // never kept.
+    const sheet = page.getByRole('dialog')
+    await clickUntil(
+      page.getByRole('button', { name: /Beatrice Byford/ }).first(),
+      () =>
+        expect(
+          sheet.getByRole('heading', { name: 'Beatrice Byford', exact: true }),
+        ).toBeVisible({ timeout: 3_000 }),
+    )
+    await expect(
+      sheet.getByText(
+        /^No signal — showing the copy kept on this phone, updated \S.*\. Editing needs signal\.$/,
+      ),
+    ).toBeVisible()
+    await expect(
+      sheet.getByRole('button', { name: 'Call Beatrice Byford' }),
+    ).toBeVisible()
+    await expect(
+      sheet.getByRole('button', {
+        name: 'Map of 15 Beatrice Street, Wellard',
+      }),
+    ).toBeVisible()
+    // Their jobs and notes aren't kept, and say when they open. No Xero
+    // row: this deployment has no Xero, so the live sheet has none either.
+    await expect(sheet.getByText('Opens when you have signal.')).toHaveCount(2)
+    await expect(sheet.getByText('Xero')).toHaveCount(0)
+    await expect(
+      sheet.getByRole('button', { name: 'Edit client details' }),
+    ).toHaveCount(0)
+    await expect(
+      sheet.getByRole('button', { name: /Add another property/ }),
+    ).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(sheet).toHaveCount(0)
+
+    // The Clients page as the worker kept it, opened again with no signal:
+    // the cards its HTML drew stay, rather than giving way to the list's
+    // placeholder while every client is read from the copy instead.
+    await context.setOffline(false)
+    const newClient = page.getByRole('button', { name: 'New client' })
+    await page.goto(`/${s.slug}/clients`)
+    await expect(newClient).toBeEnabled()
+    await expect(page.getByText('Beatrice Byford')).toBeVisible()
+    await page.addInitScript(() => {
+      const seen = window as unknown as { listPlaceholderSeen?: boolean }
+      seen.listPlaceholderSeen = false
+      new MutationObserver(() => {
+        for (const label of document.querySelectorAll(
+          '[role="status"] > .sr-only',
+        )) {
+          if (label.textContent === 'Loading clients') {
+            seen.listPlaceholderSeen = true
+          }
+        }
+      }).observe(document, { childList: true, subtree: true })
+    })
+    await context.setOffline(true)
+    await page.goto(`/${s.slug}/clients`)
+    await expect(newClient).toBeEnabled()
+    await expect(page.getByText('2 clients', { exact: true })).toBeVisible()
+    await expect(page.getByText('Arthur Wellard')).toBeVisible()
+    await expect(page.getByText('Beatrice Byford')).toBeVisible()
+    await expect(keptNote(page)).toBeVisible()
+    // Long enough for the phone's copy to have been read (PEEK_TIMEOUT_MS).
+    await page.waitForTimeout(3_500)
+    await expect(page.getByText('Arthur Wellard')).toBeVisible()
+    await expect(page.getByText('2 clients', { exact: true })).toBeVisible()
+    expect(
+      await page.evaluate(
+        () =>
+          (window as unknown as { listPlaceholderSeen?: boolean })
+            .listPlaceholderSeen,
+      ),
+    ).toBe(false)
   } finally {
     await context.setOffline(false)
   }
