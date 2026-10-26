@@ -927,6 +927,10 @@ export default defineSchema({
     ...binFields,
   })
     .index('by_client', ['clientId'])
+    // Every contact person of the business in one range, for the directory
+    // phones match callers against (clients.directory): one read, never one
+    // per client.
+    .index('by_business', ['businessId'])
     .index('by_binEntryId', ['binEntryId']),
 
   jobs: defineTable({

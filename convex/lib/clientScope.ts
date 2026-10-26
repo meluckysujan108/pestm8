@@ -12,6 +12,13 @@ import type { ActorEnvelope } from './actor'
  * business ever wants the book restricted again — re-deriving it would mean
  * re-learning both points below the hard way.
  *
+ * Turning it back on narrows more than lists: a phone matches callers
+ * against its copy of `clients.directory` (lib/clientMatch.ts), and counts
+ * who holds a number from it. A narrowed directory therefore goes without
+ * contact people, which makes the phone read it as a copy that can't say
+ * who else holds a number; anything that sends a narrowed copy of the book
+ * for matching needs the same.
+ *
  * "The clients whose properties you have jobs at" — the rule the toggle
  * promised. Two things about how it is computed matter more than the rule
  * itself.
