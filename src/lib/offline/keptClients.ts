@@ -238,6 +238,12 @@ export function clientsListView(at: {
   }
 }
 
+/** Said where a list of clients that may be behind (`useBehindOnce`) found
+ * nothing: on the Clients page's NoMatches, and under New Job's pickers'
+ * way in to a new client. */
+export const NEWER_CLIENTS_WITH_SIGNAL =
+  'Newer clients show when you have signal.'
+
 /**
  * `NoMatches`' hint over every client: with the list as the phone last had
  * it (`behind`: `useBehindOnce`), a client added since, on this phone or
@@ -245,7 +251,7 @@ export function clientsListView(at: {
  */
 export function noMatchesHint(behind: boolean): string {
   return behind
-    ? 'Try a different name, address or filter. Newer clients show when you have signal.'
+    ? `Try a different name, address or filter. ${NEWER_CLIENTS_WITH_SIGNAL}`
     : 'Try a different name, address or filter.'
 }
 

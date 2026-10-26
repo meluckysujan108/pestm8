@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { siteContactOf } from '../../convex/lib/siteContact'
+import { phoneKeys } from '../../convex/lib/contactKeys'
+import { queryShape } from './clientSearch'
 
 export type ClientKind = 'person' | 'business'
 export type KindFilter = 'all' | ClientKind
@@ -59,40 +61,57 @@ function nationalDigits(phone: string): string {
   return digits.startsWith('61') ? `0${digits.slice(2)}` : digits
 }
 
+/** A client as the Clients page's search reads them. */
+export type ClientSearchRow = {
+  client: {
+    name: string
+    kind: ClientKind
+    abn?: string
+    phone?: string
+    email?: string
+    clientNumber?: number
+    tags?: ReadonlyArray<string>
+  }
+  properties: ReadonlyArray<{
+    addressLine: string
+    suburb: string
+    siteContactName?: string
+    siteContactPhone?: string
+  }>
+  /** A business client's contact people. */
+  contacts?: ReadonlyArray<{ name: string; phone?: string; email?: string }>
+}
+
 /**
- * The Clients page's search: a client's name and its properties' streets and
- * suburbs, as it always matched, and for a business client its ABN and its
- * sites' contacts too (Prompt 6.1, 6.3). Only a business's: a client flipped
- * to person keeps those hidden, and must not turn up for a number nobody can
- * see on it.
+ * The Clients page's search: a client's name, tags, phone and email and its
+ * properties' streets and suburbs, and for a business client its ABN, its
+ * sites' contacts and its contact people (names, numbers and emails) too
+ * (Prompt 6.1, 6.3; the plan's "search first"). Only a business's: a client
+ * flipped to person keeps those hidden, and must not turn up for a number
+ * nobody can see on it.
  *
  * ABNs and phone numbers match on their digits, spaced or not: "51 824 753
  * 556" and "51824753556" both find the one stored as digits, and
- * "0412345678" or "+61 412 345 678" a site number saved as "0412 345 678".
+ * "0412345678" or "+61 412 345 678" a number saved as "0412 345 678". A
+ * whole number (`queryShape`) is also compared as a key, as the matcher
+ * compares it, under the business's area code: "08 9345 6789" finds one
+ * saved as "9345 6789", which its digits never could.
  */
 export function matchesClientSearch(
-  row: {
-    client: {
-      name: string
-      kind: ClientKind
-      abn?: string
-      clientNumber?: number
-      tags?: Array<string>
-    }
-    properties: Array<{
-      addressLine: string
-      suburb: string
-      siteContactName?: string
-      siteContactPhone?: string
-    }>
-  },
+  row: ClientSearchRow,
   term: string,
+  /** The business's area code (`areaCodeOf` its state), for a local
+   * number typed or saved without one. Perth's when not given. */
+  areaCode = '08',
 ): boolean {
   const query = term.trim().toLowerCase()
   if (query === '') return true
 
   const { client, properties } = row
-  // A client number, typed as "#1916" or "1916": the one client, exactly.
+  const business = client.kind === 'business'
+  // A client number, typed as "#1916" or "1916". Bare, it may also be part
+  // of someone's phone: `searchClientRows` lists the client with that number
+  // alone.
   const asNumber = /^#\s*(\d+)$/.exec(query) ?? /^(\d{1,4})$/.exec(query)
   if (asNumber && Number(asNumber[1]) === client.clientNumber) return true
   const siteContacts = properties.flatMap((p) => {
@@ -103,12 +122,15 @@ export function matchesClientSearch(
     })
     return contact ? [contact] : []
   })
+  const contacts = business ? (row.contacts ?? []) : []
 
   const haystack = [
     client.name,
+    client.email ?? '',
     ...(client.tags ?? []),
     ...properties.flatMap((p) => [p.addressLine, p.suburb]),
     ...siteContacts.map((c) => c.name ?? ''),
+    ...contacts.flatMap((c) => [c.name, c.email ?? '']),
   ]
     .join(' ')
     .toLowerCase()
@@ -116,12 +138,31 @@ export function matchesClientSearch(
 
   // Numbers only by their digits, and never as text: "12" would otherwise
   // find every site whose phone number has a 12 in it.
-  if (!/^[\d\s()+-]+$/.test(query)) return false
+  if (!/^[\d\s()+.-]+$/.test(query)) return false
   const digits = digitsOf(query)
   if (digits.length < MIN_NUMBER_DIGITS) return false
 
   // An ABN is read out and typed from the front.
-  if (client.kind === 'business' && client.abn?.startsWith(digits)) return true
+  if (business && client.abn?.startsWith(digits)) return true
+
+  const phones = [
+    client.phone,
+    ...siteContacts.map((c) => c.phone),
+    ...contacts.map((c) => c.phone),
+  ].filter((phone): phone is string => phone !== undefined && phone !== '')
+
+  // A whole number, as a key: the area code a local one was saved without.
+  if (queryShape(query, areaCode) === 'phone') {
+    const typed = new Set(phoneKeys(query, areaCode))
+    if (
+      typed.size > 0 &&
+      phones.some((phone) =>
+        phoneKeys(phone, areaCode).some((key) => typed.has(key)),
+      )
+    ) {
+      return true
+    }
+  }
 
   // A phone number is compared as dialled at home. Read as +61 only when it
   // plainly is one: a Perth postcode like 6147 is also how "+61 47…" starts,
@@ -129,9 +170,30 @@ export function matchesClientSearch(
   const international =
     query.startsWith('+') || (digits.startsWith('61') && digits.length >= 6)
   const wanted = international ? `0${digits.slice(2)}` : digits
-  return siteContacts.some(
-    (c) => c.phone !== undefined && nationalDigits(c.phone).includes(wanted),
-  )
+  return phones.some((phone) => nationalDigits(phone).includes(wanted))
+}
+
+/**
+ * The rows the Clients page's search finds (`matchesClientSearch`), in the
+ * order given. A client number typed bare ("2041") that is a client's finds
+ * that client alone: four digits are in many a phone number (0420 418 888),
+ * and once phones are searched, every client whose number held them would
+ * come too. "#2041" is always the number; "0478", written as no client
+ * number is, is still the start of a mobile.
+ */
+export function searchClientRows<T extends ClientSearchRow>(
+  rows: ReadonlyArray<T>,
+  term: string,
+  areaCode = '08',
+): Array<T> {
+  const typed = term.trim()
+  if (/^[1-9]\d{0,3}$/.test(typed)) {
+    const numbered = rows.filter(
+      (row) => row.client.clientNumber === Number(typed),
+    )
+    if (numbered.length > 0) return numbered
+  }
+  return rows.filter((row) => matchesClientSearch(row, term, areaCode))
 }
 
 /** What the four filters are set to. `'all'` is a filter that is not set. */

@@ -1,4 +1,12 @@
-import { Suspense, useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useRouteContext } from '@tanstack/react-router'
@@ -16,6 +24,11 @@ import {
   intervalFromDraft,
 } from './RecurrenceFields'
 import { Combobox } from '#/components/primitives/Combobox'
+import type {
+  ComboboxAction,
+  ComboboxHandle,
+  ComboboxLookup,
+} from '#/components/primitives/Combobox'
 import { Segmented } from '#/components/primitives/Segmented'
 import { JobTypePicker } from './JobTypePicker'
 import { useJobTypes } from '#/lib/useJobTypes'
@@ -27,6 +40,7 @@ import {
   SiteAddressFields,
   SiteContactFields,
   newClientArgs,
+  newClientFieldId,
   newSiteArgs,
 } from '#/components/clients/NewClientFields'
 import { FormAlert } from '#/components/forms/FormAlert'
@@ -47,8 +61,27 @@ import type { SendableBooking } from '#/lib/outbox/outboxItem'
 import { useHydrated } from '#/lib/useHydrated'
 import { useLineDown } from '#/lib/offline/useLineDown'
 import type { LineDown } from '#/lib/offline/useLineDown'
-import { clientOptions, propertyOptions } from '#/lib/propertyOptions'
-import { sitesWithClients } from '#/lib/directory'
+import {
+  clientOptions,
+  pickerName,
+  propertyOptions,
+} from '#/lib/propertyOptions'
+import {
+  clientOf,
+  clientsForPicker,
+  normaliseDirectory,
+  sitesWithClients,
+} from '#/lib/directory'
+import {
+  holdersFirst,
+  noMatchRoute,
+  propertyListEnd,
+  queryHolders,
+  siteLessFound,
+} from '#/lib/clientSearch'
+import type { NoMatchRoute, PropertyListEnd } from '#/lib/clientSearch'
+import { useNewerClientsHint } from '#/lib/offline/useKept'
+import { useMatchIndex } from '#/lib/useMatchIndex'
 import { rq } from '#/lib/routeQueries'
 import { personLabel, roleLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
@@ -195,13 +228,16 @@ function NewJobForm({
   forProperty?: Id<'properties'>
   pickDate: boolean
 }) {
-  // Every site with its client, from the slim directory the Schedule warms
-  // (`clients.directory`), in the shape `properties.list` had — so nothing
+  // The slim directory the Schedule warms (`clients.directory`), as the
+  // screens read it (`normaliseDirectory`: the same object for the same
+  // answer, so what is built from it below is built once per push). Every
+  // site with its client, in the shape `properties.list` had, so nothing
   // below changed when the source did.
-  const { data: properties } = useSuspenseQuery({
+  const { data: directory } = useSuspenseQuery({
     ...rq.directory(businessId),
-    select: sitesWithClients,
+    select: normaliseDirectory,
   })
+  const properties = useMemo(() => sitesWithClients(directory), [directory])
   const { data: members } = useSuspenseQuery(
     convexQuery(api.memberships.listForBusiness, { businessId }),
   )
@@ -225,10 +261,11 @@ function NewJobForm({
   const [openedDay] = useState(dayKey)
   const [pickedDay, setDay] = useState(dayKey)
   const day = pickDate ? pickedDay : dayKey
-  const businessState = useRouteContext({
+  const business = useRouteContext({
     from: '/$businessSlug',
-    select: (context) => context.business.state,
+    select: (context) => context.business,
   })
+  const businessState = business.state
   // A new address starts in the business's own state, not WA for everyone:
   // most of a Darwin business's clients are in the NT, and a Darwin address
   // typed by hand and left on WA is how prod came to hold "Fannybay WA".
@@ -312,15 +349,20 @@ function NewJobForm({
   )
   const [propertyMissing, setPropertyMissing] = useState(false)
 
-  // One per client, from the sites already loaded — archived clients
-  // included, and each saying where its sites are (see `clientOptions`).
+  // One per client, from the client list — a client with no site yet
+  // included, archived clients too, and each saying where its sites are (see
+  // `clientOptions`).
   const clientOptionList = useMemo(
-    () => clientOptions(properties, { timezone, now: openedAt }),
-    [properties, timezone, openedAt],
+    () =>
+      clientOptions(clientsForPicker(directory), { timezone, now: openedAt }),
+    [directory, timezone, openedAt],
   )
-  const siteClient = properties.find((p) => p.clientId === siteClientId)?.client
+  // From the client list, not the sites: a client with no site yet, chosen
+  // here, stays chosen, and a business among them gets its site contact.
+  const siteClient = clientOf(directory, siteClientId)
   const [clientMissing, setClientMissing] = useState(false)
   const clientTrigger = useRef<HTMLButtonElement>(null)
+  const clientPicker = useRef<ComboboxHandle>(null)
 
   // A work order is mostly a business client's — a facilities company, an
   // agency — so for them the field is simply there. Anyone else can still
@@ -344,11 +386,11 @@ function NewJobForm({
     if (propertyId && !properties.some((p) => p._id === propertyId))
       setPropertyId('')
   }, [properties, propertyId])
-  // The same for the new site's client.
+  // The same for the new site's client: gone from the client list, not
+  // merely without a site.
   useEffect(() => {
-    if (siteClientId && !properties.some((p) => p.clientId === siteClientId))
-      setSiteClientId('')
-  }, [properties, siteClientId])
+    if (siteClientId && !clientOf(directory, siteClientId)) setSiteClientId('')
+  }, [directory, siteClientId])
   // Held to the options, not just seeded once: a switch starting or ending
   // while the sheet is open changes who may be booked, and a stale id would
   // be submitted as-is and refused.
@@ -518,6 +560,128 @@ function NewJobForm({
     setMode(next)
   }
 
+  // Searching for the caller: a number or an email typed into either picker
+  // is looked up by its key in the match index, so "08 9345 6789" finds a
+  // client saved as "9345 6789", and a contact person's mobile finds their
+  // business (lib/clientSearch.ts).
+  const matchIndex = useMatchIndex(directory, business, members, access)
+  const newClientIdPrefix = useId()
+  // The Property picker's order, for listing a number's holders' sites first.
+  const siteOrder = useMemo(() => {
+    const byId = new Map<string, (typeof properties)[number]>(
+      properties.map((p) => [p._id, p]),
+    )
+    return propertyOptionList.flatMap((o) => byId.get(o.value) ?? [])
+  }, [properties, propertyOptionList])
+  // The clients the Property picker has no row for, as the client picker
+  // lists them: one with no site yet is found there by name or number too,
+  // and offered a new site rather than a second record (`siteLessFound`).
+  const siteLessOptions = useMemo(() => {
+    const withSites = new Set<string>(properties.map((p) => p.clientId))
+    return clientOptionList.filter((o) => !withSites.has(o.value))
+  }, [properties, clientOptionList])
+
+  /** "New site for {client}", for the one client a number or an email
+   * finds, or the one with no site yet a name finds (`propertyListEnd`):
+   * their new site, with the client chosen and focus on it, as "New site for
+   * an existing client" does. */
+  function newSiteFor(clientId: string) {
+    flushSync(() => {
+      setSiteClientId(clientId)
+      setClientMissing(false)
+      switchMode(() => 'site')
+    })
+    clientTrigger.current?.focus()
+  }
+  /** Several clients with no site yet found: New site for, its list opened
+   * with what was typed, so they come first there. */
+  function chooseNewSiteFor(query: string) {
+    flushSync(() => {
+      setClientMissing(false)
+      switchMode(() => 'site')
+    })
+    clientPicker.current?.openWith(query)
+  }
+  /** Nothing matched: a new client, with what was typed in the field it
+   * belongs in, and focus there, so the person sees where it went. */
+  function newClientWith(route: NoMatchRoute) {
+    flushSync(() => {
+      const field = route.fills
+      if (field) setNewClient((v) => ({ ...v, [field]: route.value }))
+      switchMode(() => 'new')
+    })
+    document
+      .getElementById(
+        newClientFieldId(newClientIdPrefix, route.fills ?? 'clientName'),
+      )
+      ?.focus()
+  }
+  // The pickers' rows act long after the render that made them.
+  const latestNewSiteFor = useLatest(newSiteFor)
+  const latestChooseNewSiteFor = useLatest(chooseNewSiteFor)
+  const latestNewClientWith = useLatest(newClientWith)
+
+  const propertyLookup = useCallback(
+    (query: string): ComboboxLookup | null => {
+      const holders = queryHolders(matchIndex, query)
+      const end = propertyListEnd(
+        holders,
+        siteLessFound(query, holders, siteLessOptions),
+      )
+      if (!holders && !end) return null
+      /** The row the list ends with (`propertyListEnd`). */
+      const endRow = (at: PropertyListEnd): ComboboxAction | null => {
+        if (at?.kind === 'several') {
+          return {
+            label: `New site for one of ${at.count} clients with no sites`,
+            onSelect: () => latestChooseNewSiteFor.current(query),
+          }
+        }
+        const client =
+          at && matchIndex.clients.get(at.clientId as Id<'clients'>)
+        return client
+          ? {
+              label: `New site for ${pickerName(client)}`,
+              onSelect: () => latestNewSiteFor.current(client._id),
+            }
+          : null
+      }
+      return {
+        first: holders ? holdersFirst(holders, siteOrder) : [],
+        end: endRow(end),
+      }
+    },
+    [
+      matchIndex,
+      siteOrder,
+      siteLessOptions,
+      latestNewSiteFor,
+      latestChooseNewSiteFor,
+    ],
+  )
+  const clientLookup = useCallback(
+    (query: string): ComboboxLookup | null => {
+      const holders = queryHolders(matchIndex, query)
+      if (!holders) return null
+      const atSites = holders.siteContactSiteIds.flatMap(
+        (id) => properties.find((p) => p._id === id)?.clientId ?? [],
+      )
+      return { first: [...holders.clientIds, ...atSites] }
+    },
+    [matchIndex, properties],
+  )
+  const noMatchAction = useCallback(
+    (query: string): ComboboxAction => {
+      const route = noMatchRoute(query, matchIndex.areaCode)
+      return {
+        label: route.label,
+        onSelect: () => latestNewClientWith.current(route),
+        hint: <NewerClientsHint businessId={businessId} />,
+      }
+    },
+    [businessId, matchIndex.areaCode, latestNewClientWith],
+  )
+
   const bookLabel = create.isPending
     ? 'Booking…'
     : saveWarnings.checking
@@ -550,17 +714,23 @@ function NewJobForm({
           New job
         </Drawer.Title>
 
-        {properties.length > 0 && (
+        {/* A client with no site yet is still a client to add one for. */}
+        {directory.clients.length > 0 && (
           <Field label="Client">
             <Segmented
               kind="choice"
               label="Client"
               // A new site is still an existing client's, so that tab stays
               // chosen; tapping it again leaves the site being added alone.
+              // With no site to choose yet, an existing client's job is at a
+              // new site: that is where the tab goes.
               value={mode === 'new' ? 'new' : 'existing'}
               onChange={(next) =>
                 switchMode((m) =>
-                  m === 'site' && next === 'existing' ? m : next,
+                  next === 'existing' &&
+                  (m === 'site' || properties.length === 0)
+                    ? 'site'
+                    : next,
                 )
               }
               options={[
@@ -581,9 +751,17 @@ function NewJobForm({
                   setPropertyMissing(false)
                 }}
                 options={propertyOptionList}
-                placeholder="Search by name or address"
+                lookup={propertyLookup}
+                noMatchAction={noMatchAction}
+                placeholder="Search by name, address, phone or email"
                 emptyLabel="Choose a client and address"
-                noMatchLabel="No client or address matches. Close this and use New client, or New site for an existing client’s other address."
+                noMatchLabel={
+                  // Only while a push takes the last site away: the tab goes
+                  // to New site for when there are none.
+                  properties.length === 0
+                    ? 'No sites yet — search for the client to add one.'
+                    : 'No client or address matches.'
+                }
                 ariaLabel="Property"
                 invalid={propertyMissing}
                 errorId={PROPERTY_ERROR_ID}
@@ -629,14 +807,17 @@ function NewJobForm({
                   setClientMissing(false)
                 }}
                 options={clientOptionList}
+                lookup={clientLookup}
+                noMatchAction={noMatchAction}
                 title="Client"
-                placeholder="Search by name, phone or suburb"
+                placeholder="Search by name, phone, email or suburb"
                 emptyLabel="Choose a client"
-                noMatchLabel="No client matches. Close this and use New client to add them."
+                noMatchLabel="No client matches."
                 ariaLabel="New site for"
                 invalid={showClientMissing}
                 errorId={CLIENT_ERROR_ID}
                 triggerRef={clientTrigger}
+                handleRef={clientPicker}
               />
             </Field>
             {showClientMissing && (
@@ -660,24 +841,29 @@ function NewJobForm({
                 businessState={businessState}
               />
             )}
-            <button
-              type="button"
-              onClick={() => {
-                // Focus goes where the person is going, as it does the other
-                // way; left alone it falls back to the top of the sheet.
-                flushSync(() => switchMode(() => 'existing'))
-                propertyTrigger.current?.focus()
-              }}
-              className="relative tap-target mt-3 text-body font-semibold text-blue"
-            >
-              Choose an existing site instead
-            </button>
+            {/* Not while there is no site to choose. */}
+            {properties.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  // Focus goes where the person is going, as it does the
+                  // other way; left alone it falls back to the top of the
+                  // sheet.
+                  flushSync(() => switchMode(() => 'existing'))
+                  propertyTrigger.current?.focus()
+                }}
+                className="relative tap-target mt-3 text-body font-semibold text-blue"
+              >
+                Choose an existing site instead
+              </button>
+            )}
           </>
         ) : (
           <NewClientFields
             value={newClient}
             onChange={(patch) => setNewClient((v) => ({ ...v, ...patch }))}
             businessState={businessState}
+            idPrefix={newClientIdPrefix}
           />
         )}
 
@@ -926,6 +1112,18 @@ function NewJobForm({
       </form>
     </SaveWarningsProvider>
   )
+}
+
+/**
+ * Under a picker's way in to a new client, where the list it searched may be
+ * missing a client added since (`useNewerClientsHint`): decided as it shows,
+ * and kept while it does.
+ */
+function NewerClientsHint({ businessId }: { businessId: Id<'businesses'> }) {
+  const hint = useNewerClientsHint(rq.directory(businessId).queryKey)
+  return hint ? (
+    <p className="px-1 pt-1.5 text-caption text-grey-ink">{hint}</p>
+  ) : null
 }
 
 function Field({

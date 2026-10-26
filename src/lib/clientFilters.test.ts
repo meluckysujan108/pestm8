@@ -3,6 +3,7 @@ import {
   computeSuburbLoad,
   filterClientRows,
   matchesClientSearch,
+  searchClientRows,
 } from './clientFilters'
 import type { ClientKind } from './clientFilters'
 
@@ -99,6 +100,68 @@ describe('the Clients page search', () => {
   })
 })
 
+describe('the Clients page search finds the caller by their own details', () => {
+  const JANE = {
+    client: {
+      name: 'Jane Nguyen',
+      kind: 'person' as const,
+      phone: '0491 570 156',
+      email: 'Jane.Nguyen@Example.com',
+    },
+    properties: [{ addressLine: '12 Wattle St', suburb: 'Bayswater' }],
+  }
+  // Saved without its area code, as a local number often is.
+  const LANDLINE = {
+    client: { name: 'Bob Lee', kind: 'person' as const, phone: '5550 4321' },
+    properties: [{ addressLine: '4 Hay St', suburb: 'Perth' }],
+  }
+  const AGENCY = {
+    client: { name: 'Ray White Bayswater', kind: 'business' as const },
+    properties: [{ addressLine: '1 King William St', suburb: 'Bayswater' }],
+    contacts: [
+      { name: 'Sarah Lee', phone: '0491 570 110', email: 'sarah@rw.example' },
+    ],
+  }
+
+  test('by their own mobile, however it is written', () => {
+    expect(matchesClientSearch(JANE, '0491 570 156')).toBe(true)
+    expect(matchesClientSearch(JANE, '0491570156')).toBe(true)
+    expect(matchesClientSearch(JANE, '+61 491 570 156')).toBe(true)
+    expect(matchesClientSearch(JANE, '0491 570 157')).toBe(false)
+  })
+
+  test('by their email, whatever its capitals', () => {
+    expect(matchesClientSearch(JANE, 'jane.nguyen@example.com')).toBe(true)
+    expect(matchesClientSearch(JANE, 'JANE.NGUYEN@')).toBe(true)
+    expect(matchesClientSearch(JANE, 'someone@example.com')).toBe(false)
+  })
+
+  test('a whole number with its area code finds one saved without it', () => {
+    expect(matchesClientSearch(LANDLINE, '08 5550 4321')).toBe(true)
+    expect(matchesClientSearch(LANDLINE, '(08) 5550 4321')).toBe(true)
+    // Another state's area code is another number.
+    expect(matchesClientSearch(LANDLINE, '02 5550 4321')).toBe(false)
+    // In a Sydney business, the number saved without one is Sydney's.
+    expect(matchesClientSearch(LANDLINE, '02 5550 4321', '02')).toBe(true)
+    expect(matchesClientSearch(LANDLINE, '08 5550 4321', '02')).toBe(false)
+  })
+
+  test('a business by a contact person’s name, number or email', () => {
+    expect(matchesClientSearch(AGENCY, 'sarah lee')).toBe(true)
+    expect(matchesClientSearch(AGENCY, '0491 570 110')).toBe(true)
+    expect(matchesClientSearch(AGENCY, 'sarah@rw')).toBe(true)
+  })
+
+  test('a person client’s leftover contacts find nothing', () => {
+    const switched = {
+      ...AGENCY,
+      client: { ...AGENCY.client, kind: 'person' as const },
+    }
+    expect(matchesClientSearch(switched, 'sarah')).toBe(false)
+    expect(matchesClientSearch(switched, '0491 570 110')).toBe(false)
+  })
+})
+
 describe('client number and tags in the search', () => {
   const ALAN = {
     client: {
@@ -114,6 +177,37 @@ describe('client number and tags in the search', () => {
     expect(matchesClientSearch(ALAN, '#1928')).toBe(true)
     expect(matchesClientSearch(ALAN, '1928')).toBe(true)
     expect(matchesClientSearch(ALAN, '#192')).toBe(false)
+  })
+
+  test('a bare client number finds that client alone, not every phone holding its digits', () => {
+    const JANE = {
+      client: {
+        name: 'Jane Nguyen',
+        kind: 'person' as const,
+        clientNumber: 2041,
+      },
+      properties: [{ addressLine: '12 Wattle St', suburb: 'Bayswater' }],
+    }
+    // 0420 418 888 has 2041 in it.
+    const BOB = {
+      client: {
+        name: 'Bob Lee',
+        kind: 'person' as const,
+        phone: '0420 418 888',
+      },
+      properties: [{ addressLine: '4 Hay St', suburb: 'Perth' }],
+    }
+    const names = (term: string) =>
+      searchClientRows([BOB, JANE], term).map((r) => r.client.name)
+    expect(names('2041')).toEqual(['Jane Nguyen'])
+    expect(names(' 2041 ')).toEqual(['Jane Nguyen'])
+    expect(names('#2041')).toEqual(['Jane Nguyen'])
+    // No client has the number: the digits of a phone, as before.
+    expect(names('4188')).toEqual(['Bob Lee'])
+    // Written as no client number is, it is the start of a mobile.
+    expect(names('0420')).toEqual(['Bob Lee'])
+    // Anything else is searched as it always was.
+    expect(names('lee')).toEqual(['Bob Lee'])
   })
 
   test('a short number finds only the client with that number', () => {

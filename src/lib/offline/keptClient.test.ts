@@ -122,7 +122,7 @@ describe('what the sheet shows with no answer yet', () => {
   })
 })
 
-describe('their email, from a day the phone holds', () => {
+describe('their email: the client list’s, or for an older copy a day’s', () => {
   const rows = [
     { propertyId: 'p_other', clientEmail: 'other@example.com' },
     { propertyId: 'p2', clientEmail: 'accounts@subicafe.com.au' },
@@ -132,17 +132,31 @@ describe('their email, from a day the phone holds', () => {
     const row = rows.find(match)
     return row ? { row } : null
   }
+  const kept = (sites: Array<{ _id: string }>, email?: string) => ({
+    client: email === undefined ? {} : { email },
+    sites,
+  })
 
-  test('off a visit to one of their sites', () => {
-    expect(keptClientEmail([{ _id: 'p1' }, { _id: 'p2' }], findRow)).toBe(
+  test('the client list’s own, since it carries emails', () => {
+    expect(
+      keptClientEmail(kept([{ _id: 'p2' }], 'ops@subicafe.com.au'), findRow),
+    ).toBe('ops@subicafe.com.au')
+    // With no site, and no day saying it, as well.
+    expect(keptClientEmail(kept([], 'ops@subicafe.com.au'), findRow)).toBe(
+      'ops@subicafe.com.au',
+    )
+  })
+
+  test('off a visit to one of their sites, for a copy without emails', () => {
+    expect(keptClientEmail(kept([{ _id: 'p1' }, { _id: 'p2' }]), findRow)).toBe(
       'accounts@subicafe.com.au',
     )
   })
 
   test('none with no visit of theirs, an empty one, or no sites', () => {
-    expect(keptClientEmail([{ _id: 'p9' }], findRow)).toBeUndefined()
-    expect(keptClientEmail([{ _id: 'p_none' }], findRow)).toBeUndefined()
-    expect(keptClientEmail([], () => ({ row: rows[0] }))).toBeUndefined()
+    expect(keptClientEmail(kept([{ _id: 'p9' }]), findRow)).toBeUndefined()
+    expect(keptClientEmail(kept([{ _id: 'p_none' }]), findRow)).toBeUndefined()
+    expect(keptClientEmail(kept([]), () => ({ row: rows[0] }))).toBeUndefined()
   })
 })
 

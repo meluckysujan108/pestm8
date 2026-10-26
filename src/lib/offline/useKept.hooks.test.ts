@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { rq } from '#/lib/routeQueries'
 import { hookHarness } from './hooks.fixtures'
 import { keeper } from './keeper'
-import { useBehindOnce, useHandOverBody, useLateSince } from './useKept'
+import {
+  useBehindOnce,
+  useHandOverBody,
+  useLateSince,
+  useNewerClientsHint,
+} from './useKept'
 import type * as React from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -201,5 +206,36 @@ describe('words about an answer that may be behind, decided once (`useBehindOnce
     expect(behind.current()).toBe(false)
     behind.rerender()
     expect(behind.current()).toBe(false)
+  })
+})
+
+describe('the line under a picker’s way in to a new client (`useNewerClientsHint`)', () => {
+  const KEY = rq.directory(B).queryKey
+
+  test('said where the client list may be behind, and kept while it shows', () => {
+    const lineLive = vi.spyOn(keeper, 'lineLive').mockReturnValue(false)
+    const hint = hookHarness.mount(() => useNewerClientsHint(KEY))
+    expect(hint.current()).toBe('Newer clients show when you have signal.')
+
+    // The line comes back while it shows: it stays, so the row above it
+    // never moves as the search is typed into.
+    lineLive.mockReturnValue(true)
+    vi.advanceTimersByTime(30_000)
+    hint.rerender()
+    expect(hint.current()).toBe('Newer clients show when you have signal.')
+  })
+
+  test('nothing where the list is as new as PestM8 has it', () => {
+    vi.spyOn(keeper, 'lineLive').mockReturnValue(true)
+    const hint = hookHarness.mount(() => useNewerClientsHint(KEY))
+    expect(hint.current()).toBeNull()
+  })
+
+  test('nothing while hydrating, as the server drew it', () => {
+    vi.spyOn(keeper, 'lineLive').mockReturnValue(false)
+    const hint = hookHarness.mount(() => useNewerClientsHint(KEY), {
+      hydrating: true,
+    })
+    expect(hint.current()).toBeNull()
   })
 })

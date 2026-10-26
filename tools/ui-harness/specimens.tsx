@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { Profiler, useEffect, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
-import { ErrorComponent } from '@tanstack/react-router'
+import { ErrorComponent, useRouteContext } from '@tanstack/react-router'
 import { ErrorScreen as AppErrorScreen } from '#/components/shell/ErrorScreen'
 import {
   PageReachNotice,
@@ -13,7 +13,16 @@ import {
   KeptClientView,
   NotKeptClient,
 } from '#/components/clients/KeptClientView'
-import { clientRows } from '#/lib/directory'
+import {
+  clientRows,
+  normaliseDirectory,
+  sitesWithClients,
+} from '#/lib/directory'
+import type { Directory } from '#/lib/directory'
+import { propertyOptions } from '#/lib/propertyOptions'
+import { Combobox } from '#/components/primitives/Combobox'
+import { useMatchIndex } from '#/lib/useMatchIndex'
+import { MATCH_BIZ, TEN_K_BIZ } from './matchFixtures'
 import { clientCountLabel, directoryCount } from '#/lib/offline/keptClients'
 import { ScheduleNotKept } from '#/components/schedule/ScheduleNotKept'
 import { RecurringDueNote } from '#/components/schedule/RecurringDueNote'
@@ -22,6 +31,7 @@ import { WeekView } from '#/components/schedule/WeekView'
 import { SidebarProvider } from '#/components/ui/sidebar'
 import {
   formatDayLabel,
+  formatJobDate,
   formatMonthLabel,
   formatWeekRange,
   startOfWeekKey,
@@ -85,15 +95,19 @@ import { StatusPill } from '#/components/primitives/StatusPill'
 import { ScheduleFilterBar } from '#/components/schedule/ScheduleFilterBar'
 import { ClientFilterBar } from '#/components/clients/ClientFilterBar'
 import { clientFacets } from '../../convex/lib/clientFacets'
-import { useQuery } from '@tanstack/react-query'
+import {
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
 import { ClientCard } from '#/components/clients/ClientCard'
-import { useClientFilters } from '#/lib/clientFilters'
+import { searchClientRows, useClientFilters } from '#/lib/clientFilters'
 import { usePagedList } from '#/lib/usePagedList'
 import { CLIENTS_PAGE, clientsFirstPage, rq } from '#/lib/routeQueries'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { SwitchBanner } from '#/components/shell/SwitchBanner'
-import { AccessProvider } from '#/lib/access'
+import { AccessProvider, useAccess } from '#/lib/access'
 import {
   BackLink,
   DANGER_ROW_CLASS,
@@ -278,6 +292,233 @@ function NewJob() {
           onClose={() => {}}
         />
       </AccessProvider>
+    </Phone>
+  )
+}
+
+/**
+ * New Job over a client book of its own (`matchFixtures.ts`), for searching
+ * for the caller: the email or number a caller gives finds them, and a
+ * number nobody has is the way in to a new client. The shoot plan types
+ * into the Property picker (`newjob-picker-*`).
+ */
+function NewJobOver({ businessId }: { businessId: string }) {
+  const day = useBusinessDay(TZ).key
+  return (
+    <Phone>
+      <AccessProvider businessId={businessId as never}>
+        <Header title="Schedule" />
+        <NewJobSheet
+          businessId={businessId as never}
+          dayKey={day}
+          timezone={TZ}
+          open
+          onClose={() => {}}
+        />
+      </AccessProvider>
+    </Phone>
+  )
+}
+
+function NewJobPickerMatch() {
+  return <NewJobOver businessId={MATCH_BIZ} />
+}
+
+/** The same with no signal: the way in to a new client says newer clients
+ * show when there is signal. */
+function NewJobPickerNoMatchOffline() {
+  return (
+    <NoSignal>
+      <NewJobOver businessId={MATCH_BIZ} />
+    </NoSignal>
+  )
+}
+
+/**
+ * New Job over 10,000 clients and 11,000 sites, for timing on a real old
+ * iPhone over the LAN (`?s=newjob-picker-10k`, Safari's Web Inspector open
+ * for the console). Logged, as the plan's M0 asks:
+ *
+ * - the match index, built once as the page opens: here, through the same
+ *   `useMatchIndex` New Job calls, so the sheet finds it built;
+ * - every commit New Job makes (a React `Profiler`): its mount, then each
+ *   keystroke's two, the field's at once and the list's a moment behind,
+ *   labelled with what the search holds;
+ * - a push: `push10k()` in the console hands the sheet a new answer, as a
+ *   live change does, and its commits are labelled "push".
+ *
+ * Served by `pnpm ui:harness`, React's development build: the Profiler
+ * times only there (a production build of React leaves it out), and slower
+ * than the app's own build, so each figure is an upper bound. Its shot is
+ * only for the record.
+ */
+function NewJobPicker10k() {
+  const day = useBusinessDay(TZ).key
+  return (
+    <Phone>
+      <AccessProvider businessId={TEN_K_BIZ as never}>
+        <Header title="Schedule" />
+        <TenKTimings>
+          <NewJobSheet
+            businessId={TEN_K_BIZ as never}
+            dayKey={day}
+            timezone={TZ}
+            open
+            onClose={() => {}}
+          />
+        </TenKTimings>
+      </AccessProvider>
+    </Phone>
+  )
+}
+
+/** What the next commits are for: "push" from `push10k()` until a commit
+ * has landed, else what the Property picker's search holds. */
+let tenKPushing = false
+let tenKIndexLogged = false
+
+function TenKTimings({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient()
+  const directoryQuery = rq.directory(TEN_K_BIZ as never)
+  const { data: directory } = useSuspenseQuery({
+    ...directoryQuery,
+    select: normaliseDirectory,
+  })
+  const { data: members } = useSuspenseQuery(rq.roster(TEN_K_BIZ as never))
+  const business = useRouteContext({
+    from: '/$businessSlug',
+    select: (context) => context.business,
+  })
+  const access = useAccess()
+  const t0 = performance.now()
+  const index = useMatchIndex(directory, business, members, access)
+  const built = performance.now() - t0
+  if (!tenKIndexLogged) {
+    tenKIndexLogged = true
+    console.info(
+      `[harness] 10k: match index of ${index.clients.size} clients and ${directory.sites.length} sites built in ${Math.round(built)} ms`,
+    )
+  }
+  useEffect(() => {
+    const target = window as unknown as { push10k?: () => void }
+    target.push10k = () => {
+      tenKPushing = true
+      // A new answer object, as a live change brings: everything built from
+      // it is built again.
+      queryClient.setQueryData(directoryQuery.queryKey, (old: unknown) =>
+        old ? { ...(old as Directory) } : old,
+      )
+    }
+    console.info('[harness] 10k: type in Property; push10k() for a push')
+    return () => {
+      delete target.push10k
+    }
+  }, [queryClient, directoryQuery.queryKey])
+  return (
+    <Profiler
+      id="new-job"
+      onRender={(_id, phase, actualDuration) => {
+        const search = document.querySelector<HTMLInputElement>(
+          '[data-combobox-search] input',
+        )
+        const what = tenKPushing
+          ? 'push'
+          : search
+            ? `search “${search.value}”`
+            : 'sheet'
+        if (tenKPushing && phase !== 'mount') tenKPushing = false
+        console.info(
+          `[harness] 10k: ${phase} (${what}) ${actualDuration.toFixed(1)} ms`,
+        )
+      }}
+    >
+      {children}
+    </Profiler>
+  )
+}
+
+/**
+ * A picker row with two quieter lines joined: what is booked there, decided
+ * as the row first shows (`detailOf`, from `jobs.openWork` once it is on
+ * the phone), before its own "Added …". Opened by the shoot plan.
+ */
+function NewJobPickerDetailTwo() {
+  const { data } = useQuery(rq.directory(MATCH_BIZ as never))
+  const today = perthTodayKey()
+  const [value, setValue] = useState('')
+  const options = data
+    ? propertyOptions(sitesWithClients(data), { timezone: TZ, now: Date.now() })
+    : []
+  const lines: Record<string, string> = {
+    p_jane: `Booked ${formatJobDate(addDays(today, 2), today)}`,
+    p_rw2: `Repeats every 3 months, next ${formatJobDate(addDays(today, 40), today)}`,
+    p_lisa: `Last visit ${formatJobDate(addDays(today, -12), today)}`,
+  }
+  return (
+    <Phone>
+      <Header title="Schedule" />
+      <div className="px-4 pt-4">
+        <label className="flex flex-col gap-1.5">
+          <span className="section-label">Property</span>
+          <Combobox
+            value={value}
+            onChange={setValue}
+            options={options}
+            detailOf={(id) => lines[id]}
+            placeholder="Search by name, address, phone or email"
+            emptyLabel="Choose a client and address"
+            noMatchLabel="No client or address matches."
+            ariaLabel="Property"
+          />
+        </label>
+      </div>
+    </Phone>
+  )
+}
+
+/** The Clients page searched by a client's own mobile, as the route draws
+ * it with every client to search: their card, found by the number. */
+function ClientsSearchPhone() {
+  const { data } = useQuery(rq.directory(MATCH_BIZ as never))
+  const term = '0491 570 156'
+  const rows = data ? searchClientRows(clientRows(data), term, '08') : []
+  return (
+    <Phone>
+      <Header
+        kicker={data ? clientCountLabel(directoryCount(data)) : '\u00a0'}
+        title="Clients"
+      />
+      <div className="flex px-4 pt-3">
+        <SearchBox
+          value={term}
+          onChange={() => {}}
+          label="Search clients by name, address, phone or email"
+          placeholder="Search by name, address, phone, email or #number"
+        />
+      </div>
+      <div className="px-4 pt-3">
+        <Segmented
+          label="Sort clients"
+          value="newest"
+          onChange={() => {}}
+          options={[
+            { value: 'newest', label: 'Newest first' },
+            { value: 'az', label: 'A–Z' },
+          ]}
+        />
+      </div>
+      <section className="px-4 pb-6 pt-4">
+        <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch">
+          {rows.map((row) => (
+            <ClientCard
+              key={row.client._id}
+              client={row.client}
+              properties={row.properties}
+              onOpen={() => {}}
+            />
+          ))}
+        </div>
+      </section>
     </Phone>
   )
 }
@@ -1165,8 +1406,8 @@ function ClientsKept({ notice }: { notice?: ReachNoticeModel }) {
         <SearchBox
           value=""
           onChange={() => {}}
-          label="Search by name or address"
-          placeholder="Search by name, address or #number"
+          label="Search clients by name, address, phone or email"
+          placeholder="Search by name, address, phone, email or #number"
         />
       </div>
       <KeptCopyNote
@@ -2485,6 +2726,13 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   jobdetail: JobDetail,
   newjob: NewJob,
   'newjob-no-signal': NewJobNoSignal,
+  // Search first (the matching plan's M2, 28 Oct 2026).
+  'newjob-picker-email-match': NewJobPickerMatch,
+  'newjob-picker-no-match-add': NewJobPickerMatch,
+  'newjob-picker-no-match-offline': NewJobPickerNoMatchOffline,
+  'newjob-picker-detail-two': NewJobPickerDetailTwo,
+  'newjob-picker-10k': NewJobPicker10k,
+  'clients-search-phone': ClientsSearchPhone,
   'business-switch-no-signal': BusinessSwitchNoSignal,
   jobtimes: JobTimes,
   'jobdetail-services': JobDetailServices,
