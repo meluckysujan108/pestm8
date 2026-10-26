@@ -18,7 +18,7 @@ import {
   sharedJobIds,
   sharedJobsInRange,
 } from './lib/jobPeople'
-import type { RowScope } from './lib/capabilities'
+import type { Role, RowScope } from './lib/capabilities'
 import { clientKind, clientStatus } from './schema'
 import {
   claimClientNumber,
@@ -73,45 +73,95 @@ export const list = query({
 })
 
 /**
- * Past this many clients (or sites) the directory stops reading and says so.
- * Far beyond any book today (the largest is 1,338): before a business gets
- * here, the Clients search moves to the server (docs/design-system.md, Long
- * lists). It keeps the read inside a query's limits rather than failing.
+ * Past this many clients (or sites, or contact people) the directory stops
+ * reading and says so. Far beyond any book today (the largest is 1,371):
+ * before a business gets here, the Clients search moves to the server
+ * (docs/design-system.md, Long lists), and the directory is split. It keeps
+ * the read inside a query's limits rather than failing.
  */
 const DIRECTORY_LIMIT = 8000
 
 /**
+ * Who is sent clients' emails and business clients' contact people: every
+ * role, subcontractors included (the owner's answer, 27 Oct 2026). Any
+ * member may be the one a caller rings, and they already hold names, phones
+ * and addresses. The account being read decides (`readScope`), so an owner
+ * looking through a subcontractor's eyes sees what they would.
+ *
+ * Without them, a directory carries no `email` and no `contacts`, and the
+ * phone's matcher reads the copy as incomplete (lib/clientMatch.ts).
+ */
+const CONTACT_DETAILS_ROLES: ReadonlySet<Role> = new Set([
+  'owner',
+  'contractor',
+  'subcontractor',
+])
+
+function contactDetailsFor(env: ActorEnvelope): boolean {
+  return CONTACT_DETAILS_ROLES.has(env.readScope.role)
+}
+
+/**
  * Every client and every site of the business, in slim rows — the one list
  * behind the booking pickers (New Job, the job's edit form, New report), the
- * client import's "already here", and the Clients page's search, A–Z and
- * filters.
+ * client import's "already here", the Clients page's search, A–Z and
+ * filters, and "is this caller already a client?" (lib/clientMatch.ts),
+ * which a phone answers from its kept copy with no signal.
  *
  * Read whole on purpose: a picker that held only some clients would let the
  * office type an existing one in again, a second history for the same house
  * (properties.ts `search`). What it no longer does is what made
  * `properties.list` heavy: one read per site to embed the whole client, and
- * every field of both. Two range reads, joined here, and only the fields
- * those screens use — about a third of the bytes.
+ * every field of both. A few range reads, joined here, and only the fields
+ * those screens use.
+ *
+ * For matching, each client's email, and each business client's contact
+ * people (`contacts`): an agency's property manager rings from her own
+ * mobile. Not a person client's, which the app hides. Who gets them is
+ * `contactDetailsFor`.
+ *
+ * Every field it sends is the client sheet's to show anyone the book is
+ * open to (`clients.get`, `clientContacts.list`): the directory sends them
+ * all at once, for a phone with no signal, and nothing more.
+ *
+ * Re-run, and re-sent whole to every member with it open, on every change
+ * to what it reads, so it reads the client book and nothing else: clients,
+ * sites and contact people, after the access check every query makes. Not
+ * the business row, which every booking, Recurring Job visit and numbered
+ * report patches (its job and report numbers), nor the team. That is why
+ * the business's and the team's own numbers, which matching leaves out, are
+ * not marked here: the phone works them out from what it already holds
+ * (`oursFor`, lib/clientMatch.ts).
  *
  * Archived clients are in it, with `archivedAt`: the pickers keep them
- * pickable, labelled and last; the Clients page leaves them out. Both
- * arrays are oldest first (`by_business`), as `properties.list` was: the
+ * pickable, labelled and last; the Clients page leaves them out. Every
+ * array is oldest first (`by_business`), as `properties.list` was: the
  * import matches the older of two same-named clients, and New report picks
- * the first site. Scoped as `properties.list` is.
+ * the first site. Scoped as `properties.list` is. `capped` says clients or
+ * sites passed the limit; `contactsCapped`, that only contact people did.
  *
- * Kept on phones: a renamed or removed field means bumping KEPT_SHAPE.
+ * Kept on phones: a renamed or removed field means bumping KEPT_SHAPE. An
+ * added one doesn't, but every field already here keeps its meaning: the
+ * live frontend reads them as they are.
  */
 export const directory = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
     const env = await requireActor(ctx, businessId)
     const visible = await visibleClientIds(ctx, env)
+    const details = contactDetailsFor(env)
+    // Contact people only with the whole book: a phone reads a copy with
+    // them as complete, and counts who holds a number from it. A copy of
+    // some clients only (lib/clientScope.ts) would count a family's or an
+    // agency's number held outside it as one person's, so it goes without,
+    // and is matched as a copy that can't say who else holds a number.
+    const withContacts = details && visible === 'all'
 
     // Read newest first, so a book past the limit loses its OLDEST rows:
     // the newest are the ones about to be booked, and an import's duplicate
     // check has most need of what was added last. Turned back to oldest
     // first after the cut.
-    const [clients, sites] = await Promise.all([
+    const [clients, sites, contacts] = await Promise.all([
       ctx.db
         .query('clients')
         .withIndex('by_business', (q) => q.eq('businessId', businessId))
@@ -124,6 +174,14 @@ export const directory = query({
         .order('desc')
         .filter((q) => q.eq(q.field('deletedAt'), undefined))
         .take(DIRECTORY_LIMIT + 1),
+      withContacts
+        ? ctx.db
+            .query('clientContacts')
+            .withIndex('by_business', (q) => q.eq('businessId', businessId))
+            .order('desc')
+            .filter((q) => q.eq(q.field('deletedAt'), undefined))
+            .take(DIRECTORY_LIMIT + 1)
+        : null,
     ])
 
     const shown = clients
@@ -131,8 +189,14 @@ export const directory = query({
       .reverse()
       .filter((c) => inClientScope(visible, c._id))
     const ids = new Set(shown.map((c) => c._id))
+    // Contact people of the business clients listed only: a person
+    // client's are hidden in the app, and a contact never arrives without
+    // the client it is a contact of.
+    const businesses = new Set(
+      shown.filter((c) => c.kind === 'business').map((c) => c._id),
+    )
     return {
-      clients: shown.map(directoryClient),
+      clients: shown.map((c) => directoryClient(c, details)),
       // Only sites whose client is listed: a site never arrives without the
       // name it is booked under.
       sites: sites
@@ -140,6 +204,20 @@ export const directory = query({
         .reverse()
         .filter((p) => ids.has(p.clientId))
         .map(directorySite),
+      ...(contacts
+        ? {
+            contacts: contacts
+              .slice(0, DIRECTORY_LIMIT)
+              .reverse()
+              .filter((p) => businesses.has(p.clientId))
+              .map(directoryContact),
+            // Said only when the clients weren't cut too: then "only the
+            // newest clients" is already said, and covers their contacts.
+            contactsCapped:
+              contacts.length > DIRECTORY_LIMIT &&
+              clients.length <= DIRECTORY_LIMIT,
+          }
+        : {}),
       capped:
         clients.length > DIRECTORY_LIMIT || sites.length > DIRECTORY_LIMIT,
     }
@@ -156,13 +234,15 @@ const imported = (row: {
     : {}
 
 /** A client as the directory sends it. An empty field is left out. */
-function directoryClient(c: Doc<'clients'>) {
+function directoryClient(c: Doc<'clients'>, details: boolean) {
+  const email = details ? c.email : undefined
   return {
     _id: c._id,
     _creationTime: c._creationTime,
     name: c.name,
     kind: c.kind,
     ...(c.phone ? { phone: c.phone } : {}),
+    ...(email ? { email } : {}),
     ...(c.abn ? { abn: c.abn } : {}),
     ...(c.clientNumber !== undefined ? { clientNumber: c.clientNumber } : {}),
     ...(c.status ? { status: c.status } : {}),
@@ -185,6 +265,19 @@ function directorySite(p: Doc<'properties'>) {
     ...(p.siteContactPhone ? { siteContactPhone: p.siteContactPhone } : {}),
     createdAt: p.createdAt,
     ...imported(p),
+  }
+}
+
+/** A business client's contact person as the directory sends it. An empty
+ * field is left out. */
+function directoryContact(p: Doc<'clientContacts'>) {
+  return {
+    _id: p._id,
+    clientId: p.clientId,
+    name: p.name,
+    ...(p.role ? { role: p.role } : {}),
+    ...(p.phone ? { phone: p.phone } : {}),
+    ...(p.email ? { email: p.email } : {}),
   }
 }
 

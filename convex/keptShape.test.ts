@@ -110,11 +110,20 @@ const KEPT_PATHS: Record<KeptFn, ReadonlyArray<string>> = {
     'clients[].archivedAt',
     'clients[].clientNumber',
     'clients[].createdAt',
+    'clients[].email',
     'clients[].kind',
     'clients[].name',
     'clients[].phone',
     'clients[].status',
     'clients[].tags',
+    'contacts',
+    'contactsCapped',
+    'contacts[]._id',
+    'contacts[].clientId',
+    'contacts[].email',
+    'contacts[].name',
+    'contacts[].phone',
+    'contacts[].role',
     'sites',
     'sites[]._id',
     'sites[].addressLine',
@@ -252,6 +261,15 @@ beforeAll(async () => {
     businessId,
     contactId: contact._id,
     phone: '0400 555 666',
+  })
+  // A second contact person, with a role and an email, which the directory
+  // sends for matching a caller.
+  await owner.as.mutation(api.clientContacts.create, {
+    businessId,
+    clientId: contact.clientId,
+    name: 'Terry Bursar',
+    role: 'Bursar',
+    email: 'bursar@karratha.test',
   })
   // Archived, which the directory still sends, for the pickers.
   const oldSite = await owner.as.mutation(api.properties.create, {
