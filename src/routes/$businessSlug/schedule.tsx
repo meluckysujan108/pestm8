@@ -564,8 +564,8 @@ function ScheduleBody({
               onMonthChange={setMonthKey}
             />
             {/* Under the month, well below the band at the top right where
-                the can't-reach notice floats, which would cover it above
-                the agenda. */}
+                the can't-reach notice floats with a change waiting to save,
+                which would cover it above the agenda. */}
             {note('')}
           </div>
           <div className="min-w-0">
@@ -678,10 +678,11 @@ function ScheduleBody({
             />
           </div>
 
-          {/* Under the strip, clear of the no-signal notice's band. The
-              can't-reach one, taller for Try again and a waiting save, can
-              cover its first line while it shows; it says when the screen
-              was last updated itself. */}
+          {/* Under the strip, clear of the no-signal notice's band. While
+              it says the line is down, the can't-reach notice gives way to
+              it unless a change is waiting to save; then that notice, taller
+              for Try again and the save, can cover its first line, and says
+              when the screen was last updated itself. */}
           {note()}
 
           <section

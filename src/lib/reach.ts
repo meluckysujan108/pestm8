@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { useLayoutEffect, useSyncExternalStore } from 'react'
 
 /**
  * Whether the app can reach PestM8 — the rule components/shell/
@@ -157,10 +157,27 @@ export type ReachNoticeModel = {
   onDismiss: () => void
 }
 
+/**
+ * The notice as it shows where a line saying the screen is the copy kept on
+ * the phone, because the line is down, may be showing too
+ * (lib/offline/keptOnScreen.ts): left out while one is (`kept`), which says
+ * the same thing just under it. Never while a change is waiting to save,
+ * though: only the notice says that, and that a reload loses it. So it
+ * gives way only when all it waits on is reads.
+ */
+export function noticeOverKept(
+  notice: ReachNoticeModel | null,
+  kept: boolean,
+): ReachNoticeModel | null {
+  return notice !== null && kept && !notice.waitingToSave ? null : notice
+}
+
 // The notice as ConnectionNotice last decided it, for the places that show
 // it too or give way to it: an open sheet, which covers the notice, draws its
 // own copy (primitives/Sheet.tsx), and the new-version banner, in the same
-// place on screen, waits (ServiceWorker.tsx).
+// place on screen, waits (ServiceWorker.tsx). It is published as decided,
+// whether or not the page's note holds the banner back (`noticeOverKept`):
+// a sheet has its own rule for that, and a reload still needs PestM8.
 let current: ReachNoticeModel | null = null
 const listeners = new Set<() => void>()
 
@@ -179,4 +196,74 @@ export function useReachNotice(): ReachNoticeModel | null {
     () => current,
     () => null,
   )
+}
+
+/**
+ * When the clock that turns Try again into Reload began (ConnectionNotice):
+ * kept while it runs (`running`: the notice up with signal, and drawn
+ * somewhere), now as it starts, and null otherwise. So a notice back from a
+ * spell with no signal offers Try again first, and so does one a kept line
+ * held back (lib/offline/keptOnScreen.ts) as it first shows: the wait before
+ * Reload is for someone who has had Try again in front of them.
+ */
+export function reloadClockSince(
+  since: number | null,
+  running: boolean,
+  now: number,
+): number | null {
+  if (!running) return null
+  return since ?? now
+}
+
+// How many places draw the notice now: the page's banner, and an open
+// sheet's line (`useDrawsNotice`). ConnectionNotice runs the clock above only
+// while one does (`useNoticeDrawn`): while every one gives way to a kept line,
+// nobody can see it.
+let drawing = 0
+const drawnListeners = new Set<() => void>()
+
+function notifyDrawn(): void {
+  for (const listener of [...drawnListeners]) listener()
+}
+
+/** Whether the notice is drawn anywhere now (`drawNotice`). */
+export function noticeDrawn(): boolean {
+  return drawing > 0
+}
+
+/** Calls `listener` whenever `noticeDrawn` may say otherwise. */
+export function subscribeNoticeDrawn(listener: () => void): () => void {
+  drawnListeners.add(listener)
+  return () => {
+    drawnListeners.delete(listener)
+  }
+}
+
+/**
+ * Says the notice is drawn in one more place, until the function it returns
+ * is called (once counts, however often it is).
+ */
+export function drawNotice(): () => void {
+  drawing++
+  if (drawing === 1) notifyDrawn()
+  let drawn = true
+  return () => {
+    if (!drawn) return
+    drawn = false
+    drawing--
+    if (drawing === 0) notifyDrawn()
+  }
+}
+
+/** Says the notice is drawn where this is, while `on`. */
+export function useDrawsNotice(on: boolean): void {
+  useLayoutEffect(() => (on ? drawNotice() : undefined), [on])
+}
+
+/**
+ * Whether the notice is drawn anywhere (`noticeDrawn`): false on the server
+ * and while hydrating, when nothing draws it.
+ */
+export function useNoticeDrawn(): boolean {
+  return useSyncExternalStore(subscribeNoticeDrawn, noticeDrawn, () => false)
 }

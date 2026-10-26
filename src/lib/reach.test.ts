@@ -1,15 +1,20 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   GAP_MS,
   QUERY_WAIT_MS,
   REACH_START,
   REQUEST_WAIT_MS,
   SOCKET_DOWN_MS,
+  drawNotice,
+  noticeDrawn,
+  noticeOverKept,
   oldestPending,
+  reloadClockSince,
   sampleReach,
+  subscribeNoticeDrawn,
   waitingOnScreen,
 } from './reach'
-import type { ReachSample, ReachState } from './reach'
+import type { ReachNoticeModel, ReachSample, ReachState } from './reach'
 
 const healthy: Omit<ReachSample, 'now'> = {
   visible: true,
@@ -191,5 +196,88 @@ describe('waitingOnScreen', () => {
       QUERY_WAIT_MS,
     )
     expect(stuck).toBe(true)
+  })
+})
+
+describe('noticeOverKept', () => {
+  const notice = (
+    overrides: Partial<ReachNoticeModel> = {},
+  ): ReachNoticeModel => ({
+    online: false,
+    waitingToSave: false,
+    updated: '9:42am',
+    action: 'try',
+    onTry: () => {},
+    onReload: () => {},
+    onDismiss: () => {},
+    ...overrides,
+  })
+
+  it('gives way to a line saying the screen is the kept copy, while only reads wait', () => {
+    expect(noticeOverKept(notice(), true)).toBeNull()
+    expect(noticeOverKept(notice({ online: true }), true)).toBeNull()
+    expect(
+      noticeOverKept(notice({ online: true, action: 'reload' }), true),
+    ).toBeNull()
+  })
+
+  it('never while a change is waiting to save: only it says a reload loses that', () => {
+    const saving = notice({ waitingToSave: true })
+    expect(noticeOverKept(saving, true)).toBe(saving)
+    const confirm = notice({
+      online: true,
+      waitingToSave: true,
+      action: 'reload-confirm',
+    })
+    expect(noticeOverKept(confirm, true)).toBe(confirm)
+  })
+
+  it('is the notice as decided where no such line shows', () => {
+    const up = notice()
+    expect(noticeOverKept(up, false)).toBe(up)
+    expect(noticeOverKept(null, false)).toBeNull()
+    expect(noticeOverKept(null, true)).toBeNull()
+  })
+})
+
+describe('the wait before Reload is offered (`reloadClockSince`)', () => {
+  it('starts as the notice is first up with signal and drawn, and is kept while it is', () => {
+    expect(reloadClockSince(null, true, 1_000)).toBe(1_000)
+    expect(reloadClockSince(1_000, true, 40_000)).toBe(1_000)
+  })
+
+  it('starts again from Try again once it stops: no signal, or held back by a kept line everywhere', () => {
+    expect(reloadClockSince(1_000, false, 40_000)).toBeNull()
+    expect(reloadClockSince(null, false, 40_000)).toBeNull()
+    // Shown again after a hold: timed from then, not from when it went up.
+    expect(reloadClockSince(null, true, 70_000)).toBe(70_000)
+  })
+})
+
+describe('where the notice is drawn (`drawNotice`)', () => {
+  it('counts while any place draws it, and once each however often it is let go', () => {
+    expect(noticeDrawn()).toBe(false)
+    const banner = drawNotice()
+    const sheet = drawNotice()
+    banner()
+    banner()
+    expect(noticeDrawn()).toBe(true)
+    sheet()
+    expect(noticeDrawn()).toBe(false)
+  })
+
+  it('tells its listeners only as it starts and stops being drawn anywhere', () => {
+    const heard = vi.fn()
+    const stop = subscribeNoticeDrawn(heard)
+    const banner = drawNotice()
+    const sheet = drawNotice()
+    expect(heard).toHaveBeenCalledTimes(1)
+    banner()
+    expect(heard).toHaveBeenCalledTimes(1)
+    sheet()
+    expect(heard).toHaveBeenCalledTimes(2)
+    stop()
+    drawNotice()()
+    expect(heard).toHaveBeenCalledTimes(2)
   })
 })

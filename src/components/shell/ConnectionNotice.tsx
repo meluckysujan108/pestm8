@@ -4,12 +4,17 @@ import { RefreshCw, RotateCcw, WifiOff, X } from 'lucide-react'
 import { logConnection } from '#/lib/connectionLog'
 import { reconnectNow } from '#/lib/convexClient'
 import { formatUpdated, todayKey } from '#/lib/format'
+import { useKeptHere } from '#/lib/offline/keptOnScreen'
 import { useOnline } from '#/lib/online'
 import {
   REACH_START,
+  noticeOverKept,
   oldestPending,
   publishReachNotice,
+  reloadClockSince,
   sampleReach,
+  useDrawsNotice,
+  useNoticeDrawn,
   waitingOnScreen,
 } from '#/lib/reach'
 import type { ReachNoticeModel, ReachWhy } from '#/lib/reach'
@@ -50,10 +55,16 @@ const RELOAD_AFTER_TRY_MS = 8_000
  * it, and the notice says how old that copy is: "What’s on screen was last
  * updated 9:42am." The root hands the keeper in, so the sheets that draw
  * `ReachNotice` from here don't load it, and who is signed in, with it.
+ * While the page itself says it is showing that copy because the line is
+ * down (KeptCopyNote's "No signal — …"), the banner gives way to it, unless
+ * a change is waiting to save (`PageReachNotice`); a sheet does the same
+ * over its own kept view. The wait before Reload is offered runs only while
+ * the notice is drawn somewhere (`reloadClockSince`), so one held back that
+ * long still offers Try again first when it shows.
  *
- * Each time it appears, why (`ReachWhy`), how long until it went, and every
- * Try again and Reload go into the phone's connection notes
- * (lib/connectionLog.ts).
+ * Each time it appears, why (`ReachWhy`), how long until it went, whether a
+ * kept note held it back, and every Try again and Reload go into the phone's
+ * connection notes (lib/connectionLog.ts).
  *
  * Screen readers hear it through a live region that is always there, with one
  * short line when it appears and when Reload is offered. The notice itself
@@ -158,17 +169,19 @@ export function ConnectionNotice({
   }, [convexClient, queryClient, kept])
 
   // Try again and Reload only make sense with signal, so their clock only
-  // runs with it: back from a spell with none, it is Try again first.
+  // runs with it: back from a spell with none, it is Try again first. And
+  // only while the notice is drawn somewhere: held back everywhere by a kept
+  // line, nobody has had Try again in front of them (`reloadClockSince`).
+  const drawn = useNoticeDrawn()
   useEffect(() => {
     if (!stuck) setDismissed(false)
-    if (!stuck || !online) {
-      setShownAt(null)
+    const running = stuck && online && drawn
+    if (!running) {
       setTriedAt(null)
       setReloadArmed(false)
-    } else {
-      setShownAt((at) => at ?? Date.now())
     }
-  }, [stuck, online])
+    setShownAt((at) => reloadClockSince(at, running, Date.now()))
+  }, [stuck, online, drawn])
 
   const showing = stuck && !dismissed
   const trying = triedAt !== null && now - triedAt < RELOAD_AFTER_TRY_MS
@@ -225,18 +238,52 @@ export function ConnectionNotice({
   }, [model])
   useEffect(() => () => publishReachNotice(null), [])
 
+  return <PageReachNotice notice={model} />
+}
+
+/**
+ * ConnectionNotice's banner, and the live region that reads it out, on the
+ * page: left out while the page says itself that it is showing the copy
+ * kept on the phone because the line is down (KeptCopyNote, through
+ * lib/offline/keptOnScreen.ts), which is the same news, unless a change is
+ * waiting to save (`noticeOverKept`). Back by the usual rules a moment after
+ * that note goes (`KEPT_GONE_MS`), or scrolls out of sight, and offering
+ * Try again first (`useDrawsNotice`). Each time it is held back or let
+ * through while it is up, the phone's connection notes say so
+ * (`notice-held`): a notice there that nobody saw would mislead whoever
+ * reads them.
+ *
+ * Its own component so the UI harness, which has no client to run
+ * ConnectionNotice with, draws the page's rule rather than a copy of it.
+ */
+export function PageReachNotice({
+  notice,
+}: {
+  notice: ReachNoticeModel | null
+}) {
+  const shown = noticeOverKept(notice, useKeptHere())
+  useDrawsNotice(shown !== null)
+  const up = notice !== null
+  const held = up && shown === null
+  const noted = useRef(false)
+  useEffect(() => {
+    if (held === noted.current) return
+    noted.current = held
+    if (up) logConnection('notice-held', { held })
+  }, [held, up])
+
   return (
     <>
       <p role="status" className="sr-only">
-        {model === null
+        {shown === null
           ? ''
-          : !model.online
+          : !shown.online
             ? 'No signal.'
-            : model.action === 'reload' || model.action === 'reload-confirm'
+            : shown.action === 'reload' || shown.action === 'reload-confirm'
               ? 'Still could not reach PestM8. Reload is offered.'
               : 'Could not reach PestM8.'}
       </p>
-      {model && <ReachNotice {...model} />}
+      {shown && <ReachNotice {...shown} />}
     </>
   )
 }
