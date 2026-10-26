@@ -283,10 +283,11 @@ async function offboard(
     // And their place on a team. Left behind, it came back with them: a rejoin
     // landed them under their old contractor whoever re-invited them.
     parentMembershipId: undefined,
-    // Their grants go with them. A membership id is never reused, so a stale
-    // `switchInto` could not be redeemed by anyone — but leaving a removed
-    // person holding a grant makes the row read as though they still have
-    // access to someone's account, which is the opposite of what it now means.
+    // Their grants go with them. A rejoin makes this same row active again
+    // (`invitations.redeem`), which starts from NO_GRANTS too; until then,
+    // leaving a removed person holding a grant makes the row read as though
+    // they still have access to someone's account, which is the opposite of
+    // what it now means.
     grants: NO_GRANTS,
   })
 

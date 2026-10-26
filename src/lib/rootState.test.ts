@@ -494,7 +494,8 @@ describe('the bookings kept on the phone, not sent yet', () => {
   })
 
   test('a claim that fails at the page load is made once storage answers, with no new sign-in', async () => {
-    const outbox = await outboxOf('u1', [itemFor('u1')])
+    // Saved just now: one three days unsent never goes by itself.
+    const outbox = await outboxOf('u1', [itemFor('u1', {}, Date.now())])
     const page = await freshPage(await keptFor('u1'), outbox)
     vi.useFakeTimers()
     outbox.unavailable = true

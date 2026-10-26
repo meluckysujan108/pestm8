@@ -15,6 +15,7 @@ import type {
   OutboxState,
 } from './outboxItem'
 import type { OutboxKind } from './outboxSet'
+import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
  * The bookings kept on this phone and not sent yet (the outbox): their own
@@ -305,13 +306,20 @@ function future(at: number | null, now: number): boolean {
   return at !== null && at > now
 }
 
-/** Holds the lock. A waiting item goes: from here it is locked. */
+/**
+ * Holds the lock. A waiting item goes: from here it is locked. Never one
+ * that has waited too long or outlived its session (`isStale`), as this
+ * transaction reads it: a claim marking it as having outlived its session
+ * can land between the sender's look and this, in this tab (the mark is
+ * what that claim writes, and this write waits on it) or another.
+ */
 export function beginSendChange(now: number): (item: OutboxItem) => Change {
   return (item) => {
     if (
       !isReadable(item) ||
       tombstoned(item) ||
       item.state !== 'waiting' ||
+      isStale(item, now) ||
       editedElsewhere(item, now) ||
       future(item.retryAt, now) ||
       future(item.holdUntil, now)
@@ -458,6 +466,57 @@ export function replaceChange(
       updatedAt: now,
     }
   }
+}
+
+/**
+ * Holds the lock. Before a send, the phone's own word that the booking
+ * needs a look: waited too long, or a Recurring Job whose first visit has
+ * gone by (outboxRules.ts `preSendProblem`), or the site the booking it was
+ * made on made can't be had (`NOT_FOUND`). Only on one still waiting, with
+ * no problem already said.
+ */
+export function preSendChange(
+  code: 'STALE' | 'FIRST_VISIT_PAST' | 'NOT_FOUND',
+  now: number,
+): (item: OutboxItem) => Change {
+  return (item) =>
+    isReadable(item) && item.state === 'waiting' && item.problem === null
+      ? { ...item, state: 'needsLook', problem: { code }, updatedAt: now }
+      : 'abort'
+}
+
+/**
+ * Holds the lock. What the server says of a booking already sent, asked once
+ * after it went (`clientRequests.find`): the site it is at, and a Recurring
+ * Job's first visit. Only adds to what is known: an id it went as stays.
+ */
+export function resultChange(
+  found: { propertyId?: Id<'properties'>; firstJobId?: Id<'jobs'> },
+  now: number,
+): (item: OutboxItem) => Change {
+  return (item) =>
+    isReadable(item) && item.state === 'sent' && item.result !== null
+      ? {
+          ...item,
+          result: {
+            ...item.result,
+            ...(found.propertyId !== undefined && {
+              propertyId: found.propertyId,
+            }),
+            ...(found.firstJobId !== undefined && {
+              firstJobId: found.firstJobId,
+            }),
+          },
+          updatedAt: now,
+        }
+      : 'abort'
+}
+
+/** A booking sent a while ago, whose card has had time to land: it goes
+ * from the phone. Only one that was sent. */
+export function forgetSentChange(): (item: OutboxItem) => Change {
+  return (item) =>
+    isReadable(item) && item.state === 'sent' ? 'delete' : 'abort'
 }
 
 /** Send, on one that waited too long: it goes. */
@@ -973,6 +1032,8 @@ let backend: OutboxBackend = idbOutboxBackend
 let peeked: OutboxPeek | null = null
 let peekedNote: string | null = null
 let reading: Promise<OutboxPeek | 'error'> | null = null
+// The last read failed, so whoever asked was left with nothing.
+let readFailed = false
 const readAgain = retrier(() => retryRead())
 // Whose the outbox is to be, as the last sign-in check said, and the `wiped`
 // note then: null when nobody is, or since a wipe…
@@ -985,12 +1046,27 @@ const claimAgain = retrier(() => retryClaim())
 let epoch: string | null = null
 let ownerNow: OutboxOwner | null | undefined
 // What has been cleared since the read, so none of it is handed out from
-// the read: a business someone was removed from…
+// the read: a business someone was removed from, as kept until then…
 const cleared: Array<(item: OutboxItem) => boolean> = []
 // …and anyone's but the person signed in, once someone is.
 let onlyFor: string | null = null
 let swept: Promise<void> | null = null
 const wipeListeners = new Set<() => void>()
+// Whoever holds the bookings in memory (outbox.ts), told when this tab has
+// changed them in bulk (`onOutboxChanged`), and how many wipes this tab has
+// begun, so a fresh read a wipe overtook is never taken.
+const changeListeners = new Set<() => void>()
+let wipesHere = 0
+
+function notifyChanged(): void {
+  for (const listener of [...changeListeners]) {
+    try {
+      listener()
+    } catch {
+      // One listener's trouble is not another's.
+    }
+  }
+}
 
 /**
  * What other tabs have done since this one read and claimed (the notes
@@ -1011,18 +1087,28 @@ function forgetClaim(): void {
 }
 
 /**
- * What the read holds, less what is gone since: discarded by a sign-out
- * (here or in another tab), sent before this page load, or cleared.
+ * Whether `item`, as read, is still on the phone: not discarded by a
+ * sign-out (here or in another tab), nor cleared since (a business the
+ * person was removed from, anyone's but the person signed in). Whoever holds
+ * items in memory asks it again before using one.
+ */
+export function stillKept(item: OutboxItem): boolean {
+  return (
+    !tombstoned(item) &&
+    (onlyFor === null || item.userId === onlyFor) &&
+    !cleared.some((gone) => gone(item))
+  )
+}
+
+/**
+ * What the read holds, less what is gone since (`stillKept`), and less what
+ * was sent before this page load, which its sweep deletes.
  */
 function shown(read: OutboxPeek): OutboxPeek {
   return {
     owner: ownerNow === undefined ? read.owner : ownerNow,
     items: read.items.filter(
-      (item) =>
-        !tombstoned(item) &&
-        !(item.state === 'sent' && isReadable(item)) &&
-        (onlyFor === null || item.userId === onlyFor) &&
-        !cleared.some((gone) => gone(item)),
+      (item) => stillKept(item) && !(item.state === 'sent' && isReadable(item)),
     ),
   }
 }
@@ -1059,6 +1145,7 @@ async function readOutbox(): Promise<OutboxPeek | 'error'> {
     ok: found !== 'error',
   })
   if (found === 'error') {
+    readFailed = true
     readAgain.failed()
     return 'error'
   }
@@ -1068,9 +1155,63 @@ async function readOutbox(): Promise<OutboxPeek | 'error'> {
     peeked = found
     peekedNote = note
   }
-  // Storage answering again: a claim that failed is tried again too.
+  // Storage answering again: a claim that failed is tried again too, and
+  // whoever found nothing to show learns there is now.
   retryClaim()
+  if (readFailed) {
+    readFailed = false
+    notifyChanged()
+  }
   return peeked
+}
+
+/**
+ * The outbox read afresh, for whoever holds it in memory (outbox.ts) once
+ * another tab has changed it, or this one changed it in bulk: what
+ * `peekOutbox` hands out, with every change since in it, and with what is
+ * sent, which is in memory until the sender deletes it. It becomes the page
+ * load's read too. A wipe in this tab while it reads has the last word, as
+ * at `peekOutbox`.
+ */
+export async function readOutboxNow(): Promise<OutboxPeek | 'error'> {
+  noteOtherTabs()
+  const wipes = wipesHere
+  let note = noteOf(CLEARED_KEY)
+  let found = await withinMs(PEEK_TIMEOUT_MS, backend.peek())
+  if (found !== 'error' && noteOf(CLEARED_KEY) !== note) {
+    note = noteOf(CLEARED_KEY)
+    found = await withinMs(PEEK_TIMEOUT_MS, backend.peek())
+  }
+  if (found === 'error') {
+    logConnection('outbox-store-failed', { op: 'read' })
+    return 'error'
+  }
+  if (wipesHere !== wipes) found = peeked ?? NOTHING
+  else {
+    peeked = found
+    peekedNote = note
+    readFailed = false
+    readAgain.stop()
+  }
+  return {
+    owner: ownerNow === undefined ? found.owner : ownerNow,
+    items: found.items.filter(stillKept),
+  }
+}
+
+/**
+ * Called whenever this tab has changed the bookings in bulk, or found them
+ * readable after all: a business someone was removed from, a page load's
+ * sweep, a claim that dropped or marked any, a session that ended. Not a
+ * wipe: `onOutboxWiped` says that, sooner. Whose they are once someone signs
+ * in needs no read: `stillKept` holds to it from then. Returns the way to
+ * stop.
+ */
+export function onOutboxChanged(listener: () => void): () => void {
+  changeListeners.add(listener)
+  return () => {
+    changeListeners.delete(listener)
+  }
 }
 
 function retryRead(): void {
@@ -1111,6 +1252,7 @@ export function wipeOutbox(why: string): Promise<void> {
   renewNote(WIPED_KEY)
   const asked = renewNote(CLEARED_KEY)
   forgetClaim()
+  wipesHere++
   peeked = NOTHING
   peekedNote = asked
   ownerNow = null
@@ -1197,8 +1339,10 @@ async function sweep(): Promise<void> {
   // what it covered.
   if (removed > 0 || covered.length > 0) renewNote(CLEARED_KEY)
   dropTombstones(covered)
-  if (removed > 0)
+  if (removed > 0) {
     logConnection('outbox-purge', { why: 'page-load', n: removed })
+    notifyChanged()
+  }
 }
 
 /** A claim for `user`, after the sweep: what writes wait on meanwhile. */
@@ -1244,29 +1388,61 @@ async function claimFor(user: OutboxUser): Promise<void> {
       n: claimed.marked,
     })
   }
+  if (claimed.dropped > 0 || claimed.marked > 0) notifyChanged()
 }
 
 /**
  * Forgets `userId`'s bookings for a business the server says they are no
- * longer in, by its id or its slug, whatever tab kept them. The caller has
+ * longer in, by its id or its slug, whatever tab kept them, as kept until
+ * now (`wipeOutboxWhere`). The caller has
  * checked the answer was about them: one given to someone else's token says
  * nothing about this person.
  */
-export async function wipeOutboxForBusiness(
+export function wipeOutboxForBusiness(
   by: { businessId?: string; slug?: string },
   userId: string,
   why: string,
 ): Promise<void> {
+  return wipeOutboxWhere(
+    userId,
+    (item) =>
+      (by.businessId !== undefined && item.businessId === by.businessId) ||
+      (by.slug !== undefined && item.slug === by.slug),
+    why,
+  )
+}
+
+/**
+ * Forgets those of `userId`'s bookings that `match` takes, whatever tab
+ * kept them: handed out by nothing from the moment it is asked, then
+ * deleted. For a business they are no longer in (`wipeOutboxForBusiness`),
+ * and for the bookings of an earlier stint in one they have since been
+ * invited back to (sender.ts). As there, the caller has checked the answer
+ * was about them. `match` reads only what every build's items name the same
+ * (the envelope) unless it checks `isReadable` first.
+ *
+ * Only what was kept by the moment it is asked, as a sign-out's tombstone
+ * covers: someone removed, invited back and booking again in the same page
+ * load keeps what they book then, shown and sent.
+ */
+export async function wipeOutboxWhere(
+  userId: string,
+  match: (item: OutboxItem) => boolean,
+  why: string,
+): Promise<void> {
+  const asked = Date.now()
   const theirs = (item: OutboxItem) =>
-    item.userId === userId &&
-    ((by.businessId !== undefined && item.businessId === by.businessId) ||
-      (by.slug !== undefined && item.slug === by.slug))
+    item.userId === userId && item.createdAt <= asked && match(item)
   cleared.push(theirs)
+  notifyChanged()
   const removed = await withinMs(
     STORE_OP_MS,
     backend.removeWhere((item) => theirs(item)),
   )
-  if (removed !== 'error' && removed > 0) renewNote(CLEARED_KEY)
+  if (removed !== 'error' && removed > 0) {
+    renewNote(CLEARED_KEY)
+    notifyChanged()
+  }
   logConnection('outbox-wipe', {
     why,
     n: removed === 'error' ? 0 : removed,
@@ -1297,6 +1473,7 @@ export async function markSessionEnded(
     logConnection('outbox-store-failed', { op: 'session-ended' })
   } else if (marked > 0) {
     logConnection('outbox-session-ended', { why: 'session-watch', n: marked })
+    notifyChanged()
   }
 }
 
@@ -1376,6 +1553,7 @@ export function setOutboxBackendForTests(next: OutboxBackend): void {
   peeked = null
   peekedNote = null
   reading = null
+  readFailed = false
   readAgain.stop()
   forgetClaim()
   wantedNote = null
@@ -1384,6 +1562,7 @@ export function setOutboxBackendForTests(next: OutboxBackend): void {
   cleared.length = 0
   swept = null
   wipeListeners.clear()
+  changeListeners.clear()
 }
 
 // Started now, in the browser: the read is off every critical path, and a

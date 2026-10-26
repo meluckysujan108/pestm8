@@ -384,6 +384,24 @@ export class Keeper {
     }
   }
 
+  /**
+   * The business whose pages are on screen, as its layout last said
+   * (`enter`): null outside one, and on the server. The bookings kept on
+   * the phone go only for this one (lib/outbox/sender.ts).
+   */
+  enteredBusiness(): KeptBusiness | null {
+    return this.entered
+  }
+
+  /**
+   * Which connection the socket is on: one more for each new one. A call's
+   * answer heard on the connection it went on is that call's own; one heard
+   * on a later one may follow a commit nobody heard (lib/outbox/sender.ts).
+   */
+  connection(): number {
+    return this.connectionCount()
+  }
+
   /** Called whenever anything here may read differently. */
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)

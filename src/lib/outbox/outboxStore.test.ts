@@ -21,22 +21,29 @@ import {
   confirmStaleChange,
   discardChange,
   endEditChange,
+  forgetSentChange,
   idbOutboxBackend,
   keepOutboxItem,
   markSessionEnded,
   newRequestIdChange,
+  onOutboxChanged,
   onOutboxWiped,
   outboxEpoch,
   outboxReadable,
   peekOutbox,
+  preSendChange,
+  readOutboxNow,
   renewEditChange,
   replaceChange,
+  resultChange,
   retryOutbox,
   setOutboxBackendForTests,
+  stillKept,
   tombstoned,
   unlockChange,
   wipeOutbox,
   wipeOutboxForBusiness,
+  wipeOutboxWhere,
   writeSignOutTombstone,
 } from './outboxStore'
 import {
@@ -51,6 +58,7 @@ import {
   outboxOf,
   personOf,
 } from './outboxStore.fixtures'
+import type { Id } from '../../../convex/_generated/dataModel'
 import type { OutboxItem } from './outboxItem'
 import type { OutboxBackend } from './outboxStore'
 
@@ -668,6 +676,22 @@ describe('a change to an item', () => {
       const phone = await phoneWith(item)
       writeSignOutTombstone('u1', 950)
       expect(await phone.change(beginSendChange(NOW))).toBe('refused')
+    })
+
+    test('refused on one that has outlived its session or waited three days, as this read finds it: its Send lets it go (D8)', async () => {
+      // A claim's mark can land between the sender's look and this.
+      const ended = await phoneWith(itemFor('u1', { sessionEndedAt: NOW - 1 }))
+      expect(await ended.change(beginSendChange(NOW))).toBe('refused')
+      const old = await phoneWith(itemFor('u1', {}, 900))
+      expect(await old.change(beginSendChange(900 + STALE_AFTER_MS + 1))).toBe(
+        'refused',
+      )
+      const sentOn = await phoneWith(
+        itemFor('u1', { sessionEndedAt: NOW - 2, confirmedAt: NOW - 1 }),
+      )
+      expect(await sentOn.change(beginSendChange(NOW))).toMatchObject({
+        state: 'sending',
+      })
     })
   })
 
@@ -1563,5 +1587,229 @@ describe('a session that ended elsewhere', () => {
     const after = backend.items.get(item.localId) as OutboxItem
     expect(after.sessionEndedAt).toBe(NOW + 1)
     expect(isStale(after, NOW + 2)).toBe(true)
+  })
+})
+
+describe('what the sender adds', () => {
+  async function phoneWith(...items: Array<OutboxItem>) {
+    const backend = await outboxOf('u1', items)
+    const epoch = backend.owner?.epoch ?? ''
+    return {
+      backend,
+      change: (localId: string, fn: Parameters<typeof backend.update>[2]) =>
+        backend.update(epoch, localId, fn),
+    }
+  }
+
+  test('the phone’s own word that one needs a look: only on one still waiting, with no problem said', async () => {
+    const item = itemFor('u1')
+    const sending = itemFor('u1', { state: 'sending' })
+    const said = itemFor('u1', { problem: { code: 'SERVER' } })
+    const foreign = itemFor('u1', { v: OUTBOX_V + 1 })
+    const phone = await phoneWith(item, sending, said, foreign)
+    expect(
+      await phone.change(item.localId, preSendChange('STALE', NOW)),
+    ).toMatchObject({ state: 'needsLook', problem: { code: 'STALE' } })
+    for (const other of [sending, said, foreign]) {
+      expect(
+        await phone.change(
+          other.localId,
+          preSendChange('FIRST_VISIT_PAST', NOW),
+        ),
+      ).toBe('refused')
+    }
+  })
+
+  test('what a sent one made, asked for after: only added to one sent, its id kept', async () => {
+    const sent = itemFor('u1', {
+      state: 'sent',
+      result: { id: 'rec-1' },
+    })
+    const waiting = itemFor('u1')
+    const phone = await phoneWith(sent, waiting)
+    const found = {
+      propertyId: 'p9' as Id<'properties'>,
+      firstJobId: 'job-9' as Id<'jobs'>,
+    }
+    expect(
+      await phone.change(sent.localId, resultChange(found, NOW)),
+    ).toMatchObject({
+      result: { id: 'rec-1', propertyId: 'p9', firstJobId: 'job-9' },
+    })
+    expect(await phone.change(waiting.localId, resultChange(found, NOW))).toBe(
+      'refused',
+    )
+    // Nor to one that has an id from an earlier answer but is out again.
+    const going = itemFor('u1', { state: 'sending', result: { id: 'rec-2' } })
+    const again = await phoneWith(going)
+    expect(await again.change(going.localId, resultChange(found, NOW))).toBe(
+      'refused',
+    )
+  })
+
+  test('one sent a while ago goes; nothing else does, and no newer build’s', async () => {
+    const sent = itemFor('u1', { state: 'sent' })
+    const waiting = itemFor('u1')
+    const foreign = itemFor('u1', { state: 'sent', v: OUTBOX_V + 1 })
+    const phone = await phoneWith(sent, waiting, foreign)
+    expect(await phone.change(sent.localId, forgetSentChange())).toBe('deleted')
+    expect(await phone.change(waiting.localId, forgetSentChange())).toBe(
+      'refused',
+    )
+    expect(await phone.change(foreign.localId, forgetSentChange())).toBe(
+      'refused',
+    )
+  })
+
+  test('a fresh read has every change since in it, sent ones too, and becomes the page load’s', async () => {
+    const item = itemFor('u1')
+    const backend = await outboxOf('u1', [item])
+    setOutboxBackendForTests(backend)
+    await peekOutbox()
+    backend.items.set(item.localId, { ...item, state: 'sent' })
+    const fresh = await readOutboxNow()
+    expect(fresh !== 'error' && fresh.items.map((i) => i.state)).toEqual([
+      'sent',
+    ])
+    // The page load's read is the fresh one now, which hands out no sent.
+    const peek = await peekOutbox()
+    expect(peek !== 'error' && peek.items).toEqual([])
+    expect(outboxReadable()).toBe(true)
+  })
+
+  test('a fresh read honours a sign-out, and a wipe in this tab while it reads has the last word', async () => {
+    const item = itemFor('u1')
+    const backend = await outboxOf('u1', [item])
+    setOutboxBackendForTests(backend)
+    await peekOutbox()
+    const reading = readOutboxNow()
+    void wipeOutbox('sign-out')
+    const read = await reading
+    expect(read !== 'error' && read.items).toEqual([])
+
+    const later = itemFor('u1')
+    backend.items.set(later.localId, structuredClone(later))
+    writeSignOutTombstone('u1', later.createdAt)
+    const again = await readOutboxNow()
+    expect(again !== 'error' && again.items).toEqual([])
+    expect(stillKept(later)).toBe(false)
+  })
+
+  test('a fresh read that fails is an error, and says so', async () => {
+    const backend = await outboxOf('u1', [itemFor('u1')])
+    setOutboxBackendForTests(backend)
+    backend.unavailable = true
+    expect(await readOutboxNow()).toBe('error')
+    expect(notes('outbox-store-failed')).toContainEqual({ op: 'read' })
+  })
+
+  test('some of one person’s, as a match says, and nothing else: handed out by nothing from the moment it is asked', async () => {
+    const old = itemFor('u1', {}, 100)
+    const recent = itemFor('u1', {}, 5_000)
+    const theirs = itemFor('u2', {}, 100)
+    const backend = await outboxOf('u1', [old, recent, theirs])
+    setOutboxBackendForTests(backend)
+    await peekOutbox()
+    const wiping = wipeOutboxWhere(
+      'u1',
+      (item) => item.createdAt < 1_000,
+      'earlier-stint',
+    )
+    expect(stillKept(old)).toBe(false)
+    expect(stillKept(recent)).toBe(true)
+    await wiping
+    expect([...backend.items.keys()].sort()).toEqual(
+      [recent.localId, theirs.localId].sort(),
+    )
+    expect(notes('outbox-wipe')).toEqual([
+      { why: 'earlier-stint', n: 1, ok: true },
+    ])
+  })
+
+  test('whoever holds them in memory is told when someone else’s sign-in drops the last person’s', async () => {
+    const backend = await outboxOf('u1', [itemFor('u1')])
+    setOutboxBackendForTests(backend)
+    const told = vi.fn()
+    onOutboxChanged(told)
+    checkOutboxOwner(personOf('u2'))
+    for (let i = 0; i < 5; i++) await settled()
+    expect(backend.items.size).toBe(0)
+    expect(told).toHaveBeenCalledTimes(1)
+  })
+
+  test('whoever holds them in memory is told of each change in bulk: a removal, a session that ended', async () => {
+    const mine = itemFor('u1')
+    const backend = await outboxOf('u1', [mine])
+    setOutboxBackendForTests(backend)
+    const told = vi.fn()
+    onOutboxChanged(told)
+    checkOutboxOwner(personOf('u1'))
+    for (let i = 0; i < 5; i++) await settled()
+    // Theirs already: nothing dropped, nothing marked, nothing to read.
+    expect(told).not.toHaveBeenCalled()
+    await wipeOutboxForBusiness({ businessId: B2 }, 'u1', 'removed')
+    // At once, and again only if anything went.
+    expect(told).toHaveBeenCalledTimes(1)
+    await wipeOutboxForBusiness({ businessId: B1 }, 'u1', 'removed')
+    expect(told).toHaveBeenCalledTimes(3)
+    told.mockClear()
+    backend.items.set(mine.localId, structuredClone(mine))
+    await markSessionEnded('u1', NOW)
+    expect(told).toHaveBeenCalledTimes(1)
+  })
+
+  test('and when storage answers again after a read that failed, with nothing to show till then', async () => {
+    vi.useFakeTimers()
+    const backend = await outboxOf('u1', [itemFor('u1')])
+    backend.unavailable = true
+    setOutboxBackendForTests(backend)
+    const told = vi.fn()
+    onOutboxChanged(told)
+    expect(await peekOutbox()).toBe('error')
+    expect(told).not.toHaveBeenCalled()
+    backend.unavailable = false
+    await vi.advanceTimersByTimeAsync(PEEK_RETRY_MS[0])
+    expect(told).toHaveBeenCalledTimes(1)
+  })
+
+  test('a business someone was removed from takes only what was kept by then: invited back and booking again in the same page load, that stays', async () => {
+    vi.useFakeTimers({ now: NOW })
+    const before = itemFor('u1', {}, NOW - 1)
+    const backend = await outboxOf('u1', [before])
+    setOutboxBackendForTests(backend)
+    await peekOutbox()
+    await wipeOutboxForBusiness({ businessId: B1 }, 'u1', 'no-access')
+    vi.setSystemTime(NOW + 60_000)
+    const after = itemFor('u1', {}, NOW + 60_000)
+    backend.items.set(after.localId, structuredClone(after))
+    expect(stillKept(before)).toBe(false)
+    expect(stillKept(after)).toBe(true)
+    const read = await readOutboxNow()
+    expect(read !== 'error' && read.items.map((i) => i.localId)).toEqual([
+      after.localId,
+    ])
+    // Nor does the delete take one kept after it was asked, by another tab
+    // whose keep lands first.
+    const late = itemFor('u1', {}, NOW + 60_000)
+    const slow = await outboxOf('u1', [late])
+    setOutboxBackendForTests(slow)
+    vi.setSystemTime(NOW)
+    await wipeOutboxWhere('u1', () => true, 'earlier-stint')
+    expect([...slow.items.keys()]).toEqual([late.localId])
+  })
+
+  test('without localStorage, a wipe in this tab while a fresh read is out has the last word, for every read after too', async () => {
+    vi.stubGlobal('localStorage', undefined)
+    const item = itemFor('u1')
+    const backend = await outboxOf('u1', [item])
+    setOutboxBackendForTests(backend)
+    await peekOutbox()
+    // The read answers with the item: the wipe lands after it.
+    const reading = readOutboxNow()
+    void wipeOutbox('sign-out')
+    const read = await reading
+    expect(read !== 'error' && read.items).toEqual([])
+    const peek = await peekOutbox()
+    expect(peek !== 'error' && peek.items).toEqual([])
   })
 })

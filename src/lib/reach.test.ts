@@ -11,6 +11,8 @@ import {
   oldestPending,
   reloadClockSince,
   sampleReach,
+  savesWaiting,
+  savesWaitingSince,
   subscribeNoticeDrawn,
   waitingOnScreen,
 } from './reach'
@@ -196,6 +198,30 @@ describe('waitingOnScreen', () => {
       QUERY_WAIT_MS,
     )
     expect(stuck).toBe(true)
+  })
+})
+
+describe('a change waiting to save', () => {
+  it('is never only the outbox’s own sends, which a reload loses none of', () => {
+    // The Convex client counts the outbox's call among its own…
+    expect(savesWaiting(1, 1)).toBe(false)
+    expect(savesWaiting(2, 2)).toBe(false)
+    // …and a save of anything else beside it still counts.
+    expect(savesWaiting(2, 1)).toBe(true)
+    expect(savesWaiting(1, 0)).toBe(true)
+    expect(savesWaiting(0, 0)).toBe(false)
+  })
+
+  it('is timed from when one was first seen, and not at all while only the outbox’s wait', () => {
+    let since: number | null = null
+    since = savesWaitingSince(since, savesWaiting(1, 1), 1_000)
+    expect(since).toBeNull()
+    since = savesWaitingSince(since, savesWaiting(2, 1), 2_000)
+    expect(since).toBe(2_000)
+    since = savesWaitingSince(since, savesWaiting(2, 1), 3_000)
+    expect(since).toBe(2_000)
+    since = savesWaitingSince(since, savesWaiting(1, 1), 4_000)
+    expect(since).toBeNull()
   })
 })
 
