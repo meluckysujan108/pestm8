@@ -10,6 +10,10 @@ export function jwtClaims(jwt: string | null | undefined): {
   sub?: unknown
   exp?: unknown
   iat?: unknown
+  /** The person's name, as Better Auth's Convex plugin puts the user in. */
+  name?: unknown
+  /** Their Better Auth session's id, which that plugin adds to every token. */
+  sessionId?: unknown
 } | null {
   const payload = jwt?.split('.')[1]
   if (!payload) return null

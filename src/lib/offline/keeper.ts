@@ -4,6 +4,7 @@ import { APP_VERSION } from '#/lib/appVersion'
 import { logConnection } from '#/lib/connectionLog'
 import { jwtClaims } from '#/lib/jwt'
 import { isOffline } from '#/lib/online'
+import { wipeOutboxForBusiness } from '#/lib/outbox/outboxStore'
 import { GAP_MS, SOCKET_DOWN_MS } from '#/lib/reach'
 import { signedInUserId } from '#/lib/rootState'
 import { rq, warm } from '#/lib/routeQueries'
@@ -580,9 +581,10 @@ export class Keeper {
   /**
    * A refusal pushed or fetched onto an entry: it is not live, whatever it
    * still shows. NO_ACCESS on access:me is the server saying this person is
-   * no longer in the business, and what the phone kept of it goes. Someone
-   * signed out gets `Unauthenticated`, never that, so a sign-in between two
-   * tokens never wipes anything.
+   * no longer in the business, and what the phone kept of it goes: the copy,
+   * and their bookings for it not sent yet, which can never be sent now.
+   * Someone signed out gets `Unauthenticated`, never that, so a sign-in
+   * between two tokens never wipes anything.
    */
   private refused(query: Query): void {
     const hash = query.queryHash
@@ -602,6 +604,7 @@ export class Keeper {
       codeOf(query.state.error) === 'NO_ACCESS'
     ) {
       void this.forgetBusiness({ businessId }, 'no-access')
+      this.forgetBookings({ businessId }, 'no-access', 'socket')
     }
     this.notify()
   }
@@ -1036,6 +1039,33 @@ export class Keeper {
     if (read === null || theirs(read.owner)) await wipeKept(why)
   }
 
+  /**
+   * Forgets this person's bookings kept on the phone, not sent yet, for a
+   * business the server says they are no longer in (lib/outbox/): only when
+   * the answer was about them, which depends on whose token it went out
+   * with (`answered`).
+   * - `'socket'`: an answer pushed on the socket (NO_ACCESS on access:me)
+   *   counts only while the socket is signed in as them. A token another
+   *   tab's sign-in handed it answers for someone else, and says nothing
+   *   about this person's place in the business.
+   * - `'page'`: the root's "Not found" (`notAMemberOf`) was answered with
+   *   the page's own sign-in, whose person `signedInUserId` is: by the
+   *   business guard's lookup over HTTP (`signedInToken`), or by the server
+   *   render's with the request's own session, which seeded this page. So
+   *   it is theirs whatever the socket holds, which on a page the server
+   *   rendered is nothing yet when "Not found" first shows.
+   */
+  forgetBookings(
+    by: { slug?: string; businessId?: string },
+    why: string,
+    answered: 'socket' | 'page',
+  ): void {
+    const userId = signedInUserId()
+    if (userId === null) return
+    if (answered === 'socket' && this.socketUserId() !== userId) return
+    void wipeOutboxForBusiness(by, userId, why)
+  }
+
   // ── The line ─────────────────────────────────────────────────────────────
 
   /**
@@ -1277,8 +1307,17 @@ export class Keeper {
    * A token that can't be read says nothing either way.
    */
   private socketIsSomeoneElse(userId: string): boolean {
+    const sub = this.socketUserId()
+    return sub !== null && sub !== userId
+  }
+
+  /**
+   * Whose sign-in token the socket has: its `sub`, the user's id. Null when
+   * it has none, or one that can't be read.
+   */
+  socketUserId(): string | null {
     const sub = jwtClaims(this.convex?.currentToken?.())?.sub
-    return typeof sub === 'string' && sub !== '' && sub !== userId
+    return typeof sub === 'string' && sub !== '' ? sub : null
   }
 
   // ── Writing ──────────────────────────────────────────────────────────────

@@ -1,6 +1,14 @@
 import { getInitialState } from '#/lib/initialState'
+import { firstName } from '#/lib/jobPeople'
 import { jwtClaims } from '#/lib/jwt'
 import { checkKeptOwner, wipeKept } from '#/lib/offline/keptStore'
+import {
+  checkOutboxOwner,
+  markSessionEnded,
+  wipeOutbox,
+  writeSignOutTombstone,
+} from '#/lib/outbox/outboxStore'
+import type { OutboxUser } from '#/lib/outbox/outboxStore'
 import { readThemePref } from '#/lib/theme'
 import type { ThemePref } from '#/lib/theme'
 
@@ -62,6 +70,8 @@ let signingOut = false
 let signOutPending = false
 // What the last `beginSignOut` forgot, for `signOutFailed` to put back.
 let beforeSignOut: { token: string; generation: number } | null = null
+// The outbox's wipe the sign-out began, for its full load to wait on.
+let outboxWiped: Promise<void> | null = null
 
 /** Once per page load, from the root context SSR handed over. */
 export function seedRootState(state: RootState): void {
@@ -72,6 +82,10 @@ export function seedRootState(state: RootState): void {
   // The copy of the schedule kept on this phone, if it is someone else's or
   // nobody is signed in (lib/offline/keptStore.ts).
   checkKeptOwner(signedInUserId())
+  // The bookings kept on it and not sent yet (lib/outbox/outboxStore.ts):
+  // what a sign-out discarded goes, and anyone else's once someone is
+  // signed in. Nobody signed in keeps the rest, for whoever booked them.
+  checkOutboxOwner(signedInPerson())
 }
 
 /** The root `beforeLoad`'s answer on the client: cached once signed in. */
@@ -92,6 +106,7 @@ export async function resolveRootState(): Promise<RootState> {
       // the last person and this one.
       checkKeptFiles()
       checkKeptOwner(signedInUserId())
+      checkOutboxOwner(signedInPerson())
     }
     return fresh
   } finally {
@@ -160,8 +175,18 @@ export function forgetRootState(): void {
  * goes first, before any request is made: a sign-out with one bar may never
  * land, and the person's jobs must not stay behind for whoever picks the
  * phone up next.
+ *
+ * So do the person's bookings kept on it and not sent yet (lib/outbox/).
+ * Before even that, a note in localStorage says they are discarded, written
+ * before this returns: the wipe is IndexedDB's, which can be slow or never
+ * answer, and the full load waits for it only so long. Whatever the wipe
+ * does, nothing shows or sends them from here, and the next page load
+ * deletes them. A sign-out that then fails doesn't bring them back.
  */
 export function beginSignOut(): void {
+  const userId = signedInUserId()
+  if (userId !== null) writeSignOutTombstone(userId)
+  outboxWiped = wipeOutbox('sign-out')
   void wipeKept('sign-out')
   signingOut = true
   signOutPending = true
@@ -211,9 +236,19 @@ export function signOutFailed(): void {
  * So is the copy of the schedule kept on this phone
  * (lib/offline/keptStore.ts), even when the same person signs back in: they
  * have signal then, and it fills again at once.
+ *
+ * The bookings kept on the phone and not sent yet (lib/outbox/) are NOT:
+ * nobody can type those in again, and the person signing back in is often
+ * the one who booked them. A sign-out discards them (`beginSignOut`), and
+ * someone else's sign-in drops them (`checkOutboxOwner`). After a sign-out,
+ * the full load waits for that discard, as it does for the kept copy.
  */
 export function forgetCachedPages(): Promise<void> {
-  return forgetPersonOnPhone('person-change')
+  const forgotten = forgetPersonOnPhone('person-change')
+  if (!outboxWiped) return forgotten
+  return Promise.all([forgotten, waitAtMost(WIPE_WAIT_MS, outboxWiped)]).then(
+    () => undefined,
+  )
 }
 
 /**
@@ -225,8 +260,15 @@ export function forgetCachedPages(): Promise<void> {
  * has no sign-out at all to drop it, so the person's pages, with their
  * schedule and token in them, would otherwise still open with no signal,
  * from `/`, for whoever has the phone next.
+ *
+ * The bookings kept on the phone and not sent yet are kept, but marked: the
+ * session they were made in has gone (a password changed on a laptop, say),
+ * so none of them goes again until the same person, signed back in, says
+ * so. Anyone else signing in drops them.
  */
 export function forgetEndedSession(): void {
+  const userId = signedInUserId()
+  if (userId !== null) void markSessionEnded(userId)
   forgetRootState()
   void forgetPersonOnPhone('session-ended')
 }
@@ -238,6 +280,8 @@ export function forgetEndedSession(): void {
  * is someone else's or nobody is signed in (`checkKeptOwner`), and is
  * otherwise the person's own. An IndexedDB that never answers, as WebKit's
  * sometimes doesn't, must not leave Sign in or Sign out pending forever.
+ * A sign-out waits as long for the outbox's wipe, whose tombstone has
+ * already discarded the bookings whatever the wipe does.
  */
 const WIPE_WAIT_MS = 2_000
 
@@ -318,6 +362,27 @@ export function signedInUserId(): string | null {
 export function userIdOfToken(jwt: string | undefined): string | null {
   const sub = jwtClaims(jwt)?.sub
   return typeof sub === 'string' && sub !== '' ? sub : null
+}
+
+/**
+ * Who is signed in, with their first name and their session, for whose the
+ * bookings kept on this phone are (lib/outbox/outboxStore.ts): the sign-in
+ * screens say whose before anyone else signs in, and a session other than
+ * the last one's says that one ended. Both come from the token, where Better
+ * Auth's Convex plugin puts the user and the session's id; '' if they
+ * aren't there.
+ */
+function signedInPerson(): OutboxUser | null {
+  const userId = signedInUserId()
+  if (userId === null) return null
+  const claims = jwtClaims(token)
+  const name = claims?.name
+  const sessionId = claims?.sessionId
+  return {
+    userId,
+    firstName: typeof name === 'string' ? firstName(name) : '',
+    sessionId: typeof sessionId === 'string' ? sessionId : '',
+  }
 }
 
 /**

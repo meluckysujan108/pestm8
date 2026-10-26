@@ -26,6 +26,8 @@ import {
 } from './keptSet'
 import { MemoryKeptBackend } from './keptStore.fixtures'
 import { setKeptBackendForTests, wipeKept } from './keptStore'
+import { setOutboxBackendForTests } from '#/lib/outbox/outboxStore'
+import { itemFor, outboxOf } from '#/lib/outbox/outboxStore.fixtures'
 import type { QueryKey, QueryState } from '@tanstack/react-query'
 import type { ConvexReactClient } from 'convex/react'
 import type { Access } from '#/lib/access'
@@ -1222,6 +1224,65 @@ describe('refusals and readability', () => {
     h.convex.refuse(accessKey(), new ConvexError('NO_ACCESS'))
     await vi.advanceTimersByTimeAsync(10)
     expect(backend.wipes).toBe(1)
+  })
+
+  test('NO_ACCESS on access:me wipes the person’s bookings for that business not sent yet, only while the socket is signed in as them', async () => {
+    const elsewhere = itemFor('u1', { businessId: B2, slug: 'other-co' })
+    const outbox = await outboxOf('u1', [itemFor('u1'), elsewhere])
+    setOutboxBackendForTests(outbox)
+    const h = harness()
+    h.html(accessKey(), own)
+
+    // Another tab's sign-in handed this socket someone else's token: the
+    // answer is theirs, and says nothing about this person.
+    h.convex.token = tokenFor('u2')
+    h.convex.refuse(accessKey(), new ConvexError('NO_ACCESS'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(outbox.items.size).toBe(2)
+    // No token at all says nothing either.
+    h.convex.token = null
+    h.convex.refuse(accessKey(), new ConvexError('NO_ACCESS'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(outbox.items.size).toBe(2)
+
+    h.convex.token = tokenFor('u1')
+    h.convex.refuse(accessKey(), new ConvexError('Unauthenticated'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(outbox.items.size).toBe(2)
+    h.convex.refuse(accessKey(), new ConvexError('NO_ACCESS'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect([...outbox.items.keys()]).toEqual([elsewhere.localId])
+  })
+
+  test('the root’s "Not found" for a business wipes the person’s bookings for it, though the socket has no token yet', async () => {
+    const elsewhere = itemFor('u1', { businessId: B2, slug: 'other-co' })
+    const outbox = await outboxOf('u1', [itemFor('u1'), elsewhere])
+    setOutboxBackendForTests(outbox)
+    const h = harness()
+    // A page the server rendered, just hydrated: the provider hasn't handed
+    // the socket a token yet. The answer was the page's own sign-in's.
+    h.convex.token = null
+    h.keeper.forgetBookings({ slug: 'other-co' }, 'removed', 'page')
+    await vi.advanceTimersByTimeAsync(10)
+    expect([...outbox.items.keys()]).toHaveLength(1)
+    expect(outbox.items.has(elsewhere.localId)).toBe(false)
+
+    // Nobody signed in: nobody's to wipe.
+    who.id = null
+    h.keeper.forgetBookings({ businessId: B }, 'removed', 'page')
+    await vi.advanceTimersByTimeAsync(10)
+    expect(outbox.items.size).toBe(1)
+  })
+
+  test('says whose token the socket has', () => {
+    const h = harness()
+    expect(h.keeper.socketUserId()).toBeNull()
+    h.convex.token = tokenFor('u2')
+    expect(h.keeper.socketUserId()).toBe('u2')
+    h.convex.token = 'not-a-token'
+    expect(h.keeper.socketUserId()).toBeNull()
+    h.convex.token = tokenFor('')
+    expect(h.keeper.socketUserId()).toBeNull()
   })
 
   test('NO_ACCESS wipes the copy another tab has since kept for that business, whatever this tab claimed last', async () => {
