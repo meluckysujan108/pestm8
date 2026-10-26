@@ -508,7 +508,13 @@ function ClientsPage() {
           searching || filtersActive ? (
             <NoMatches
               term={q}
-              hint="Try a different name, address or filter."
+              // The kept list is as the phone last had it: a client added
+              // since, on this phone or another, isn't in it yet.
+              hint={
+                keptMode
+                  ? 'Try a different name, address or filter. Newer clients show when you have signal.'
+                  : 'Try a different name, address or filter.'
+              }
               clearLabel={q ? 'Clear search' : 'Clear filters'}
               onClear={() => {
                 clearFilters()
