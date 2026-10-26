@@ -38,13 +38,12 @@ import {
 } from '#/components/forms/SaveWarnings'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import type {
-  NewClientArgs,
   NewClientFieldsValue,
-  NewSiteArgs,
   NewSiteValue,
 } from '#/components/clients/NewClientFields'
 import type { Id } from '../../../convex/_generated/dataModel'
-import type { IntervalUnit } from '../../../convex/lib/recurrence'
+import { bookingCall } from '#/lib/outbox/outboxItem'
+import type { SendableBooking } from '#/lib/outbox/outboxItem'
 import { useHydrated } from '#/lib/useHydrated'
 import { useLineDown } from '#/lib/offline/useLineDown'
 import type { LineDown } from '#/lib/offline/useLineDown'
@@ -397,47 +396,18 @@ function NewJobForm({
   // client created in the same submit — both mutations accept any one of the
   // three and insert what is new in the same transaction, so a failure never
   // leaves an orphaned client or site behind.
+  //
+  // Which mutation, with what, is `bookingCall`'s (lib/outbox/outboxItem.ts):
+  // the one mapping, which a booking kept on the phone to send later goes
+  // through as well, so the two can never send a booking differently.
   const create = useMutation({
-    mutationFn: (args: {
-      businessId: Id<'businesses'>
-      // Already in the server's shape (newClientArgs, newSiteArgs), and handed
-      // to either mutation whole: mapped field by field here, once per
-      // branch, a new field reached one and was silently dropped by the other.
-      property:
-        | { propertyId: Id<'properties'> }
-        | { newProperty: NewSiteArgs }
-        | { newClient: NewClientArgs }
-      assignedMembershipId: Id<'memberships'>
-      jobType: string
-      price: number
-      scheduledAt: number
-      durationMinutes: number
-      workOrder: string | undefined
-      notes: string | undefined
-      alsoGoing: Array<Id<'memberships'>> | undefined
-      repeat: { count: number; unit: IntervalUnit } | null
-      // Returns a job id or a recurrence id depending on the branch, and the
-      // caller needs neither — void keeps them from being conflated.
-    }): Promise<void> => {
-      const { repeat: recurrence, property, ...job } = args
-      return recurrence === null
-        ? convexCreate({ ...job, ...property }).then(() => undefined)
-        : convexCreateRecurrence({
-            businessId: job.businessId,
-            ...property,
-            assignedMembershipId: job.assignedMembershipId,
-            intervalCount: recurrence.count,
-            intervalUnit: recurrence.unit,
-            jobType: job.jobType,
-            price: job.price,
-            anchorDate: job.scheduledAt,
-            durationMinutes: job.durationMinutes,
-            // Listed by hand, like everything in this branch: a field left
-            // off here is silently dropped from every visit of the series.
-            workOrder: job.workOrder,
-            // The first visit's only (recurrences.create says why).
-            notes: job.notes,
-          }).then(() => undefined)
+    // Returns a job id or a recurrence id depending on the branch, and the
+    // caller needs neither — void keeps them from being conflated.
+    mutationFn: (args: SendableBooking): Promise<void> => {
+      const call = bookingCall(args)
+      return call.fn === 'jobs.create'
+        ? convexCreate(call.args).then(() => undefined)
+        : convexCreateRecurrence(call.args).then(() => undefined)
     },
     onSuccess: () => {
       onBooked?.()

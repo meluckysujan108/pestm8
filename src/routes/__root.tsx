@@ -88,15 +88,21 @@ export const Route = createRootRouteWithContext<RouterContext>()({
  * §6.5 requires that case be indistinguishable from a business that does not
  * exist, so this deliberately says nothing about which it was.
  *
- * When the server said so (`notAMemberOf`, from `$businessSlug`'s guard),
- * the copy of that business's schedule kept on this phone goes, if it is
- * that business's: someone removed from it opens a link to it, often a page
- * the server rendered, whose guard the browser never runs again.
+ * When the server said so (`notAMemberOf`, from `$businessSlug`'s guard,
+ * whether its own lookup or the one over HTTP answered), the copy of that
+ * business's schedule kept on this phone goes, if it is that business's:
+ * someone removed from it opens a link to it, often a page the server
+ * rendered, whose guard the browser never runs again. So do the person's
+ * bookings for it not sent yet, which can never be sent now: the answer
+ * was about the page's own person, whatever the socket holds, which on
+ * hydration is no token at all yet (`forgetBookings`).
  */
 function NotFound({ data }: NotFoundRouteProps) {
   const notAMember = notAMemberSlug(data)
   useEffect(() => {
-    if (notAMember !== null) void wipeKeptForBusiness(notAMember, 'removed')
+    if (notAMember === null) return
+    void wipeKeptForBusiness(notAMember, 'removed')
+    keeper.forgetBookings({ slug: notAMember }, 'removed', 'page')
   }, [notAMember])
 
   return (
