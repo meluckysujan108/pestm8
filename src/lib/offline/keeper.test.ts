@@ -22,6 +22,7 @@ import {
   KEPT_UPGRADE_MARGIN_MS,
   KEPT_WRITE_DELAY_MS,
   RENDERED_AT_KEY,
+  lensOf,
 } from './keptSet'
 import { MemoryKeptBackend } from './keptStore.fixtures'
 import { setKeptBackendForTests, wipeKept } from './keptStore'
@@ -62,7 +63,6 @@ const B = 'b1' as Id<'businesses'>
 const B2 = 'b2' as Id<'businesses'>
 const M1 = 'm1' as Id<'memberships'>
 const BUSINESS = { _id: B, slug: 'pest-co', timezone: 'Australia/Perth' }
-const LENS = 'm1|-'
 
 /** Sunday 25 Oct 2026, 10am in Perth: the fortnight is 19 Oct to 1 Nov. */
 const NOW = Date.UTC(2026, 9, 25, 2)
@@ -78,6 +78,10 @@ const own: Access = {
   degraded: null,
   viewingAs: null,
 }
+const LENS = lensOf(own) as string
+/** The owner's lens on one of his views. */
+const lensIn = (mode: 'everyone' | 'mine') =>
+  lensOf({ ...own, view: { mode } }) as string
 
 const day = (dayKey: string, businessId = B) =>
   rq.day(businessId, dayKey).queryKey as QueryKey
@@ -682,7 +686,7 @@ describe('live, and what is written', () => {
     h.convex.answer(roster(), [])
     const shown = observe(h, day(TODAY), roster())
     await vi.advanceTimersByTimeAsync(KEPT_WRITE_DELAY_MS + 10)
-    expect(h.row(roster())?.lens).toBe('m1|everyone')
+    expect(h.row(roster())?.lens).toBe(lensIn('everyone'))
     vi.mocked(keepStartPage).mockClear()
 
     // "Just my jobs": access:me and the day change in the one transition.
@@ -690,15 +694,15 @@ describe('live, and what is written', () => {
     h.convex.answer(accessKey(), { ...own, view: { mode: 'mine' } })
     h.convex.answer(day(TODAY), [job('mine')])
     await vi.advanceTimersByTimeAsync(10)
-    expect(backend.owner?.lens).toBe('m1|mine')
+    expect(backend.owner?.lens).toBe(lensIn('mine'))
     expect(h.keeper.isLive(roster())).toBe(true)
 
     // Nothing waits on a line that works, and all of it is written again.
     await pinging(h, 15_000)
     expect(h.keeper.keptWaiting()).toEqual([])
-    expect(h.row(roster())).toMatchObject({ lens: 'm1|mine' })
+    expect(h.row(roster())).toMatchObject({ lens: lensIn('mine') })
     expect(h.row(day(TODAY))).toMatchObject({
-      lens: 'm1|mine',
+      lens: lensIn('mine'),
       data: [job('mine')],
     })
     // The start page, drawn again under the view now kept: a cold open with
@@ -748,7 +752,10 @@ describe('live, and what is written', () => {
 
     h.keeper.enter(B2_BUSINESS)
     await vi.advanceTimersByTimeAsync(10)
-    expect(backend.owner).toMatchObject({ businessId: B2, lens: 'm2|-' })
+    expect(backend.owner).toMatchObject({
+      businessId: B2,
+      lens: lensOf({ ...own, membershipId: 'm2' as Id<'memberships'> }),
+    })
     expect(h.keeper.isLive(day(TODAY, B2))).toBe(true)
     expect(h.keeper.isLive(roster(B2))).toBe(true)
 
@@ -956,7 +963,7 @@ describe('live, and what is written', () => {
     h.convex.answer(day(TODAY), [job('mine')])
     await vi.advanceTimersByTimeAsync(KEPT_WRITE_DELAY_MS + 10)
     expect(h.row(day(TODAY))).toMatchObject({
-      lens: 'm1|mine',
+      lens: lensIn('mine'),
       data: [job('mine')],
     })
   })
