@@ -189,6 +189,13 @@ const STREET_WORDS: Record<string, string> = {
   ridge: 'rdge',
 }
 
+/** Every street type as `siteKey` writes it ("st", "ct", "pde"), for telling
+ * a street's name from its type (lib/contactKeys.ts `addressNear`): Wattle St
+ * and Wattle Ct are two streets. */
+export const STREET_TYPES: ReadonlySet<string> = new Set(
+  Object.values(STREET_WORDS),
+)
+
 /** Suburb words, to the short form lists write them in: Mount Lawley is Mt
  * Lawley, Port Hedland is Pt Hedland, Point Cook is Pt Cook. Short, because
  * "Pt" is written for both Port and Point: folding it to either long word

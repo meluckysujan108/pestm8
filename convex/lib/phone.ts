@@ -29,10 +29,13 @@ export type PhoneCheck = {
 const MIN_DIGITS = 6
 
 /** A trailing extension, kept as typed: "ext 2", "x21". */
-const EXTENSION = /\s*(?:ext\.?|extension|x)\s*(\d{1,6})\s*$/i
+export const EXTENSION = /\s*(?:ext\.?|extension|x)\s*(\d{1,6})\s*$/i
 
-/** The area code an 8-digit local number most likely belongs to. */
-const AREA_CODE: Record<string, string> = {
+/** The area code an 8-digit local number most likely belongs to, by the
+ * business's state. Matching fills a local number in with the same one
+ * (lib/contactKeys.ts `areaCodeOf`), so it matches the number the Tidy fix
+ * would make it. */
+export const AREA_CODE: Record<string, string> = {
   ACT: '02',
   NSW: '02',
   VIC: '03',
@@ -63,8 +66,9 @@ function group(digits: string, sizes: Array<number>): string {
 }
 
 /** Every digit, with +61 / 0061 / 61 written back as the leading 0 a number
- * has when dialled from inside Australia. Null for another country's code. */
-function nationalDigits(number: string): string | null {
+ * has when dialled from inside Australia. Null for another country's code.
+ * Shared with the match keys (lib/contactKeys.ts `phoneKeys`). */
+export function nationalDigits(number: string): string | null {
   const plus = number.trim().startsWith('+')
   let digits = number.replace(/\D/g, '')
   if (digits.startsWith('0061')) digits = digits.slice(4)

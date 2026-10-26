@@ -1,3 +1,4 @@
+import { emailKey, nameKey } from './contactKeys'
 import type { Id } from '../_generated/dataModel'
 
 /**
@@ -95,53 +96,10 @@ export type Proposal =
     }
   | { clientId: Id<'clients'>; outcome: 'new' }
 
-/** Company endings a name may carry in one book and not the other ("Acme
- * Pty Ltd" in Xero, "ACME" on the job card). Longest first, so "pty ltd"
- * goes whole rather than leaving "pty" behind. */
-const COMPANY_ENDINGS: ReadonlyArray<ReadonlyArray<string>> = [
-  ['pty', 'ltd'],
-  ['pty', 'limited'],
-  ['ltd'],
-  ['limited'],
-  ['pty'],
-]
-
-/**
- * A name as matching compares it: lower-case, accents dropped, `&` read as
- * "and", punctuation gone, one trailing company ending dropped, and the words
- * SORTED — so "Smith, John" and "John Smith" agree, as do "Acme Pty Ltd" and
- * "ACME". Apostrophes and full stops join their letters ("O'Brien" is
- * "obrien", "A.B." is "ab"); any other punctuation separates words. A name of
- * nothing but punctuation or a company ending is '' — which matches nothing.
- */
-export function nameKey(name: string): string {
-  const words = name
-    .normalize('NFKD')
-    .replace(/\p{M}+/gu, '')
-    .toLowerCase()
-    .replace(/&/g, ' and ')
-    .replace(/['’‘`.]/g, '')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim()
-    .split(' ')
-    .filter((word) => word !== '')
-  for (const ending of COMPANY_ENDINGS) {
-    if (endsWith(words, ending)) {
-      words.splice(words.length - ending.length)
-      break
-    }
-  }
-  return words.sort().join(' ')
-}
-
-function endsWith(
-  words: ReadonlyArray<string>,
-  ending: ReadonlyArray<string>,
-): boolean {
-  if (words.length < ending.length) return false
-  const offset = words.length - ending.length
-  return ending.every((word, i) => words[offset + i] === word)
-}
+/** A name and an email as matching compares them now live in
+ * lib/contactKeys.ts, shared with New Job's "already a client?". `nameKey`
+ * is still answered from here, unchanged. */
+export { nameKey }
 
 /**
  * Xero's AccountNumber as a client number: trimmed, all digits, leading
@@ -153,12 +111,6 @@ export function accountNumberKey(raw: string | undefined): number | null {
   if (!/^\d+$/.test(text)) return null
   const n = Number(text)
   return Number.isSafeInteger(n) ? n : null
-}
-
-/** An email as matching compares it; empty is none. */
-function emailKey(raw: string | undefined): string | null {
-  const text = (raw ?? '').trim().toLowerCase()
-  return text === '' ? null : text
 }
 
 /** A phone as a tie-break compares it: its last eight digits, so "08 9345
