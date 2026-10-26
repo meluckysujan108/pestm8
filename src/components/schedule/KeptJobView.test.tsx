@@ -26,7 +26,7 @@ vi.mock('vaul', () => {
 
 /**
  * A job opened with no answer from PestM8, as its day lists it: who the
- * card would ring, and only what the day has, read-only.
+ * live sheet lists to call, and only what the day has, read-only.
  */
 
 const TZ = 'Australia/Perth'
@@ -59,7 +59,12 @@ function job(extra: Partial<DayRow> = {}): DayRow {
   } as unknown as DayRow
 }
 
-function render(row: DayRow, down: 'no-signal' | 'unreachable' | null) {
+function render(
+  row: DayRow,
+  down: 'no-signal' | 'unreachable' | null,
+  readOnly = false,
+  clientNumber?: number,
+) {
   return renderToStaticMarkup(
     <KeptJobView
       job={row}
@@ -67,6 +72,7 @@ function render(row: DayRow, down: 'no-signal' | 'unreachable' | null) {
       down={down}
       timezone={TZ}
       roster={undefined}
+      head={{ readOnly, clientNumber }}
     />,
   )
 }
@@ -80,8 +86,14 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+/** The accessible names of every button, in order. */
+const buttons = (html: string) =>
+  [...html.matchAll(/<button[^>]*aria-label="([^"]*)"/g)].map(
+    (match) => match[1],
+  )
+
 describe('a job from its day', () => {
-  test('a business’s job rings its site contact, as the card does, beside the Map', () => {
+  test('a business’s job lists its site contact and its own line, as the live sheet does, with the Map under them', () => {
     const html = render(
       job({ siteContactName: 'Priya', siteContactPhone: '0433 111 222' }),
       'no-signal',
@@ -89,15 +101,39 @@ describe('a job from its day', () => {
     expect(html).toContain(
       'No signal — showing the copy kept on this phone, updated 8:42am. Editing needs signal.',
     )
-    expect(html).toContain('aria-label="Call Priya"')
-    expect(html).toContain('aria-label="Text Priya"')
-    expect(html).toContain('aria-label="Map of 220 Hay St, Subiaco"')
-    expect(html).not.toContain('Call Subi Café Group')
-    // Who to ask for, as the card's Contact line says it.
-    expect(html).toMatch(/Contact<\/span> <span[^>]*>Priya</)
+    expect(buttons(html)).toEqual([
+      'Call Priya',
+      'Text Priya',
+      'Call Subi Café Group',
+      'Text Subi Café Group',
+      'Map of 220 Hay St, Subiaco',
+    ])
+    expect(html).toContain('Site contact')
+    // The client's own line is captioned beside another Call.
+    expect(html).toContain('Head office')
   })
 
-  test('a person’s job rings the client', () => {
+  test('a business’s contact person, with their own Call, and the client’s Email', () => {
+    const html = render(
+      job({
+        contactPersonName: 'Jan Morris',
+        contactPersonPhone: '0400 222 333',
+        clientEmail: 'accounts@subicafe.com.au',
+      }),
+      'no-signal',
+    )
+    expect(buttons(html)).toEqual([
+      'Call Jan Morris',
+      'Text Jan Morris',
+      'Call Subi Café Group',
+      'Text Subi Café Group',
+      'Email Subi Café Group',
+      'Map of 220 Hay St, Subiaco',
+    ])
+    expect(html).toContain('Contact person')
+  })
+
+  test('a person’s job rings the client, who is their own site contact', () => {
     const html = render(
       job({
         clientKind: 'person',
@@ -109,24 +145,100 @@ describe('a job from its day', () => {
       }),
       'no-signal',
     )
-    expect(html).toContain('aria-label="Call Daniel Price"')
-    expect(html).not.toContain('Call Someone')
+    expect(buttons(html)).toEqual([
+      'Call Daniel Price',
+      'Text Daniel Price',
+      'Map of 220 Hay St, Subiaco',
+    ])
+    expect(html).not.toContain('Head office')
   })
 
-  test('a recurring visit due today is to book: no Map, and its Call says so', () => {
+  test('laid out as the live sheet down to the property’s Call, with the line saying why after the property', () => {
     const html = render(
+      job({ siteContactName: 'Priya', siteContactPhone: '0433 111 222' }),
+      'no-signal',
+    )
+    const at = (text: string) => {
+      const index = html.indexOf(text)
+      expect(index, text).toBeGreaterThan(-1)
+      return index
+    }
+    // The live sheet's head, in its words: "Mon 26 Oct · 10:30am · 1 hr
+    // 30 min", not a range, which can run to a second line.
+    expect(html).toContain('· 10:30am')
+    expect(html).toContain('· 1 hr 30 min')
+    expect(at('Job #1042')).toBeLessThan(at('<h2>Termite Inspection</h2>'))
+    expect(at('<h2>Termite Inspection</h2>')).toBeLessThan(at('Kevin Doyle'))
+    expect(at('Kevin Doyle')).toBeLessThan(at('Property'))
+    // Every Call and the Map before the line: nothing above a Call is
+    // drawn where the live sheet has nothing.
+    expect(at('aria-label="Map of 220 Hay St, Subiaco"')).toBeLessThan(
+      at('No signal — showing the copy kept on this phone'),
+    )
+  })
+
+  test('an invoiced job says so where the live sheet does', () => {
+    const html = render(job({ status: 'invoiced' }), 'no-signal')
+    expect(html).toContain(
+      'This job has been invoiced, so its details are locked. Change its status to edit them.',
+    )
+    expect(html.indexOf('This job has been invoiced')).toBeLessThan(
+      html.indexOf('aria-label="Call Subi Café Group"'),
+    )
+  })
+
+  test('someone else’s job says so where the live sheet does', () => {
+    const html = render(job(), 'no-signal', true)
+    expect(html).toContain(
+      'This job is assigned to someone else, so it is read-only.',
+    )
+    expect(html.indexOf('assigned to someone else')).toBeLessThan(
+      html.indexOf('aria-label="Call Subi Café Group"'),
+    )
+    expect(render(job(), 'no-signal')).not.toContain('someone else')
+  })
+
+  test('Edit’s row and the status menu held unseen where the live sheet has them, so the date and the Calls under them don’t move', () => {
+    const editable = render(job(), 'no-signal')
+    // Unseen, and unheard: nothing here edits.
+    expect(editable).toMatch(
+      /<span aria-hidden="true" class="invisible mr-8[^"]*">.*Edit<\/span>/,
+    )
+    expect(editable).toMatch(/class="lucide lucide-chevron-down invisible"/)
+    expect(editable).not.toContain('Edit job details')
+    // A job too old for a number still has Edit's row.
+    const old = render(job({ jobNumber: undefined }), 'no-signal')
+    expect(old).not.toContain('Job #')
+    expect(old).toContain('invisible mr-8')
+    // No Edit on the live sheet for someone else's job, nor an invoiced one;
+    // no menu for someone else's.
+    const theirs = render(job(), 'no-signal', true)
+    expect(theirs).not.toContain('invisible mr-8')
+    expect(theirs).not.toContain('chevron-down')
+    const invoiced = render(job({ status: 'invoiced' }), 'no-signal')
+    expect(invoiced).not.toContain('invisible mr-8')
+    expect(invoiced).toContain('chevron-down')
+  })
+
+  test('the client’s number beside their name, in the row the live sheet shares between them', () => {
+    const html = render(job(), 'no-signal', false, 1916)
+    expect(html).toMatch(
+      /<div class="flex items-baseline justify-between gap-2"><p[^>]*>Subi Café Group<\/p><span class="shrink-0[^"]*">Client #1916<\/span><\/div>/,
+    )
+    // Where the client list doesn't say, the name has the row to itself.
+    expect(render(job(), 'no-signal')).not.toContain('Client #')
+  })
+
+  test('the Map only where the card has one: not on a visit still to book, nor a cancelled job', () => {
+    const due = render(
       job({ status: 'recurring', scheduledAt: NOW - 60 * 60_000 }),
       'no-signal',
     )
-    expect(html).toContain('Not booked yet — contact to book')
-    expect(html).toContain('aria-label="Call to book: Subi Café Group"')
-    expect(html).not.toContain('Map of')
-  })
-
-  test('a cancelled job rings nobody', () => {
-    const html = render(job({ status: 'cancelled' }), 'no-signal')
-    expect(html).not.toContain('aria-label="Call')
-    expect(html).not.toContain('Map of')
+    expect(due).toContain('aria-label="Call Subi Café Group"')
+    expect(due).not.toContain('Map of')
+    expect(render(job({ status: 'cancelled' }), 'no-signal')).not.toContain(
+      'Map of',
+    )
   })
 
   test('a business client’s work order, or that there is none', () => {
@@ -148,8 +260,7 @@ describe('a job from its day', () => {
 
   test('nothing on it edits: its only buttons reach the client or the map', () => {
     const html = render(job(), 'no-signal')
-    const buttons = [...html.matchAll(/<button[^>]*aria-label="([^"]*)"/g)]
-    expect(buttons.map((match) => match[1])).toEqual([
+    expect(buttons(html)).toEqual([
       'Call Subi Café Group',
       'Text Subi Café Group',
       'Map of 220 Hay St, Subiaco',

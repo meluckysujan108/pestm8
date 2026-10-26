@@ -34,14 +34,22 @@ import { keeper } from '#/lib/offline/keeper'
 import {
   KEPT_CLIENTS_WAIT_MS,
   clientCountLabel,
+  clientsListView,
   directoryCount,
+  firstPageShows,
   keptClientsMode,
+  loaderHoldMs,
+  moreClientsWithSignal,
   newestDrawn,
+  noMatchesHint,
+  openingWaitSince,
 } from '#/lib/offline/keptClients'
 import {
+  useBehindOnce,
   useInMemory,
   useKeptMode,
   useKeptNote,
+  useLateSince,
   useLineDown,
   useReadable,
 } from '#/lib/offline/useKept'
@@ -92,19 +100,30 @@ export const Route = createFileRoute('/$businessSlug/clients/')({
   // In the browser it waits only so long (`loaderWaitMs`), and not at all
   // with the line down (`keeper.lineDown`), when the page reads every client
   // from the phone's copy, which answers at once, and nothing else answers.
+  // With every client on the phone, which the page draws once the newest
+  // are late, no longer than that wait, and not at all on a line PestM8
+  // hasn't spoken on lately (`loaderHoldMs`).
   //
   // It also says what today is, for the "Updated" note's first render: the
   // server's, so a copy of the page the service worker kept from yesterday
-  // still hydrates as it was rendered.
+  // still hydrates as it was rendered. And, in the browser, when the page
+  // was asked for and when this run settled: the page's wait for the newest
+  // clients counts from the tap, if this run is what opened it.
   loader: async ({ context: { queryClient, business }, location }) => {
     const today = todayKeyIn(business.timezone)
+    const askedAt = typeof window === 'undefined' ? null : Date.now()
     const down = keeper.lineDown()
     const everyClient =
       down ||
       (searchParam(location, 'q') ?? '').trim() !== '' ||
       searchParam(location, 'sort') === 'az'
     await settleInBrowser(
-      down ? 0 : loaderWaitMs(),
+      loaderHoldMs({
+        lineDown: down,
+        lineLive: keeper.lineLive(),
+        everyClientOnPhone: keeper.onPhone(rq.directory(business._id).queryKey),
+        waitMs: loaderWaitMs(),
+      }),
       warm(
         queryClient,
         ...(down ? [] : [rq.clientOverview(business._id)]),
@@ -113,7 +132,8 @@ export const Route = createFileRoute('/$businessSlug/clients/')({
           : clientsFirstPage(business._id),
       ),
     )
-    return { today }
+    const settledAt = askedAt === null ? null : Date.now()
+    return { today, askedAt, settledAt }
   },
   component: ClientsPage,
 })
@@ -158,6 +178,11 @@ function ClientsPage() {
   const loaded = Route.useLoaderData()
   // The loader's today until the page has hydrated, then the phone's.
   const today = useToday(business.timezone, loaded.today)
+  // When this page's wait for the newest clients began, kept for as long as
+  // it is open: the loader runs again on each search, and says the time of
+  // that; and a page the router kept from an earlier visit opens on that
+  // visit's answer (`openingWaitSince`).
+  const [openedAt] = useState(() => openingWaitSince(loaded, Date.now()))
   const canManageClients = useCan('clients.manage')
   const canRenumber = useCan('business.manage')
   const { q, sort = 'newest' } = Route.useSearch()
@@ -204,31 +229,39 @@ function ClientsPage() {
    *
    * With the line down, the page reads every client (`keptMode`): the phone
    * keeps the directory, and neither the first page nor the server's counts.
-   * So too on a line that looks up when the newest clients don't come and
-   * the directory is in memory. Decided as the page first draws, or later
-   * while the list is still on its placeholder, and never once the newest
-   * clients are on screen, so the list never changes source under a thumb;
-   * the hydration render draws what the server did, and that stays
-   * (`keptClientsMode`, `useKeptMode`).
+   * So too on a line that looks up when the newest clients haven't come
+   * KEPT_CLIENTS_WAIT_MS after the tap and the directory is in memory.
+   * Decided as the page first draws, or later while the list is still on
+   * its placeholder, and never once the newest clients are on screen, so
+   * the list never changes source under a thumb; the hydration render draws
+   * what the server did, and that stays (`keptClientsMode`, `useKeptMode`).
+   * A first page that came back empty with more behind it draws only the
+   * placeholder, so it decides nothing until cards are drawn
+   * (`newestDrawn`).
    */
   const down = useLineDown()
   const directoryKey = rq.directory(business._id).queryKey
   const wantsEveryClient = searching || sort === 'az' || filtersActive
-  const firstPageInMemory =
-    queryClient.getQueryData(clientsFirstPage(business._id).queryKey) !==
-    undefined
+  const firstPage = queryClient.getQueryData<{
+    page: ReadonlyArray<unknown>
+    isDone: boolean
+  }>(clientsFirstPage(business._id).queryKey)
+  // The newest clients have been drawn as cards on this page (below).
+  const [rowsDrawn, setRowsDrawn] = useState(false)
   const newestOnScreen =
     !wantsEveryClient &&
     newestDrawn({
-      firstPageInMemory,
+      firstPage,
+      rowsDrawn,
       overviewInMemory:
         queryClient.getQueryData(rq.clientOverview(business._id).queryKey) !==
         undefined,
       lineDown: down !== null,
     })
-  const newestLate = useStillPendingAfter(
+  const newestLate = useLateSince(
     !wantsEveryClient && !newestOnScreen,
     KEPT_CLIENTS_WAIT_MS,
+    openedAt,
   )
   const directoryInMemory = useInMemory(directoryKey)
   const keptMode = useKeptMode(
@@ -237,7 +270,7 @@ function ClientsPage() {
         lineDown: keeper.lineDown(),
         directoryReadable: keeper.readable(directoryKey),
         copyRead: keeper.copyRead(),
-        firstPageInMemory,
+        firstPageShows: firstPageShows(firstPage),
         directoryInMemory,
         late: newestLate,
       }),
@@ -347,6 +380,32 @@ function ClientsPage() {
   // Only a list read to its end is empty: a first page can come back with
   // nothing in it and more behind it.
   const empty = everyClient ? filtered?.length === 0 : paged.empty
+  // The newest clients as cards: from here the list keeps its source.
+  if (!rowsDrawn && !everyClient && !failed && !loading && rows.length > 0) {
+    setRowsDrawn(true)
+  }
+  // What goes around the list (`clientsListView`): NoMatches, the next
+  // page's bones, what its end says, and whether the note stays. With the
+  // line down, the newest clients ask for no more: the end of the list says
+  // when more show instead, and that a search finds every client the phone
+  // has.
+  const view = clientsListView({
+    keptMode,
+    wantsEveryClient,
+    searching,
+    filtersActive,
+    lineDown: down !== null,
+    failed,
+    loading,
+    empty,
+    paged,
+  })
+  // What the list searched is about, for the note and for NoMatches.
+  const about = JSON.stringify([searchTerm, sort, kind, suburb, status, tag])
+  // A search the list as the phone last had it has no match for: a client
+  // added since isn't in it. Decided as NoMatches shows, and kept while it
+  // does.
+  const directoryBehind = useBehindOnce(directoryKey, view.noMatches, about)
 
   // Every client, asked for the moment the page knows it will want them — a
   // first letter typed, a press on A–Z or on a filter — so the list is
@@ -359,8 +418,9 @@ function ClientsPage() {
   // What is on screen is drawn from these: the note under the search box
   // says when they were last known right, if they are the phone's copy. A
   // search, order or filter redraws the list too, and once all of it is
-  // live the note goes with the next. With no copy to draw, it goes for
-  // good, rather than say one is on screen over "Could not load".
+  // live the note goes with the next. Never over "Could not load": for good
+  // once the list the page comes back to can't be drawn, and only while it
+  // says so for a search over the newest clients (`clientsListView`).
   const keptNote = useKeptNote(
     keptMode
       ? [directoryKey]
@@ -370,10 +430,7 @@ function ClientsPage() {
         ],
     business.timezone,
     today,
-    {
-      about: JSON.stringify([searchTerm, sort, kind, suburb, status, tag]),
-      empty: keptMode && failed,
-    },
+    { about, ...view.note },
   )
   // For the phone's connection notes: a list the phone keeps no copy of.
   useEffect(() => {
@@ -505,16 +562,14 @@ function ClientsPage() {
         ) : loading ? (
           <ListPending label="Loading clients" count={4} columns={2} />
         ) : empty ? (
-          searching || filtersActive ? (
+          view.noMatches ? (
             <NoMatches
               term={q}
-              // The kept list is as the phone last had it: a client added
-              // since, on this phone or another, isn't in it yet.
-              hint={
-                keptMode
-                  ? 'Try a different name, address or filter. Newer clients show when you have signal.'
-                  : 'Try a different name, address or filter.'
-              }
+              // The list as the phone last had it, whichever way the page
+              // reads: a client added since, on this phone or another, isn't
+              // in it yet. Decided as it shows, so the hint never changes
+              // length over Clear search.
+              hint={noMatchesHint(directoryBehind)}
               clearLabel={q ? 'Clear search' : 'Clear filters'}
               onClear={() => {
                 clearFilters()
@@ -564,13 +619,17 @@ function ClientsPage() {
                 />
               ))}
               {/* The next page on its way, in the cards' own grid. */}
-              {!everyClient && paged.loadingMore && <CardCells count={2} />}
+              {view.bones && <CardCells count={2} />}
             </div>
           )
         )}
 
         {/* Not while the list is still to come: its placeholder says so. */}
-        {!failed && !loading && (
+        {view.end === 'more-with-signal' ? (
+          <p className="mt-3 text-center text-caption text-muted">
+            {moreClientsWithSignal(directoryReadable)}
+          </p>
+        ) : view.end === 'load-more' ? (
           <LoadMore
             canLoadMore={everyClient ? revealed.canLoadMore : paged.canLoadMore}
             loading={!everyClient && paged.loadingMore}
@@ -579,7 +638,7 @@ function ClientsPage() {
             shown={rows.length}
             resetKey={listKey}
           />
-        )}
+        ) : null}
       </section>
 
       <NewPropertySheet

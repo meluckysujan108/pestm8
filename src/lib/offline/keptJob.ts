@@ -65,10 +65,11 @@ export function dayOfBusiness<T extends { row: { businessId: string } }>(
 }
 
 /**
- * The line at the top of a job shown from its day: why, how old it is
- * (`formatUpdated`'s "9:42am"), and that it can't be changed. The words for
- * a line that can't reach PestM8 are the "Updated" note's (KeptCopyNote),
- * and stand for a sheet whose answer is late on a line that looks up too.
+ * The line on a job shown from its day, under where it is and who to call:
+ * why, how old it is (`formatUpdated`'s "9:42am"), and that it can't be
+ * changed. The words for a line that can't reach PestM8 are the "Updated"
+ * note's (KeptCopyNote), and stand for a sheet whose answer is late on a
+ * line that looks up too.
  */
 export function keptJobInset(down: LineDown | null, updated: string): string {
   return down === 'no-signal'
@@ -80,3 +81,82 @@ export function keptJobInset(down: LineDown | null, updated: string): string {
  * holds lists the job. */
 export const NOT_KEPT_JOB =
   'This job isn’t on this phone. It opens when you have signal.'
+
+/**
+ * Said under a job's status, on the live sheet and on one shown from its
+ * day alike: the two are laid out alike down to the property's Call, so it
+ * doesn't move when PestM8 answers. One for a job this person may not edit,
+ * one for a job invoiced.
+ */
+export const SOMEONE_ELSES_JOB =
+  'This job is assigned to someone else, so it is read-only.'
+export const INVOICED_LOCKED =
+  'This job has been invoiced, so its details are locked. Change its status to edit them.'
+
+/**
+ * Whether the live sheet would say the job is someone else's
+ * (`SOMEONE_ELSES_JOB`, its `canEdit` false, and no Edit or status menu), as
+ * far as the phone can tell. The server's rule (`canEditJob`,
+ * convex/lib/capabilities.ts) is the account being worked in's: an owner may
+ * edit any job, anyone on a job may edit it, and a contractor may edit their
+ * own team's. The roster says that account's role, when it isn't the
+ * person's own, and whom it may book onto (`bookable`: for a contractor,
+ * themselves and their team, the team `canEditJob` reads). Anything unknown
+ * (no access or roster in memory, a roster without `bookable`) is taken as
+ * the live sheet most often has it: editable, with no line.
+ */
+export function keptJobReadOnly(
+  access:
+    | {
+        membershipId: string
+        role: string
+        actingAs: { membershipId: string } | null
+      }
+    | undefined,
+  roster:
+    | ReadonlyArray<{ _id: string; role: string; bookable?: boolean }>
+    | undefined,
+  job: {
+    assignedMembershipId: string
+    alsoGoing: ReadonlyArray<{ _id: string }>
+  },
+): boolean {
+  if (!access) return false
+  const acting = access.actingAs?.membershipId ?? access.membershipId
+  const role =
+    access.actingAs === null
+      ? access.role
+      : roster?.find((member) => member._id === acting)?.role
+  const onJob = [
+    job.assignedMembershipId,
+    ...job.alsoGoing.map((person) => person._id),
+  ]
+  if (onJob.includes(acting)) return false
+  if (role === 'subcontractor') return true
+  if (role !== 'contractor' || !roster) return false
+  return !roster.some(
+    (member) => onJob.includes(member._id) && member.bookable !== false,
+  )
+}
+
+/**
+ * The client's number, for the job's Property card, where the live sheet
+ * has it beside their name ("Client #1916"): the day's row names the site,
+ * and the client list (`clients.directory`) says whose it is. Undefined
+ * where the list doesn't say: then the name has the row to itself, and
+ * where it is long, wraps a line later than on the live sheet.
+ */
+export function keptClientNumber(
+  directory:
+    | {
+        clients: ReadonlyArray<{ _id: string; clientNumber?: number }>
+        sites: ReadonlyArray<{ _id: string; clientId: string }>
+      }
+    | undefined,
+  propertyId: string,
+): number | undefined {
+  const site = directory?.sites.find((each) => each._id === propertyId)
+  if (!site) return undefined
+  return directory?.clients.find((client) => client._id === site.clientId)
+    ?.clientNumber
+}

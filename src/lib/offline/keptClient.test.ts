@@ -3,6 +3,7 @@ import {
   NOT_KEPT_CLIENT,
   OPENS_WITH_SIGNAL,
   findKeptClient,
+  keptClientEmail,
   keptClientState,
   xeroKnown,
 } from './keptClient'
@@ -118,6 +119,30 @@ describe('what the sheet shows with no answer yet', () => {
     expect(keptClientState({ ...DOWN, found: false, listed: false })).toBe(
       'waiting',
     )
+  })
+})
+
+describe('their email, from a day the phone holds', () => {
+  const rows = [
+    { propertyId: 'p_other', clientEmail: 'other@example.com' },
+    { propertyId: 'p2', clientEmail: 'accounts@subicafe.com.au' },
+    { propertyId: 'p_none', clientEmail: '' },
+  ]
+  const findRow = (match: (row: { propertyId: string }) => boolean) => {
+    const row = rows.find(match)
+    return row ? { row } : null
+  }
+
+  test('off a visit to one of their sites', () => {
+    expect(keptClientEmail([{ _id: 'p1' }, { _id: 'p2' }], findRow)).toBe(
+      'accounts@subicafe.com.au',
+    )
+  })
+
+  test('none with no visit of theirs, an empty one, or no sites', () => {
+    expect(keptClientEmail([{ _id: 'p9' }], findRow)).toBeUndefined()
+    expect(keptClientEmail([{ _id: 'p_none' }], findRow)).toBeUndefined()
+    expect(keptClientEmail([], () => ({ row: rows[0] }))).toBeUndefined()
   })
 })
 

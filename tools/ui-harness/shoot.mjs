@@ -856,7 +856,7 @@ const PLAN = {
   // client opened from it, and one the phone's client list doesn't have.
   // Each `-notice` adds the no-signal notice as a phone shows it once the
   // line has been down a while: the band over the Clients page's note, and
-  // the copy over each sheet's own line.
+  // the copy at the top of each sheet.
   'jobsheet-kept': { before: async (p) => p.waitForTimeout(900) },
   'jobsheet-kept-notice': { before: async (p) => p.waitForTimeout(900) },
   'jobsheet-not-kept': { before: async (p) => p.waitForTimeout(900) },

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useReducer,
   useState,
   useSyncExternalStore,
@@ -10,6 +11,7 @@ import { dayKeyOf } from '../../../convex/lib/dates'
 import { isOffline } from '#/lib/online'
 import { keeper } from './keeper'
 import { RENDERED_AT_KEY } from './keptSet'
+import type { CSSProperties } from 'react'
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 import type { LineDown } from './keeper'
 
@@ -187,6 +189,53 @@ export function useWaitedOut(
   return waitedOut
 }
 
+/**
+ * When the wait under way began (`useLateSince`): kept while it lasts, now
+ * for one just begun, null while nothing is waited for.
+ */
+export function waitSince(
+  since: number | null,
+  pending: boolean,
+  now: number,
+): number | null {
+  if (!pending) return null
+  return since ?? now
+}
+
+/** How long until a wait that began `since` has lasted `ms`: 0 once it has. */
+export function msUntilLate(since: number, ms: number, now: number): number {
+  return Math.max(0, since + ms - now)
+}
+
+/**
+ * Whether `pending` has held for `ms`. The wait a page opens with counts
+ * from `openedAt`, the tap that asked for it, so time its loader held the
+ * tap counts towards it; a later one counts from when it began. False again
+ * once it stops.
+ */
+export function useLateSince(
+  pending: boolean,
+  ms: number,
+  openedAt: number,
+): boolean {
+  const [since, setSince] = useState<number | null>(() =>
+    pending ? openedAt : null,
+  )
+  const current = waitSince(since, pending, Date.now())
+  if (current !== since) setSince(current)
+  // The wait that has gone on `ms`, by when it began: one begun since isn't.
+  const [lateFor, setLateFor] = useState<number | null>(null)
+  useEffect(() => {
+    if (current === null) return
+    const timer = setTimeout(
+      () => setLateFor(current),
+      msUntilLate(current, ms, Date.now()),
+    )
+    return () => clearTimeout(timer)
+  }, [current, ms])
+  return current !== null && lateFor === current
+}
+
 /** How often a sheet held for a live answer looks again (`useKeeperReads`). */
 const LIVE_RECHECK_MS = 1_000
 
@@ -204,6 +253,149 @@ export function useKeeperReads(active: boolean, ticking: boolean): void {
     const timer = setInterval(bump, LIVE_RECHECK_MS)
     return () => clearInterval(timer)
   }, [ticking])
+}
+
+/**
+ * Whether an answer on screen may be missing something newer
+ * (`useBehindOnce`), counting only what can't be brought up to date now:
+ * - not while it is live;
+ * - with the line down, yes;
+ * - the phone's copy, yes;
+ * - the answer a page's HTML brought: if the page is a copy the service
+ *   worker kept, yes; if the server has just drawn it, it is as new as
+ *   PestM8 had it a moment ago;
+ * - anything else (an answer that was live on an earlier connection, or one
+ *   fetched and not pushed yet) is being asked for again, and comes up to
+ *   date on a line PestM8 is speaking on (`lineLive`): only on one gone
+ *   quiet, yes.
+ */
+export function mayBeBehind(at: {
+  live: boolean
+  lineDown: boolean
+  /** PestM8 has spoken on the line lately (`keeper.lineLive`). */
+  lineLive: boolean
+  /** It is the phone's copy (`keeper.keptSavedAt`). */
+  fromCopy: boolean
+  /** It is still the answer the page's HTML brought. */
+  fromHtml: boolean
+  /** That HTML is a copy the service worker kept (`data-kept`). */
+  htmlKept: boolean
+}): boolean {
+  if (at.live) return false
+  if (at.lineDown || at.fromCopy) return true
+  if (at.fromHtml) return at.htmlKept
+  return !at.lineLive
+}
+
+/** `mayBeBehind` for `queryKey`'s answer, as the keeper has it now. */
+function behindNow(queryKey: QueryKey): boolean {
+  const html = keeper.htmlAsOf([queryKey])
+  return mayBeBehind({
+    live: keeper.isLive(queryKey),
+    lineDown: keeper.lineDown(),
+    lineLive: keeper.lineLive(),
+    fromCopy: keeper.keptSavedAt(queryKey) !== null,
+    fromHtml: html !== null && keeper.asOf([queryKey]) === html,
+    htmlKept: htmlSaysKept(),
+  })
+}
+
+/** What `useBehindOnce` decided, and what was on screen then. */
+export type BehindLatch = { about: string; behind: boolean } | null
+
+/**
+ * The latch after a render: decided (`behind`, asked only then) as what it
+ * is about first shows, kept while it shows, and decided again only for
+ * something else (`about`), or once it has gone and shows again. While
+ * hydrating, never behind: the server drew what it had. The same latch
+ * back when nothing changed, so a render can set it unconditionally.
+ */
+export function nextBehindLatch(
+  latch: BehindLatch,
+  at: {
+    showing: boolean
+    hydrating: boolean
+    about: string
+    behind: () => boolean
+  },
+): BehindLatch {
+  if (!at.showing) return null
+  if (latch !== null && latch.about === at.about) return latch
+  return { about: at.about, behind: !at.hydrating && at.behind() }
+}
+
+/**
+ * Whether `queryKey`'s answer may be missing something newer
+ * (`mayBeBehind`), for words said about it while `showing` (NoMatches'
+ * hint, that newer clients show with signal): decided as they first show,
+ * and kept until what they are about changes (`about`: a search, an order,
+ * a filter) or they go, so they never change length on the screen they're
+ * on, moving the button under them, or are announced again. False on the
+ * server and while hydrating, and kept so after, as the server drew it.
+ */
+export function useBehindOnce(
+  queryKey: QueryKey,
+  showing: boolean,
+  about: string,
+): boolean {
+  const hydrating = useSyncExternalStore(
+    subscribeNothing,
+    () => false,
+    () => true,
+  )
+  const [latch, setLatch] = useState<BehindLatch>(null)
+  const next = nextBehindLatch(latch, {
+    showing,
+    hydrating,
+    about,
+    behind: () => behindNow(queryKey),
+  })
+  if (next !== latch) setLatch(next)
+  return next?.behind ?? false
+}
+
+/**
+ * How a sheet's scrolling body is held once the live sheet has taken the
+ * place of a kept view drawn in it (`useHandOverBody`): at the kept view's
+ * own height, as a size the body may still give up when the sheet has less
+ * room (a notice above it), but never grow past. Nothing while the kept
+ * view shows, or where none has been measured.
+ */
+export function handOverStyle(
+  kept: boolean,
+  keptHeight: number | null,
+): CSSProperties | undefined {
+  if (kept || keptHeight === null) return undefined
+  return { flex: '0 1 auto', height: keptHeight }
+}
+
+/**
+ * For a sheet that shows a job or client from the phone's copy until PestM8
+ * answers (KeptJobView, KeptClientView): its one scrolling body, drawn for
+ * both, so the live sheet lands in the same element, scrolled where the
+ * kept view was; and held at the kept view's height from then on, for as
+ * long as the sheet is open. A bottom sheet is as tall as what is in it, up
+ * to its cap, so a live sheet taller or shorter than the kept view would
+ * move its top edge, and every Call with it. `kept`: the kept view is what
+ * the body shows now. Its height is measured as it draws and whenever it
+ * changes.
+ */
+export function useHandOverBody(kept: boolean): {
+  ref: (node: HTMLElement | null) => void
+  style: CSSProperties | undefined
+} {
+  const [node, setNode] = useState<HTMLElement | null>(null)
+  const [keptHeight, setKeptHeight] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    if (!kept || !node) return
+    const measure = () => setKeptHeight(node.getBoundingClientRect().height)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [kept, node])
+  return { ref: setNode, style: handOverStyle(kept, keptHeight) }
 }
 
 /** What the "Updated" note says first: no signal, unreachable, kept, live. */
@@ -361,13 +553,14 @@ export function noteAbout(
   )
 }
 
-/** What the latch makes of the note now. */
+/** What the latch makes of the note now, left out while `hidden`. */
 export function notePhase(
   latch: NoteLatch,
   hydrating: boolean,
+  hidden = false,
 ): KeptNote['phase'] {
   if (hydrating) return 'hydrating'
-  return latch.shown === true && !latch.gone ? 'shown' : 'hidden'
+  return latch.shown === true && !latch.gone && !hidden ? 'shown' : 'hidden'
 }
 
 /**
@@ -383,7 +576,8 @@ export function notePhase(
  * goes at the next change of what it is about (`queryKeys`, `todayKey`
  * moving on, or the page's own `about`: a search, an order, a filter),
  * which redraws the list under it anyway (`nextNoteLatch`). It goes for good
- * once the page has nothing under it to draw (`empty`).
+ * once the page has nothing under it to draw (`empty`), and is left out
+ * while what is under it could not load for now (`hidden`).
  *
  * `tz` and `todayKey` say which day is today for `asOfToday`: the loader's
  * today, so the server and the hydration render agree.
@@ -395,8 +589,13 @@ export function useKeptNote(
   page: {
     /** What else redraws what is under it, beside its answers and today. */
     about?: string
-    /** Nothing under it can be drawn: the page says it could not load. */
+    /** Nothing under it can be drawn, now or once it is redrawn: the page
+     * says it could not load, and the note goes for good. */
     empty?: boolean
+    /** Left out for now, decided as before once this is over: what is under
+     * it could not load, but what it is redrawn as next can be (a search
+     * over the newest clients, which come back as it is cleared). */
+    hidden?: boolean
   } = {},
 ): KeptNote {
   const queryClient = useQueryClient()
@@ -433,7 +632,7 @@ export function useKeptNote(
 
   const asOf = tone === 'live' ? (next.liveFor?.at ?? oldest) : oldest
   return {
-    phase: notePhase(next, hydrating),
+    phase: notePhase(next, hydrating, page.hidden),
     tone,
     asOf,
     asOfToday: asOf !== null && dayKeyOf(asOf, tz) === todayKey,

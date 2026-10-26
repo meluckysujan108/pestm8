@@ -67,7 +67,7 @@ import { ReportsLibrary } from '#/components/reports/ReportsLibrary'
 import type { Segment } from '#/components/reports/ReportsLibrary'
 import { getTemplate } from '#/lib/reportTemplates'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
-import { Sheet, SheetShell } from '#/components/primitives/Sheet'
+import { SHEET_BODY, Sheet, SheetShell } from '#/components/primitives/Sheet'
 import { Segmented } from '#/components/primitives/Segmented'
 import { SearchBox } from '#/components/primitives/SearchBox'
 import { LoadMore } from '#/components/primitives/LoadMore'
@@ -1012,25 +1012,31 @@ function keptDayRow(id: string, extra: Record<string, unknown> = {}) {
 
 /**
  * A business's job opened with no signal, from the day the phone kept
- * yesterday evening: the line saying so, the site contact's Call and Text
- * beside the Map, the note and the work order.
+ * yesterday evening, laid out as the live sheet down to the property: the
+ * site contact's Call and Text and head office's Call, Text and Email, as
+ * the live sheet lists them, the Map under them, then the line saying so,
+ * the note and the work order.
  */
 function JobSheetKept() {
   return (
     <Phone>
       <Header title="Schedule" />
       <SheetShell open onClose={() => {}}>
-        <KeptJobView
-          job={keptDayRow('j2', {
-            workOrder: 'PO 88213',
-            notePreview:
-              'Side gate code 4471 · Priya has the key to the store room.',
-          })}
-          asOf={perthAt(addDays(perthTodayKey(), -1), '17:10')}
-          down="no-signal"
-          timezone={TZ}
-          roster={MEMBERS as never}
-        />
+        {/* In the sheet's own body, as the job sheet draws it. */}
+        <div className={`${SHEET_BODY} pt-3`}>
+          <KeptJobView
+            job={keptDayRow('j2', {
+              workOrder: 'PO 88213',
+              notePreview:
+                'Side gate code 4471 · Priya has the key to the store room.',
+            })}
+            asOf={perthAt(addDays(perthTodayKey(), -1), '17:10')}
+            down="no-signal"
+            timezone={TZ}
+            roster={MEMBERS as never}
+            head={{ readOnly: false, clientNumber: 1916 }}
+          />
+        </div>
       </SheetShell>
     </Phone>
   )
@@ -1050,9 +1056,11 @@ function JobSheetNotKept() {
 
 /**
  * A business client opened with no signal, from the copy of the client list
- * kept yesterday evening: the line saying so, Call and Text, each site with
- * Map and the first's site contact, and what opens when there is signal.
- * The client the `client` specimen opens, so the two sit side by side.
+ * kept yesterday evening: Call, Text and Email (from a day the phone kept
+ * with a visit of theirs) where the live sheet has them, the line saying so
+ * under them, each site with Map and the first's site contact, and what
+ * opens when there is signal. The client the `client` specimen opens, so
+ * the two sit side by side.
  */
 function ClientSheetKept() {
   const createdAt = Date.now() - 400 * 24 * 60 * 60 * 1000
@@ -1060,46 +1068,50 @@ function ClientSheetKept() {
     <Phone>
       <Header title="Clients" />
       <SheetShell open onClose={() => {}}>
-        <KeptClientView
-          client={
-            {
-              _id: 'c1',
-              _creationTime: createdAt,
-              name: 'Subi Café Group',
-              kind: 'business',
-              phone: '08 9381 2200',
-              abn: '51824753556',
-              clientNumber: 1916,
-              status: 'active',
-              createdAt,
-            } as never
-          }
-          sites={
-            [
+        {/* In the sheet's own body, as the client sheet draws it. */}
+        <div className={`${SHEET_BODY} pt-3`}>
+          <KeptClientView
+            client={
               {
-                _id: 'p1',
-                clientId: 'c1',
-                addressLine: '220 Hay St',
-                suburb: 'Subiaco',
-                postcode: '6008',
-                siteContactName: 'Priya',
-                siteContactPhone: '0433 111 222',
+                _id: 'c1',
+                _creationTime: createdAt,
+                name: 'Subi Café Group',
+                kind: 'business',
+                phone: '08 9381 2200',
+                abn: '51824753556',
+                clientNumber: 1916,
+                status: 'active',
                 createdAt,
-              },
-              {
-                _id: 'p2',
-                clientId: 'c1',
-                addressLine: '9 Rokeby Rd',
-                suburb: 'Subiaco',
-                postcode: '6008',
-                createdAt,
-              },
-            ] as never
-          }
-          asOf={perthAt(addDays(perthTodayKey(), -1), '17:10')}
-          down="no-signal"
-          timezone={TZ}
-        />
+              } as never
+            }
+            sites={
+              [
+                {
+                  _id: 'p1',
+                  clientId: 'c1',
+                  addressLine: '220 Hay St',
+                  suburb: 'Subiaco',
+                  postcode: '6008',
+                  siteContactName: 'Priya',
+                  siteContactPhone: '0433 111 222',
+                  createdAt,
+                },
+                {
+                  _id: 'p2',
+                  clientId: 'c1',
+                  addressLine: '9 Rokeby Rd',
+                  suburb: 'Subiaco',
+                  postcode: '6008',
+                  createdAt,
+                },
+              ] as never
+            }
+            asOf={perthAt(addDays(perthTodayKey(), -1), '17:10')}
+            down="no-signal"
+            timezone={TZ}
+            email="ops@subicafe.example"
+          />
+        </div>
       </SheetShell>
     </Phone>
   )
@@ -1217,7 +1229,7 @@ function ClientsKeptNotice() {
 
 /**
  * The notice as a phone with no signal shows it over an open sheet, under
- * the grab handle and above the kept view's own line: what ConnectionNotice
+ * the grab handle and above the kept view's head: what ConnectionNotice
  * publishes once the line has been down a while.
  */
 const NO_SIGNAL_IN_SHEET: ReachNoticeModel = {

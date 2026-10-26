@@ -82,6 +82,25 @@ export function keptClientState(at: {
   return at.listed || !at.listReadable ? 'not-kept' : 'waiting'
 }
 
+/**
+ * The client's email, for the Email the live sheet has beside Call and
+ * Text: the client list doesn't carry it, but a day's row for a visit to
+ * one of their sites does (`jobs.listDay`'s `clientEmail`, read off the
+ * same client), in memory or in the phone's copy (`keeper.findDayRowWhere`).
+ * Undefined where no day the phone holds has a visit of theirs, or they
+ * have no email.
+ */
+export function keptClientEmail(
+  sites: ReadonlyArray<{ _id: string }>,
+  findRow: (
+    match: (row: { propertyId: string }) => boolean,
+  ) => { row: { clientEmail: string } } | null,
+): string | undefined {
+  if (sites.length === 0) return undefined
+  const ids = new Set(sites.map((site) => site._id))
+  return findRow((row) => ids.has(row.propertyId))?.row.clientEmail || undefined
+}
+
 /** A connection that Xero lines come from (`xeroSync.clientLines`). */
 const LIVE_XERO = new Set(['connected', 'needs_reconnect'])
 

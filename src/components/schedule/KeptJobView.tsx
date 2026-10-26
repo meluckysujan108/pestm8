@@ -1,26 +1,31 @@
 import { useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Drawer } from 'vaul'
-import { Repeat, WifiOff } from 'lucide-react'
-import { SHEET_BODY } from '#/components/primitives/Sheet'
+import { ChevronDown, Pencil, Repeat, WifiOff } from 'lucide-react'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { DetailRow, DetailRows } from '#/components/primitives/DetailRow'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import { personLabel } from '#/lib/assignees'
 import { logConnection } from '#/lib/connectionLog'
 import {
+  formatDuration,
   formatJobDate,
   formatJobMoney,
-  formatTimeRange,
+  formatTime,
   formatUpdated,
 } from '#/lib/format'
 import { cardActionsFor, cardButtonsFor } from '#/lib/jobCardActions'
 import { mapsUrl } from '#/lib/maps'
 import { keeper } from '#/lib/offline/keeper'
 import {
+  INVOICED_LOCKED,
   KEPT_JOB_WAIT_MS,
   NOT_KEPT_JOB,
+  SOMEONE_ELSES_JOB,
   dayOfBusiness,
+  keptClientNumber,
   keptJobInset,
+  keptJobReadOnly,
   keptJobState,
 } from '#/lib/offline/keptJob'
 import {
@@ -28,12 +33,14 @@ import {
   useLineDown,
   useWaitedOut,
 } from '#/lib/offline/useKept'
+import { rq } from '#/lib/routeQueries'
 import { dayKeyOf } from '../../../convex/lib/dates'
 import { describeInterval } from '../../../convex/lib/recurrence'
-import { contactToCall } from '../../../convex/lib/siteContact'
+import { siteContactOf } from '../../../convex/lib/siteContact'
 import type { ReactNode } from 'react'
 import type { FunctionReturnType } from 'convex/server'
-import type { ContactAction } from '#/components/primitives/ContactButtons'
+import type { Access } from '#/lib/access'
+import type { Directory } from '#/lib/directory'
 import type { DayRow, LineDown } from '#/lib/offline/keeper'
 import type { KeptJobState } from '#/lib/offline/keptJob'
 import type { api } from '../../../convex/_generated/api'
@@ -57,12 +64,24 @@ export type KeptJobDay = { row: DayRow; asOf: number }
  *
  * `waiting`: `jobs.get` has neither answered nor been refused. Once it has,
  * the sheet is the live one, and this says `waiting` (nothing to show).
+ * `head`: what the live sheet's head and Property card would show that the
+ * day's row doesn't say, read from memory or the phone's copy as the job
+ * first shows, and kept while it does, so nothing in it is put in under a
+ * thumb later: whether the job is someone else's (`keptJobReadOnly`, from
+ * the access and the roster), and the client's number (`keptClientNumber`,
+ * from the client list).
  */
 export function useKeptJob(
   businessId: Id<'businesses'>,
   jobId: Id<'jobs'>,
   waiting: boolean,
-): { state: KeptJobState; day: KeptJobDay | null; down: LineDown | null } {
+): {
+  state: KeptJobState
+  day: KeptJobDay | null
+  down: LineDown | null
+  head: KeptJobHead
+} {
+  const queryClient = useQueryClient()
   const down = useLineDown()
   const waitedOut = useWaitedOut(waiting, down, KEPT_JOB_WAIT_MS)
   // Latched once shown, so a line that comes back before the answer does
@@ -86,6 +105,24 @@ export function useKeptJob(
   useEffect(() => {
     if (state === 'kept') setShown(true)
   }, [state])
+  const [head, setHead] = useState<KeptJobHead | null>(null)
+  const nextHead =
+    head === null && state === 'kept' && found !== null
+      ? {
+          readOnly: keptJobReadOnly(
+            queryClient.getQueryData<Access>(rq.access(businessId).queryKey),
+            keeper.answerOnPhone(rq.roster(businessId).queryKey) as
+              Roster | undefined,
+            found.row,
+          ),
+          clientNumber: keptClientNumber(
+            keeper.answerOnPhone(rq.directory(businessId).queryKey) as
+              Directory | undefined,
+            found.row.propertyId,
+          ),
+        }
+      : head
+  if (nextHead !== head) setHead(nextHead)
   useKeeperReads(
     waiting,
     looking && state === 'waiting' && found?.live === true,
@@ -104,16 +141,40 @@ export function useKeptJob(
     state,
     day: found ? { row: found.row, asOf: found.asOf } : null,
     down,
+    head: nextHead ?? NO_HEAD,
   }
 }
+
+/** What the live sheet's head would show that the day's row doesn't say
+ * (`useKeptJob`). */
+export type KeptJobHead = {
+  /** The live sheet would say the job is someone else's: no Edit, no status
+   * menu, and `SOMEONE_ELSES_JOB` under the status. */
+  readOnly: boolean
+  /** The client's number, beside their name on the Property card. */
+  clientNumber: number | undefined
+}
+
+const NO_HEAD: KeptJobHead = { readOnly: false, clientNumber: undefined }
 
 /**
  * A job opened with no answer from PestM8, shown read-only from the day
  * that lists it (`useKeptJob`), in place of the job sheet until PestM8
  * answers. What a technician needs at the door: its status, when, the
- * client, the address with Map, Call and Text, the work order, the note, and
- * who is going. Call and Text follow the job card's rules (`cardActionsFor`,
- * `contactToCall`), so the sheet rings whoever the card does.
+ * client, the address, who to call, the work order, the note, and who is
+ * going.
+ *
+ * Drawn in the sheet's own scrolling body, the one the live sheet is drawn
+ * in (JobDetailSheet.tsx, `useHandOverBody`), which keeps its scroll and its
+ * height when the live sheet takes this one's place. Down to the end of the
+ * Property card it is laid out as the live sheet is, line for line: Edit's
+ * row and the status menu's chevron, unseen, where the live sheet would
+ * have them (`head.readOnly`); the client's number beside their name; its
+ * site contact, contact person and the client's own Call, Text and Email,
+ * as the live sheet lists them. The line saying why comes after it, and the
+ * Map, which the live sheet doesn't have, at the card's foot (where the card
+ * has one: `cardActionsFor`). So when PestM8 answers, each Call is where it
+ * was, under the thumb that may be on it.
  *
  * Typed from `jobs.listDay`'s row rather than `jobs.get`'s: a change to the
  * day's fields shows here as a type error, not as a sheet missing a line.
@@ -126,6 +187,7 @@ export function KeptJobView({
   down,
   timezone,
   roster,
+  head = NO_HEAD,
 }: {
   job: DayRow
   /** When the day was last known right (`keeper.findDayRow`). */
@@ -134,29 +196,39 @@ export function KeptJobView({
   timezone: string
   /** The team, for who is going by name, as the live sheet names them. */
   roster: Roster | undefined
+  /** What the live sheet's head would show that the day doesn't say
+   * (`useKeptJob`). */
+  head?: KeptJobHead
 }) {
+  const { readOnly, clientNumber } = head
   // Drawn only in the browser, after a wait or with the line down, so the
   // phone's clock gives today here.
   const now = Date.now()
   const todayKey = dayKeyOf(now, timezone)
   const jobDay = dayKeyOf(job.scheduledAt, timezone)
 
-  const buttons = cardButtonsFor(cardActionsFor(job, timezone, now))
-  const callee = contactToCall({
+  const offersMap =
+    cardButtonsFor(cardActionsFor(job, timezone, now)).map &&
+    mapsUrl(job) !== null
+  // Who the live sheet lists under the property, from the day's row: the
+  // site's own contact, the client's contact person, and the client's own
+  // line, captioned only beside another Call (JobDetailSheet.tsx).
+  const siteContact = siteContactOf({
     clientKind: job.clientKind,
-    clientName: job.clientName,
-    clientPhone: job.clientPhone,
     siteContactName: job.siteContactName,
     siteContactPhone: job.siteContactPhone,
-    contactPersonName: job.contactPersonName,
-    contactPersonPhone: job.contactPersonPhone,
   })
-  const offersCall = buttons.contact && callee.phone !== undefined
-  const offersMap = buttons.map && mapsUrl(job) !== null
-  const show: Array<ContactAction> = [
-    ...(offersCall ? (['call', 'text'] as const) : []),
-    ...(offersMap ? (['map'] as const) : []),
-  ]
+  const contactPerson = job.contactPersonName
+    ? {
+        name: job.contactPersonName,
+        phone: job.contactPersonPhone || undefined,
+      }
+    : null
+  const clientPhone = job.clientPhone || undefined
+  const clientEmail = job.clientEmail || undefined
+  const captionOffice =
+    (siteContact !== null || Boolean(contactPerson?.phone)) &&
+    Boolean(clientPhone || clientEmail)
 
   // The lead, then anyone also going, named from the roster as the live
   // sheet names them, else as the day lists them.
@@ -179,22 +251,39 @@ export function KeptJobView({
   ]
 
   return (
-    <div className={`${SHEET_BODY} pt-3`}>
-      {job.jobNumber !== undefined && (
-        <p className="section-label mb-0.5">Job #{job.jobNumber}</p>
-      )}
+    <>
+      {/* In the row the live sheet shares with Edit, which holds its place
+          unseen where the live sheet would have it: a job too old for a
+          number has nothing else in the row. */}
+      <div className="flex items-center justify-between gap-2">
+        {job.jobNumber !== undefined && (
+          <p className="section-label mb-0.5">Job #{job.jobNumber}</p>
+        )}
+        {!readOnly && job.status !== 'invoiced' && <UnseenEdit />}
+      </div>
       <Drawer.Title className="text-sheet-title text-ink">
         {job.jobType}
       </Drawer.Title>
 
-      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-        <StatusPill status={job.status} />
+      <div className="mt-2 flex items-center gap-2">
+        {/* As wide as the live sheet's status menu where it has one, so the
+            date beside it wraps where the live one does. */}
+        {readOnly ? (
+          <StatusPill status={job.status} />
+        ) : (
+          <UnseenMenu>
+            <StatusPill status={job.status} />
+          </UnseenMenu>
+        )}
         <span className="text-body text-muted">
           <span className="whitespace-nowrap">
             {formatJobDate(jobDay, todayKey)}
           </span>{' '}
           <span className="whitespace-nowrap">
-            · {formatTimeRange(job.scheduledAt, job.durationMinutes, timezone)}
+            · {formatTime(job.scheduledAt, timezone)}
+          </span>{' '}
+          <span className="whitespace-nowrap">
+            · {formatDuration(job.durationMinutes)}
           </span>
         </span>
       </div>
@@ -232,8 +321,103 @@ export function KeptJobView({
         )}
       </div>
 
-      {/* Why it can't be changed, where the live sheet says why a job
-          can't be: the Products sheet's line. */}
+      {readOnly && (
+        <p className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5 text-caption text-amber-ink">
+          {SOMEONE_ELSES_JOB}
+        </p>
+      )}
+      {job.status === 'invoiced' && (
+        <p className="mt-3 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5 text-caption text-ink-2">
+          {INVOICED_LOCKED}
+        </p>
+      )}
+
+      <Section label="Property">
+        {/* Beside the client's number, as on the live sheet, so a long name
+            wraps where it does there. */}
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="min-w-0 text-row-title text-ink">{job.clientName}</p>
+          {clientNumber !== undefined && (
+            <span className="shrink-0 text-caption tabular-nums text-muted">
+              Client #{clientNumber}
+            </span>
+          )}
+        </div>
+        <p className="text-body text-ink-2">{job.addressLine}</p>
+        <p className="text-body text-muted">
+          {job.suburb} {job.propertyState} {job.postcode}
+        </p>
+
+        {siteContact && (
+          <div className="mt-3 border-t border-hairline-2 pt-3">
+            <h4 className="section-label mb-1">Site contact</h4>
+            {siteContact.name && (
+              <p className="text-body text-ink">{siteContact.name}</p>
+            )}
+            {siteContact.phone && (
+              <>
+                <p className="text-caption text-muted">{siteContact.phone}</p>
+                <div className="mt-2">
+                  <ContactButtons
+                    name={siteContact.name ?? 'site contact'}
+                    phone={siteContact.phone}
+                    show={['call', 'text']}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {contactPerson && (
+          <div className="mt-3 border-t border-hairline-2 pt-3">
+            <h4 className="section-label mb-1">Contact person</h4>
+            <p className="text-body text-ink">{contactPerson.name}</p>
+            {contactPerson.phone && (
+              <>
+                <p className="text-caption text-muted">{contactPerson.phone}</p>
+                <div className="mt-2">
+                  <ContactButtons
+                    name={contactPerson.name}
+                    phone={contactPerson.phone}
+                    show={['call', 'text']}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {(clientPhone || clientEmail) && (
+          <div
+            className={
+              captionOffice ? 'mt-3 border-t border-hairline-2 pt-3' : 'mt-3'
+            }
+          >
+            {captionOffice && (
+              <h4 className="section-label mb-1">Head office</h4>
+            )}
+            <ContactButtons
+              name={job.clientName}
+              phone={clientPhone}
+              email={clientEmail}
+            />
+          </div>
+        )}
+
+        {offersMap && (
+          <div className="mt-3">
+            <ContactButtons
+              name={job.addressLine}
+              address={job}
+              show={['map']}
+            />
+          </div>
+        )}
+      </Section>
+
+      {/* Why it can't be changed, under who to call: everything above it
+          stays where the live sheet has it. */}
       <p className="mt-3 flex items-start gap-2 rounded-xl bg-surface-2 px-3 py-2 text-caption text-ink-2">
         <WifiOff
           aria-hidden
@@ -243,37 +427,6 @@ export function KeptJobView({
         />
         {keptJobInset(down, formatUpdated(asOf, timezone, todayKey))}
       </p>
-
-      <Section label="Property">
-        <p className="min-w-0 text-row-title text-ink">{job.clientName}</p>
-        <p className="text-body text-ink-2">{job.addressLine}</p>
-        <p className="text-body text-muted">
-          {job.suburb} {job.propertyState} {job.postcode}
-        </p>
-        {/* Who to ask for, as the card's Contact line says it. */}
-        {callee.askFor && (
-          <p className="mt-2 text-caption">
-            <span className="text-muted">Contact</span>{' '}
-            <span className="font-semibold text-ink-2">{callee.askFor}</span>
-          </p>
-        )}
-        {show.length > 0 && (
-          <div className="mt-3">
-            {buttons.toBook && offersCall && (
-              <p className="mb-2 text-caption text-muted">
-                Not booked yet — contact to book
-              </p>
-            )}
-            <ContactButtons
-              name={callee.name}
-              phone={callee.phone}
-              address={job}
-              show={show}
-              toBook={buttons.toBook}
-            />
-          </div>
-        )}
-      </Section>
 
       {job.notePreview && (
         <Section label="Note">
@@ -301,7 +454,7 @@ export function KeptJobView({
           )}
         </DetailRows>
       </Section>
-    </div>
+    </>
   )
 }
 
@@ -316,6 +469,40 @@ export function NotKeptJob() {
       <Drawer.Title className="text-sheet-title text-ink">Job</Drawer.Title>
       <p className="mt-1 text-body text-ink-2">{NOT_KEPT_JOB}</p>
     </div>
+  )
+}
+
+/**
+ * The live sheet's Edit, unseen and unheard: its row keeps the height it has
+ * there. Exported for the client sheet, whose head is the same.
+ */
+export function UnseenEdit() {
+  return (
+    <span
+      aria-hidden
+      className="invisible mr-8 flex items-center gap-1 text-caption font-semibold"
+    >
+      <Pencil size={13} strokeWidth={2} />
+      Edit
+    </span>
+  )
+}
+
+/**
+ * A status pill as wide as the live sheet's menu for it (`StatusPillButton`:
+ * the pill and its chevron), the chevron unseen: nothing here opens it.
+ */
+export function UnseenMenu({ children }: { children: ReactNode }) {
+  return (
+    <span className="flex items-center gap-1">
+      {children}
+      <ChevronDown
+        aria-hidden
+        size={14}
+        strokeWidth={2.2}
+        className="invisible"
+      />
+    </span>
   )
 }
 

@@ -45,6 +45,7 @@ import { loadLocalities } from '#/lib/addressVerify'
 import { todayKey } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
 import { useLineDown } from '#/lib/offline/useLineDown'
+import { useHandOverBody } from '#/lib/offline/useKept'
 import type { LineDown } from '#/lib/offline/useLineDown'
 import { SheetPending } from '#/components/shell/Pending'
 import { abnDigits, formatAbn } from '../../../convex/lib/abn'
@@ -195,6 +196,15 @@ function ClientBody({
     clientId,
     client === undefined && !clientQuery.isError,
   )
+  // The sheet's one scrolling body, for the client from the list and then
+  // the live sheet in its place: scrolled where it was, and as tall, so Call
+  // doesn't move when PestM8 answers (useHandOverBody).
+  const body = useHandOverBody(
+    client === undefined &&
+      !clientQuery.isError &&
+      kept.state === 'kept' &&
+      kept.kept !== null,
+  )
   // The contact person is the primary contact (Prompt 6.1), not a field of
   // its own. The same query the Contacts section runs, so no second fetch.
   // Read for a person client too: flipping one back to business in the edit
@@ -256,14 +266,22 @@ function ClientBody({
   if (client === undefined) {
     if (kept.state === 'kept' && kept.kept) {
       return (
-        <KeptClientView
-          client={kept.kept.client}
-          sites={kept.kept.sites}
-          asOf={kept.asOf}
-          down={kept.down}
-          timezone={timezone}
-          xero={kept.xero}
-        />
+        // The live sheet's own body, so the live sheet lands in it.
+        <div
+          ref={body.ref}
+          style={body.style}
+          className={`${SHEET_BODY} pt-3`}
+        >
+          <KeptClientView
+            client={kept.kept.client}
+            sites={kept.kept.sites}
+            asOf={kept.asOf}
+            down={kept.down}
+            timezone={timezone}
+            xero={kept.xero}
+            email={kept.email}
+          />
+        </div>
       )
     }
     if (kept.state === 'not-kept') return <NotKeptClient />
@@ -333,7 +351,7 @@ function ClientBody({
     (properties?.length === 1 ? properties[0]._id : undefined)
 
   return (
-    <div className={`${SHEET_BODY} pt-3`}>
+    <div ref={body.ref} style={body.style} className={`${SHEET_BODY} pt-3`}>
       <div className="flex items-center justify-between gap-2">
         <p className="section-label mb-0.5 tabular-nums">{kicker}</p>
         {!formOpen && (

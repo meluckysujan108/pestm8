@@ -67,7 +67,11 @@ function site(
 function render(
   who: DirectoryClient,
   sites: ReadonlyArray<DirectorySite>,
-  more: { down?: 'no-signal' | 'unreachable' | null; xero?: boolean } = {},
+  more: {
+    down?: 'no-signal' | 'unreachable' | null
+    xero?: boolean
+    email?: string
+  } = {},
 ) {
   return renderToStaticMarkup(
     <KeptClientView
@@ -77,6 +81,7 @@ function render(
       down={more.down === undefined ? 'no-signal' : more.down}
       timezone={TZ}
       xero={more.xero}
+      email={more.email}
     />,
   )
 }
@@ -119,6 +124,53 @@ describe('a client from the client list', () => {
     expect(html).toContain('Client #1916')
     // A business's named people aren't kept.
     expect(html).toMatch(/Contacts<\/dt>.*Opens when you have signal\./)
+  })
+
+  test('laid out as the live sheet down to Call and Text, with the line saying why after them', () => {
+    const html = render(client({ tags: ['Strata', 'Quarterly'] }), [])
+    const at = (text: string) => {
+      const index = html.indexOf(text)
+      expect(index, text).toBeGreaterThan(-1)
+      return index
+    }
+    // The live sheet's head, in its order: the number, the name, the status
+    // row, the tags, then Call and Text. The line goes under them, where
+    // the live sheet has nothing, so Call doesn't move when it takes over.
+    expect(at('Client #1916')).toBeLessThan(at('<h2>Subi Café Group</h2>'))
+    expect(at('<h2>Subi Café Group</h2>')).toBeLessThan(at('Commercial'))
+    expect(at('Commercial')).toBeLessThan(at('Strata'))
+    expect(at('Quarterly')).toBeLessThan(
+      at('aria-label="Call Subi Café Group"'),
+    )
+    expect(at('aria-label="Text Subi Café Group"')).toBeLessThan(
+      at('No signal — showing the copy kept on this phone'),
+    )
+  })
+
+  test('Email beside Call and Text, as on the live sheet, where a day the phone holds says it', () => {
+    const html = render(client(), [], { email: 'accounts@subicafe.com.au' })
+    expect(buttons(html)).toEqual([
+      'Call Subi Café Group',
+      'Text Subi Café Group',
+      'Email Subi Café Group',
+    ])
+    // With no number, Email alone.
+    expect(
+      buttons(
+        render(client({ phone: undefined }), [], {
+          email: 'accounts@subicafe.com.au',
+        }),
+      ),
+    ).toEqual(['Email Subi Café Group'])
+  })
+
+  test('Edit’s row and the status menu held unseen, as the live sheet has them', () => {
+    const html = render(client(), [])
+    expect(html).toMatch(
+      /<span aria-hidden="true" class="invisible mr-8[^"]*">.*Edit<\/span>/,
+    )
+    expect(html).toMatch(/class="lucide lucide-chevron-down invisible"/)
+    expect(html).not.toContain('Edit client details')
   })
 
   test('a site contact with no name is named after their site', () => {

@@ -8,22 +8,28 @@ import {
   KEPT_PAGE_AGE_MS,
   firstKeptMode,
   firstNoteLatch,
+  handOverStyle,
   keptInitScript,
+  mayBeBehind,
+  msUntilLate,
+  nextBehindLatch,
   nextKeptMode,
   nextNoteLatch,
   noteAbout,
   notePhase,
   subscribeLineDown,
+  useBehindOnce,
   useKeptBeforeDay,
   useKeptMode,
   useKeptNote,
   useLineDown,
   useReadable,
   useReadableAll,
+  waitSince,
 } from './useKept'
 import { RENDERED_AT_KEY, pageRenderedAt } from './keptSet'
 import type { ReactElement } from 'react'
-import type { KeptMode, KeptNoteTone, NoteLatch } from './useKept'
+import type { BehindLatch, KeptMode, KeptNoteTone, NoteLatch } from './useKept'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 // The kept copy's keeper reads who is signed in (lib/rootState.ts), whose
@@ -65,6 +71,14 @@ describe('on the server', () => {
         String(useKeptBeforeDay(key, 'Australia/Perth', '2026-10-25')),
       ),
     ).toBe('<p>false</p>')
+  })
+
+  test('nothing drawn may be behind: the server drew what it had', () => {
+    vi.stubGlobal('navigator', { onLine: false })
+    const key = rq.directory(B).queryKey
+    expect(onServer(() => String(useBehindOnce(key, true, 'Zed')))).toBe(
+      '<p>false</p>',
+    )
   })
 
   test('a page draws as the server does, and asks nothing of the phone yet', () => {
@@ -146,6 +160,145 @@ describe('the head script that marks a kept page', () => {
     } finally {
       Reflect.deleteProperty(window, RENDERED_AT_KEY)
     }
+  })
+})
+
+describe('how long a page has waited', () => {
+  const TAP = Date.UTC(2026, 9, 25, 1)
+
+  test('the wait it opens with counts from the tap, so a loader’s own wait counts towards it', () => {
+    // A loader that held the tap for 8 s: the 3 s are long over at mount.
+    expect(msUntilLate(TAP, 3_000, TAP + 8_000)).toBe(0)
+    // One that answered at once: the rest of the 3 s.
+    expect(msUntilLate(TAP, 3_000, TAP + 500)).toBe(2_500)
+  })
+
+  test('kept while it lasts, begun afresh after it stops, and none while nothing is waited for', () => {
+    expect(waitSince(TAP, true, TAP + 9_000)).toBe(TAP)
+    expect(waitSince(TAP, false, TAP + 9_000)).toBeNull()
+    // A later wait (a search cleared) counts from when it began, never from
+    // the tap.
+    expect(waitSince(null, true, TAP + 20_000)).toBe(TAP + 20_000)
+    expect(msUntilLate(TAP + 20_000, 3_000, TAP + 20_000)).toBe(3_000)
+  })
+})
+
+describe('whether an answer may be missing something newer', () => {
+  /** An answer that was live on an earlier connection, on a working line. */
+  const AT = {
+    live: false,
+    lineDown: false,
+    lineLive: true,
+    fromCopy: false,
+    fromHtml: false,
+    htmlKept: false,
+  }
+
+  test('not while it is live', () => {
+    expect(mayBeBehind({ ...AT, live: true })).toBe(false)
+    expect(mayBeBehind({ ...AT, live: true, lineDown: true })).toBe(false)
+  })
+
+  test('with the line down, or from the phone’s copy, whatever the line', () => {
+    expect(mayBeBehind({ ...AT, lineDown: true, lineLive: false })).toBe(true)
+    expect(mayBeBehind({ ...AT, fromCopy: true })).toBe(true)
+  })
+
+  test('the HTML of a page the worker kept, but not of one the server has just drawn, until the line goes down', () => {
+    const html = { ...AT, fromHtml: true }
+    expect(mayBeBehind({ ...html, htmlKept: true })).toBe(true)
+    expect(mayBeBehind(html)).toBe(false)
+    expect(mayBeBehind({ ...html, lineLive: false })).toBe(false)
+    expect(mayBeBehind({ ...html, lineDown: true })).toBe(true)
+  })
+
+  test('one being asked for again on a line PestM8 is speaking on comes up to date; on one gone quiet, not', () => {
+    expect(mayBeBehind(AT)).toBe(false)
+    expect(mayBeBehind({ ...AT, lineLive: false })).toBe(true)
+  })
+})
+
+describe('words about an answer that may be behind, decided once', () => {
+  /** The latch through a run of renders, as `useBehindOnce` folds them. */
+  function renders(
+    ...each: Array<{
+      showing?: boolean
+      hydrating?: boolean
+      about?: string
+      behind?: boolean
+    }>
+  ): { latch: BehindLatch; asked: number } {
+    let asked = 0
+    const latch = each.reduce<BehindLatch>(
+      (now, at) =>
+        nextBehindLatch(now, {
+          showing: at.showing ?? true,
+          hydrating: at.hydrating ?? false,
+          about: at.about ?? 'Zed',
+          behind: () => {
+            asked++
+            return at.behind ?? false
+          },
+        }),
+      null,
+    )
+    return { latch, asked }
+  }
+
+  test('decided as they first show, and kept while they do', () => {
+    const kept = renders({ behind: true }, { behind: false }, { behind: false })
+    expect(kept.latch).toEqual({ about: 'Zed', behind: true })
+    expect(kept.asked).toBe(1)
+    expect(renders({ behind: false }, { behind: true }).latch?.behind).toBe(
+      false,
+    )
+  })
+
+  test('decided again for something else, or once they have gone and show again', () => {
+    expect(
+      renders({ behind: false }, { about: 'Zee', behind: true }).latch,
+    ).toEqual({ about: 'Zee', behind: true })
+    expect(
+      renders({ behind: false }, { showing: false }, { behind: true }).latch,
+    ).toEqual({ about: 'Zed', behind: true })
+    expect(renders({ showing: false }).latch).toBeNull()
+  })
+
+  test('never behind while hydrating, and kept so after, as the server drew it', () => {
+    const hydrated = renders(
+      { hydrating: true, behind: true },
+      { behind: true },
+    )
+    expect(hydrated.latch?.behind).toBe(false)
+    expect(hydrated.asked).toBe(0)
+  })
+
+  test('the same latch back when nothing changed', () => {
+    const first = nextBehindLatch(null, {
+      showing: true,
+      hydrating: false,
+      about: 'Zed',
+      behind: () => true,
+    })
+    expect(
+      nextBehindLatch(first, {
+        showing: true,
+        hydrating: false,
+        about: 'Zed',
+        behind: () => false,
+      }),
+    ).toBe(first)
+  })
+})
+
+describe('a sheet’s body held across the hand-over', () => {
+  test('nothing while the kept view shows, or where none was measured', () => {
+    expect(handOverStyle(true, 630)).toBeUndefined()
+    expect(handOverStyle(false, null)).toBeUndefined()
+  })
+
+  test('then at the kept view’s height, which it may give up for a notice above it but never grow past', () => {
+    expect(handOverStyle(false, 630)).toEqual({ flex: '0 1 auto', height: 630 })
   })
 })
 
@@ -306,6 +459,16 @@ describe('whether the note shows, decided once', () => {
         true,
       ),
     ).toBe('hydrating')
+  })
+
+  test('left out while what is under it could not load for now, and back as before after', () => {
+    const shown = renders(firstNoteLatch(false, true), { tone: 'no-signal' })
+    expect(notePhase(shown, false, true)).toBe('hidden')
+    expect(notePhase(shown, false)).toBe('shown')
+    // Never shown, it isn't put in after either.
+    expect(notePhase(firstNoteLatch(false, false), false, false)).toBe('hidden')
+    // As the server drew it while hydrating.
+    expect(notePhase(firstNoteLatch(true, true), true, true)).toBe('hydrating')
   })
 
   test('a search, order or filter the page names is part of what it is about', () => {

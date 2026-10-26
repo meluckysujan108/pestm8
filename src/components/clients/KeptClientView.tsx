@@ -4,13 +4,14 @@ import { convexQuery } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
 import { WifiOff } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { SHEET_BODY } from '#/components/primitives/Sheet'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { DetailRow, DetailRows } from '#/components/primitives/DetailRow'
 import {
   ClientStatusPill,
+  TagChips,
   clientNumberLabel,
 } from '#/components/clients/ClientRecordBits'
+import { UnseenEdit, UnseenMenu } from '#/components/schedule/KeptJobView'
 import { KIND_LABELS } from '#/lib/clientFilters'
 import { logConnection } from '#/lib/connectionLog'
 import { formatUpdated } from '#/lib/format'
@@ -19,6 +20,7 @@ import {
   NOT_KEPT_CLIENT,
   OPENS_WITH_SIGNAL,
   findKeptClient,
+  keptClientEmail,
   keptClientState,
   xeroKnown,
 } from '#/lib/offline/keptClient'
@@ -51,7 +53,11 @@ import type { Id } from '../../../convex/_generated/dataModel'
  *
  * `asOf`: when the list was last known right (`keeper.asOf`), or with it
  * still live, when the server last spoke. `xero`: whether the live sheet
- * would have a Xero row, as far as memory shows (`xeroKnown`).
+ * would have a Xero row, as far as memory shows (`xeroKnown`). `email`:
+ * theirs, from a day's row for a visit of theirs (`keptClientEmail`), for
+ * the Email the live sheet has beside Call: looked for as the client first
+ * shows, and kept while they do, so it never joins Call and Text later,
+ * narrowing them under a thumb.
  */
 export function useKeptClient(
   businessId: Id<'businesses'>,
@@ -63,6 +69,7 @@ export function useKeptClient(
   asOf: number
   down: LineDown | null
   xero: boolean
+  email: string | undefined
 } {
   const queryClient = useQueryClient()
   const down = useLineDown()
@@ -94,6 +101,16 @@ export function useKeptClient(
   useEffect(() => {
     if (state === 'kept') setShown(true)
   }, [state])
+  const [email, setEmail] = useState<{ value: string | undefined } | null>(null)
+  const nextEmail =
+    email === null && state === 'kept' && kept !== null
+      ? {
+          value: keptClientEmail(kept.sites, (match) =>
+            keeper.findDayRowWhere(match),
+          ),
+        }
+      : email
+  if (nextEmail !== email) setEmail(nextEmail)
   useKeeperReads(waiting, state === 'waiting' && kept !== null && live)
 
   // For the phone's connection notes: a client asked for that the phone
@@ -125,6 +142,7 @@ export function useKeptClient(
     asOf: keeper.asOf([directoryKey]) ?? keeper.heardAt() ?? Date.now(),
     down,
     xero,
+    email: nextEmail?.value,
   }
 }
 
@@ -132,11 +150,21 @@ export function useKeptClient(
  * A client opened with no answer from PestM8 (the line down, or the answer
  * late), shown read-only from the phone's client list (`useKeptClient`), in
  * place of the client sheet until PestM8 answers. What a technician needs at
- * the door: who they are, their number, Call and Text, and each site with
- * Map and its site contact. Their jobs, notes, contacts and Xero aren't
- * kept, and each says it opens when there is signal (Xero only where the
- * live sheet would have a row for it). Nothing here changes anything: no
- * Edit, no status to change, no site to add.
+ * the door: who they are, their number, Call and Text (and Email where a day
+ * the phone holds says it), and each site with Map and its site contact.
+ * Their jobs, notes, contacts and Xero aren't kept, and each says it opens
+ * when there is signal (Xero only where the live sheet would have a row for
+ * it). Nothing here changes anything: no Edit, no status to change, no site
+ * to add.
+ *
+ * Drawn in the sheet's own scrolling body, the one the live sheet is drawn
+ * in (ClientSheet.tsx, `useHandOverBody`), which keeps its scroll and its
+ * height when the live sheet takes this one's place. Down to Call, Text and
+ * Email it is laid out as the live sheet is, line for line, Edit's row and
+ * the status menu's chevron held unseen, and the line saying why comes after
+ * them: when PestM8 answers, Call is where it was, under the thumb that may
+ * be on it. Where the client has an email no day the phone holds says, the
+ * live sheet's Email joins Call and Text, and all three narrow.
  *
  * Typed from `clients.directory`'s rows rather than `clients.get`'s: a
  * change to the list's fields shows here as a type error, not as a sheet
@@ -149,6 +177,7 @@ export function KeptClientView({
   down,
   timezone,
   xero = false,
+  email,
 }: {
   client: DirectoryClient
   /** Their sites, oldest first, as the client list has them. */
@@ -161,6 +190,9 @@ export function KeptClientView({
    * with signal. Where Xero isn't set up the live sheet has none, nor does
    * this. */
   xero?: boolean
+  /** Theirs, from a day's row (`useKeptClient`): Email beside Call and
+   * Text, as on the live sheet. */
+  email?: string
 }) {
   // Drawn only in the browser, with the line down, so the phone's clock
   // gives today here.
@@ -168,21 +200,46 @@ export function KeptClientView({
   const number = clientNumberLabel(client.clientNumber)
 
   return (
-    <div className={`${SHEET_BODY} pt-3`}>
-      {/* A client's number heads their sheet, as on the live one. */}
-      <p className="section-label mb-0.5 tabular-nums">
-        {number !== null ? `Client ${number}` : 'Client'}
-      </p>
+    <>
+      {/* A client's number heads their sheet, as on the live one, in the
+          row the live one shares with Edit, which holds its place unseen. */}
+      <div className="flex items-center justify-between gap-2">
+        <p className="section-label mb-0.5 tabular-nums">
+          {number !== null ? `Client ${number}` : 'Client'}
+        </p>
+        <UnseenEdit />
+      </div>
       <Drawer.Title className="text-sheet-title text-ink">
         {client.name}
       </Drawer.Title>
 
+      {/* As wide as the live sheet's status menu, so the type beside it
+          wraps where the live one does. */}
       <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-        <ClientStatusPill status={client.status} />
+        <UnseenMenu>
+          <ClientStatusPill status={client.status} />
+        </UnseenMenu>
         <span className="text-body text-muted">{KIND_LABELS[client.kind]}</span>
       </div>
+      {client.tags && client.tags.length > 0 && (
+        <div className="mt-2">
+          <TagChips tags={client.tags} />
+        </div>
+      )}
 
-      {/* The job sheet's line with no signal, word for word. */}
+      {/* Call, Text and Email, as the live sheet has them. */}
+      {(client.phone || email) && (
+        <div className="mt-3">
+          <ContactButtons
+            name={client.name}
+            phone={client.phone}
+            email={email}
+          />
+        </div>
+      )}
+
+      {/* The job sheet's line with no signal, word for word: under Call,
+          Text and Email, which stay where the live sheet has them. */}
       <p className="mt-3 flex items-start gap-2 rounded-xl bg-surface-2 px-3 py-2 text-caption text-ink-2">
         <WifiOff
           aria-hidden
@@ -192,16 +249,6 @@ export function KeptClientView({
         />
         {keptJobInset(down, formatUpdated(asOf, timezone, todayKey))}
       </p>
-
-      {client.phone && (
-        <div className="mt-3">
-          <ContactButtons
-            name={client.name}
-            phone={client.phone}
-            show={['call', 'text']}
-          />
-        </div>
-      )}
 
       <Section label="Properties">
         {sites.length === 0 ? (
@@ -240,6 +287,12 @@ export function KeptClientView({
               value={<span className="select-text">{client.phone}</span>}
             />
           )}
+          {email && (
+            <DetailRow
+              label="Email"
+              value={<span className="select-text">{email}</span>}
+            />
+          )}
           {/* A business's named people: a person client is their own one
               contact, as on the live sheet. */}
           {client.kind === 'business' && (
@@ -250,7 +303,7 @@ export function KeptClientView({
           {xero && <DetailRow label="Xero" value={<OpensWithSignal />} />}
         </DetailRows>
       </Section>
-    </div>
+    </>
   )
 }
 
