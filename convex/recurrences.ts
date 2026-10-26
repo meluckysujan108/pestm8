@@ -28,6 +28,11 @@ import {
   seriesMadeBy,
 } from './lib/clientRequest'
 import {
+  asMembershipArg,
+  refuseBackfillArg,
+  requireOutboxSender,
+} from './lib/outboxGuards'
+import {
   HORIZON_DAYS,
   assertInterval,
   describeInterval,
@@ -267,6 +272,12 @@ export const create = mutation({
     notes: v.optional(v.string()),
     // As jobs.create's: on the series only, never on its visits.
     clientRequestId: clientRequestIdArg,
+    // As jobs.create's (lib/outboxGuards.ts). Never stored.
+    asMembership: asMembershipArg,
+    // From the phone's outbox, when the first visit was meant to be booked:
+    // refused FIRST_VISIT_PAST once that visit is more than a day gone,
+    // instead of booked without it as below. Never stored.
+    refuseBackfill: refuseBackfillArg,
   },
   handler: async (
     ctx,
@@ -275,6 +286,8 @@ export const create = mutation({
       newClient,
       newProperty,
       clientRequestId: rawRequestId,
+      asMembership,
+      refuseBackfill,
       ...args
     },
   ) => {
@@ -307,6 +320,15 @@ export const create = mutation({
     }
 
     const env = await requireWriteActor(ctx, args.businessId)
+    // After the lookup, so a repeat is answered whoever is writing now, and
+    // however long ago its first visit was.
+    requireOutboxSender(env, asMembership)
+    // A phone that kept the booking with no signal, and could send it only
+    // after its first visit had gone, would otherwise book the series with
+    // that visit quietly left out. The person picks a new start instead.
+    if (refuseBackfill && isBackfill(args.anchorDate)) {
+      throw new ConvexError('FIRST_VISIT_PAST')
+    }
 
     // Before anything is written: `v.number()` admits 0, -3 and 2.5, none of
     // which describe a repeat.
@@ -364,18 +386,7 @@ export const create = mutation({
     // date — the first one projected. With no visit inside the horizon yet,
     // it waits on the series for the first the engine books. Never dropped.
     if (notes !== undefined) {
-      const visits = await ctx.db
-        .query('jobs')
-        .withIndex('by_recurrence', (q) => q.eq('recurrenceId', recurrenceId))
-        // A new series holds at most the first visit and one run's worth.
-        .take(MAX_VISITS_PER_RUN + 1)
-      const first = visits.reduce<Doc<'jobs'> | null>(
-        (earliest, visit) =>
-          earliest === null || visit.scheduledAt < earliest.scheduledAt
-            ? visit
-            : earliest,
-        null,
-      )
+      const first = await firstVisitOf(ctx, recurrenceId)
       // A note in Notes on that visit (`insertJobNote`), by whoever booked.
       if (first) {
         await insertJobNote(ctx, {
@@ -400,6 +411,30 @@ export const create = mutation({
     return recurrenceId
   },
 })
+
+/**
+ * A series' first visit: the earliest it has, in the Recycle bin or not, or
+ * null while the engine has booked none yet. Read from the first visits
+ * made, which for a new series is every one it holds (the visit booked by
+ * hand and one run's worth). For the first-visit note above, and for
+ * `clientRequests.find`, which tells a phone the visit its booking became.
+ */
+export async function firstVisitOf(
+  ctx: QueryCtx,
+  recurrenceId: Id<'recurrences'>,
+): Promise<Doc<'jobs'> | null> {
+  const visits = await ctx.db
+    .query('jobs')
+    .withIndex('by_recurrence', (q) => q.eq('recurrenceId', recurrenceId))
+    .take(MAX_VISITS_PER_RUN + 1)
+  return visits.reduce<Doc<'jobs'> | null>(
+    (earliest, visit) =>
+      earliest === null || visit.scheduledAt < earliest.scheduledAt
+        ? visit
+        : earliest,
+    null,
+  )
+}
 
 /**
  * A series changed inside someone else's account, on that account's record.

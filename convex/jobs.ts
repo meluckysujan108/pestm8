@@ -76,6 +76,7 @@ import {
   jobMadeBy,
   noteRepeat,
 } from './lib/clientRequest'
+import { asMembershipArg, requireOutboxSender } from './lib/outboxGuards'
 
 /**
  * Hands out the next human-sayable job number for a business and advances
@@ -1034,6 +1035,10 @@ export const create = mutation({
     // The phone's id for this booking (lib/clientRequest.ts). It covers a
     // new client or site made with the job, which never carry it.
     clientRequestId: clientRequestIdArg,
+    // Whose booking it is, from one the phone kept and sent by itself
+    // (lib/outboxGuards.ts): refused unless that is who is writing, in their
+    // own account. Never stored.
+    asMembership: asMembershipArg,
   },
   handler: async (
     ctx,
@@ -1045,6 +1050,7 @@ export const create = mutation({
       notes: rawNotes,
       alsoGoing: rawAlsoGoing,
       clientRequestId: rawRequestId,
+      asMembership,
       ...args
     },
   ) => {
@@ -1076,6 +1082,8 @@ export const create = mutation({
     }
 
     const env = await requireWriteActor(ctx, args.businessId)
+    // After the lookup, so a repeat is answered whoever is writing now.
+    requireOutboxSender(env, asMembership)
     // Refused before any other work: a throw rolls the whole booking back,
     // new client included, so nothing is left half-made either way.
     const workOrder = normaliseWorkOrder(rawWorkOrder)

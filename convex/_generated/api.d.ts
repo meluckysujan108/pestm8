@@ -93,6 +93,7 @@ import type * as lib_mfa from "../lib/mfa.js";
 import type * as lib_noteAccess from "../lib/noteAccess.js";
 import type * as lib_noteTemplates from "../lib/noteTemplates.js";
 import type * as lib_optionSets from "../lib/optionSets.js";
+import type * as lib_outboxGuards from "../lib/outboxGuards.js";
 import type * as lib_phone from "../lib/phone.js";
 import type * as lib_postcodes from "../lib/postcodes.js";
 import type * as lib_prices from "../lib/prices.js";
@@ -251,6 +252,7 @@ declare const fullApi: ApiFromModules<{
   "lib/noteAccess": typeof lib_noteAccess;
   "lib/noteTemplates": typeof lib_noteTemplates;
   "lib/optionSets": typeof lib_optionSets;
+  "lib/outboxGuards": typeof lib_outboxGuards;
   "lib/phone": typeof lib_phone;
   "lib/postcodes": typeof lib_postcodes;
   "lib/prices": typeof lib_prices;
