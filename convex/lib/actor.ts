@@ -294,10 +294,13 @@ async function findSwitch(
   if (candidates.length === 0) return null
   const row = candidates[0]
 
-  // The row names the membership it was opened for. A person who is removed
-  // and later rejoins gets a NEW membership id, so a surviving row from the
-  // previous stint would otherwise still apply to them. Re-derived rather than
-  // trusted, like everything else here.
+  // The row names the membership it was opened for, and applies to that one
+  // only. Re-derived rather than trusted, like everything else here. It is
+  // not what keeps an earlier stint's switch away: a person removed and
+  // later invited back gets the SAME membership id (`invitations.redeem`
+  // makes the old row active again), so a surviving row would pass this.
+  // None survives: removing someone, or their leaving, deletes every switch
+  // naming them, either way round (`offboard` in team.ts).
   if (row.realMembershipId !== realMembershipId) return null
 
   return {
@@ -313,9 +316,10 @@ async function findSwitch(
 /**
  * The view chosen on THIS device, by the same rules as `findSwitch`: keyed by
  * session, ignored when it belongs to another business, and re-checked against
- * the membership it was chosen for — so someone removed and later re-added
- * does not inherit a view from their previous stint. Newest wins if a bug ever
- * leaves two.
+ * the membership it was chosen for. Someone removed and later re-added gets
+ * the same membership back, so what keeps their previous stint's view from
+ * them is that removing them deletes it (`offboard` in team.ts), not this
+ * check. Newest wins if a bug ever leaves two.
  */
 async function findView(
   ctx: Ctx,

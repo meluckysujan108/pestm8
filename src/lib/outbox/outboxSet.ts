@@ -172,3 +172,30 @@ export const SENT_KEEP_MS = 10 * 60_000
 
 /** How often the sender looks again while anything is waiting. */
 export const OUTBOX_TICK_MS = 30_000
+
+/**
+ * After this many `Unauthenticated` answers in a row on a live line, the
+ * sender asks whether the person is signed in at all (`signedOutAfterAll`):
+ * a session revoked on the server answers nothing else, ever.
+ */
+export const SIGNED_OUT_CHECK_AFTER = 3
+
+/**
+ * An account switch starting waits at most this long for a send another
+ * tab already has out to finish (switchGate.ts). Past it the switch goes
+ * ahead, and a send that then lands is refused by the server
+ * (`NOT_OWN_ACCOUNT`), so nothing is booked as someone else either way.
+ */
+export const SWITCH_WAIT_MS = 5_000
+
+/**
+ * A booking the phone kept this long before the person was last removed
+ * from the business is from their earlier stint there (`access.me`'s
+ * `lastRemovedAt`), and goes as the removal would have taken it, had the
+ * phone heard of it. A rejoin makes the same membership active again, so
+ * nothing else on the phone tells the two stints apart. The time is the
+ * server's and `createdAt` the phone's: the margin is for a phone clock
+ * running a little slow, and errs towards keeping a booking, which can be
+ * cancelled, over discarding one nobody can type in again.
+ */
+export const EARLIER_STINT_MARGIN_MS = 5 * 60_000

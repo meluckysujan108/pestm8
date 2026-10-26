@@ -55,6 +55,7 @@ import { authClient } from '#/lib/auth-client'
 import { useStandalone } from '#/lib/installPrompt'
 import { confirmLeave } from '#/lib/offline/leaveGuard'
 import { isOffline } from '#/lib/online'
+import { duringSwitchStart } from '#/lib/outbox/switchGate'
 import { beginSignOut, forgetCachedPages, signOutFailed } from '#/lib/rootState'
 import { browserOnly, rq, settleWithin, warm } from '#/lib/routeQueries'
 import { signOutWithin } from '#/lib/signOutWithin'
@@ -716,10 +717,14 @@ function SwitchAccounts({
   // Nothing to invalidate afterwards: `access.me` and every gated query
   // resolve through `requireActor`, which reads the switch row, so the socket
   // re-pushes them the moment it is written.
+  //
+  // No booking kept on the phone goes while it starts, from this tab or
+  // another (lib/outbox/switchGate.ts): a switch belongs to the sign-in
+  // session every tab shares, so it would apply to a send already queued.
   const convexStart = useConvexMutation(api.accountSwitches.start)
   const start = useMutation({
     mutationFn: (targetMembershipId: Id<'memberships'>) =>
-      convexStart({ businessId, targetMembershipId }),
+      duringSwitchStart(() => convexStart({ businessId, targetMembershipId })),
   })
 
   if (!targets || targets.length === 0) return null

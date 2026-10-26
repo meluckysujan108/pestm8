@@ -141,10 +141,46 @@ export function waitingOnScreen(
   return [...new Set([...pending, ...keptWaiting])]
 }
 
+/**
+ * Whether a change is waiting to save in this page's memory, which a reload
+ * loses: the Convex client's mutations in flight, less those the outbox has
+ * out (lib/outbox/sender.ts `inflight`). Those are bookings kept on the
+ * phone's storage first, which survive a reload and are settled after it,
+ * so "A change you made is waiting to save", and Reload's second tap, are
+ * never for them. Each of the outbox's calls is counted by the Convex client
+ * for exactly as long as its promise is out, so the two never disagree.
+ */
+export function savesWaiting(
+  inflightMutations: number,
+  outboxInflight: number,
+): boolean {
+  return inflightMutations - outboxInflight > 0
+}
+
+/**
+ * When saves were first seen waiting (`savesWaiting`), as ConnectionNotice
+ * times them while an action is out too: kept while they wait, from now as
+ * they start, and null once none do.
+ */
+export function savesWaitingSince(
+  since: number | null,
+  waiting: boolean,
+  now: number,
+): number | null {
+  return waiting ? (since ?? now) : null
+}
+
 /** What the notice says and offers, while it is up. */
 export type ReachNoticeModel = {
   online: boolean
   waitingToSave: boolean
+  /**
+   * The person's bookings kept on the phone and not sent yet for the
+   * business on screen, waiting or unanswered (lib/outbox/sender.ts
+   * `notice`), and whether they wait on the person being back in their own
+   * account. Null or absent with none.
+   */
+  outbox?: { count: number; held: 'switched' | null } | null
   /** When what is on screen was last known right ("9:42am"), when the
    * phone's copy says (`keeper.screenAsOf`); otherwise null, and the notice
    * says it may be out of date. */

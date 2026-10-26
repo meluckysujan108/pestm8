@@ -1274,6 +1274,31 @@ describe('refusals and readability', () => {
     expect(outbox.items.size).toBe(1)
   })
 
+  test('says which business is on screen, as its layout last said', () => {
+    const h = harness()
+    expect(h.keeper.enteredBusiness()).toBeNull()
+    const leave = h.keeper.enter(BUSINESS)
+    expect(h.keeper.enteredBusiness()).toEqual(BUSINESS)
+    // Another business's layout, then the first's clean-up, late.
+    const other = { ...BUSINESS, _id: B2, slug: 'other-co' }
+    const leaveOther = h.keeper.enter(other)
+    leave()
+    expect(h.keeper.enteredBusiness()).toEqual(other)
+    leaveOther()
+    expect(h.keeper.enteredBusiness()).toBeNull()
+  })
+
+  test('says which connection the socket is on: one more for each new one', () => {
+    const h = harness()
+    expect(h.keeper.connection()).toBe(1)
+    h.convex.drop()
+    expect(h.keeper.connection()).toBe(1)
+    h.convex.reconnect()
+    expect(h.keeper.connection()).toBe(2)
+    // Nothing to read before it is attached, or after.
+    expect(new Keeper().connection()).toBe(0)
+  })
+
   test('says whose token the socket has', () => {
     const h = harness()
     expect(h.keeper.socketUserId()).toBeNull()
