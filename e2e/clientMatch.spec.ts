@@ -323,9 +323,11 @@ test('a client with no site yet is found by name and number, and booked at a new
   const siteFor = sheet.getByLabel('New site for')
   await expect(siteFor).toContainText('Sam Wu — No sites')
   await expect(siteFor).toBeFocused()
-  await sheet.getByLabel('Street address').fill('5 Abernethy Road')
-  await sheet.getByLabel('Suburb').fill('Belmont')
-  await sheet.getByLabel('Postcode').fill('6104')
+  await sheet
+    .getByLabel('Street address', { exact: true })
+    .fill('5 Abernethy Road')
+  await sheet.getByLabel('Suburb', { exact: true }).fill('Belmont')
+  await sheet.getByLabel('Postcode', { exact: true }).fill('6104')
   await chooseJobTypes(page, sheet, ['General Pest Control'])
   await expect(siteFor).toContainText('Sam Wu — No sites')
   await sheet.getByRole('button', { name: 'Book job' }).click()
@@ -374,10 +376,13 @@ test('with no site in the book, an existing client’s job is at a new site', as
   await expect(
     sheet.getByRole('radio', { name: 'New client', checked: true }),
   ).toBeVisible()
-  await sheet.getByRole('radio', { name: 'Existing client' }).click()
+  // Named "Client Client" by its Field label, so it is found by its text.
+  await sheet.getByRole('radio').filter({ hasText: 'Existing client' }).click()
   // No empty Property picker: New site for, and no way back to a site.
   await expect(
-    sheet.getByRole('radio', { name: 'Existing client', checked: true }),
+    sheet
+      .getByRole('radio', { checked: true })
+      .filter({ hasText: 'Existing client' }),
   ).toBeVisible()
   await expect(sheet.getByLabel('New site for')).toBeVisible()
   await expect(sheet.getByRole('button', { name: 'Property' })).toHaveCount(0)
