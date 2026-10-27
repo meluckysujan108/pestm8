@@ -9,8 +9,13 @@
 
 /**
  * The Convex functions whose answers are kept: the schedule's days and
- * weeks, and what New Job is made of. Nothing `keptOutOfHtml` names, and
- * nothing that is already in every page's HTML.
+ * weeks, what New Job is made of, and what is booked at each site for its
+ * double-booking check. Nothing `keptOutOfHtml` names, and nothing that is
+ * already in every page's HTML.
+ *
+ * `jobs:openWork` is kept but not yet asked for (`keptQueries`): nothing
+ * reads it until New Job's check does, and pinning it before then would
+ * only add a subscription to every page.
  */
 export const KEPT_FNS = [
   'jobs:listDay',
@@ -18,6 +23,7 @@ export const KEPT_FNS = [
   'clients:directory',
   'memberships:listForBusiness',
   'jobTypes:list',
+  'jobs:openWork',
 ] as const
 
 export type KeptFn = (typeof KEPT_FNS)[number]

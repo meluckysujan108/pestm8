@@ -25,13 +25,14 @@ import type { KeptFn } from '../src/lib/offline/keptShape'
  * whatever build it runs next. A field renamed or removed here would reach
  * that build missing from a copy written by the last one; KEPT_SHAPE is what
  * tells the two apart, and the phone skips a copy of another shape. So the
- * five queries are run, as the owner and as a subcontractor, over a business
+ * six queries are run, as the owner and as a subcontractor, over a business
  * with one of most things a field can come from — a person and a business
  * client, a contact person, a site contact, a shared job, a recurring visit,
- * a finished job, an archived client, the business's own job type — and
- * every key path in their answers is compared with the list below, which was
- * written at SHAPE_AT. A change to either fails here until both are changed
- * together.
+ * a finished job, an archived client, the business's own job type, and a
+ * job and a Recurring Job of the owner's that the subcontractor sees only
+ * the dates of — and every key path in their answers is compared with the
+ * list below, which was written at SHAPE_AT. A change to either fails here
+ * until both are changed together.
  *
  * Only what this seed produces is seen: a field that only some other record
  * carries can still change unnoticed, which is why each kept query also says
@@ -148,6 +149,29 @@ const KEPT_PATHS: Record<KeptFn, ReadonlyArray<string>> = {
     '[].status',
   ],
   'jobTypes:list': ['[].formerNames', '[].name', '[].offered', '[].report'],
+  // As the owner, everything in full; as Kevin, his own work and the shared
+  // job in full, the owner's as a site and a date (`series` for a visit),
+  // and the owner's Recurring Job with only its next visit.
+  'jobs:openWork': [
+    'rows',
+    'rows[].assignedMembershipId',
+    'rows[].at',
+    'rows[].jobId',
+    'rows[].jobNumber',
+    'rows[].jobType',
+    'rows[].propertyId',
+    'rows[].recurrenceId',
+    'rows[].scheduledAt',
+    'rows[].series',
+    'rows[].status',
+    'series',
+    'series[]._id',
+    'series[].intervalCount',
+    'series[].intervalUnit',
+    'series[].jobType',
+    'series[].nextAt',
+    'series[].propertyId',
+  ],
 }
 
 /** Every key path in `value`, into `into`. */
@@ -331,9 +355,32 @@ beforeAll(async () => {
     anchorDate: at(addDaysToKey(today, -7), 15),
     durationMinutes: 45,
   })
+  // The owner's own, which Kevin isn't on: a job, and a monthly Recurring
+  // Job, both after today, so the day above holds nothing more.
+  await owner.as.mutation(api.jobs.create, {
+    businessId,
+    propertyId: personSite,
+    assignedMembershipId: ownerMembershipId,
+    jobType: 'Termite Inspection',
+    price: 32000,
+    scheduledAt: at(addDaysToKey(today, 2), 10),
+    durationMinutes: 60,
+  })
+  await owner.as.mutation(api.recurrences.create, {
+    businessId,
+    propertyId: schoolSite,
+    assignedMembershipId: ownerMembershipId,
+    intervalCount: 1,
+    intervalUnit: 'month',
+    jobType: 'General Pest Control',
+    price: 24000,
+    anchorDate: at(addDaysToKey(today, 3), 10),
+    durationMinutes: 60,
+  })
 
   // The keys the phone keeps them under (keptQueries, src/lib/offline/
-  // keptSet.ts): a day, a week, and the business.
+  // keptSet.ts): a day, a week, and the business; what is booked at each
+  // site, by this week's Monday.
   const asked: Record<KeptFn, (as: TestAs) => Promise<unknown>> = {
     'jobs:listDay': (as) =>
       as.query(api.jobs.listDay, { businessId, dayKey: today }),
@@ -347,6 +394,11 @@ beforeAll(async () => {
     'memberships:listForBusiness': (as) =>
       as.query(api.memberships.listForBusiness, { businessId }),
     'jobTypes:list': (as) => as.query(api.jobTypes.list, { businessId }),
+    'jobs:openWork': (as) =>
+      as.query(api.jobs.openWork, {
+        businessId,
+        startKey: startOfWeekKey(today),
+      }),
   }
   for (const fn of KEPT_FNS) {
     const paths = new Set<string>()

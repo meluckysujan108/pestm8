@@ -26,7 +26,7 @@ import {
   jobsNewestFirst,
   projectionsInScope,
 } from './lib/jobScope'
-import { unbinned } from './lib/bin'
+import { isBinned, unbinned } from './lib/bin'
 import {
   insertJobNote,
   insertJobNoteOnce,
@@ -62,12 +62,21 @@ import {
   alsoGoingInWindow,
   alsoGoingOf,
   everyoneOn,
+  inScope,
   jobInScope,
   setAlsoGoing,
+  sharedJobIdsInRange,
   syncAlsoGoingDate,
   tidyAlsoGoing,
 } from './lib/jobPeople'
 import { normaliseWorkOrder } from './lib/workOrder'
+import {
+  OPEN_WORK_LIMIT,
+  isDayKey,
+  isOpenStatus,
+  openWorkSpan,
+  slotOf,
+} from './lib/siteWork'
 import { normaliseJobNotes } from './lib/jobNotes'
 import { requireMembership } from './lib/access'
 import {
@@ -821,6 +830,168 @@ export const listWeek = query({
     return days
   },
 })
+
+/**
+ * What is booked at each site, for the check New Job makes before Book that
+ * the address isn't already booked within a week (lib/siteWork.ts), and the
+ * picker's "Booked Thu 30 Oct": the business's open jobs and Recurring Job
+ * visits from four weeks before the week of `startKey` (a Monday, as
+ * `listWeek` takes it) to sixteen weeks after, the visits done in that time
+ * that the viewer may see, and every running Recurring Job. Kept on phones
+ * (KEPT_FNS), so the check can be made with no signal; the server is to
+ * check again, on complete data, when a booking saves.
+ *
+ * WHAT EACH ROW SAYS depends on whose it is (the owner's answer, 27 Oct
+ * 2026). A job the viewer may see (`scope`, as a job's own sheet asks: one
+ * they lead or are also going on, or any job for those who see the whole
+ * schedule) comes with its number, its services, its status and its lead.
+ * Anyone else's comes as a site and a date, with an opaque Recurring Job id
+ * for a visit, and nothing more: a subcontractor's phone can warn that an
+ * address is booked without learning by whom, for what or for how much.
+ * Someone else's visit already done isn't sent at all. Prices never are.
+ * `scope`, not `listScope`: "Just my jobs" chooses what a list shows, and
+ * this is about the house.
+ *
+ * Each row's `at` is its slot (`slotOf`), which a booking names as seen, so
+ * a visit moved or projected again is still the one the person booked past.
+ * A Recurring Job comes with its next visit still open from the week's
+ * start (`nextAt`, from these rows only, so a series repeating less often
+ * than sixteen weeks may have none; the week's start as early as it comes
+ * in any zone, so a visit late the Sunday before can be the one), and, when
+ * it is the viewer's, its interval and services.
+ *
+ * Read in one range, by date, earliest first: past OPEN_WORK_LIMIT jobs the
+ * furthest weeks go first, the rows are whole up to the last one sent, and
+ * `capped` says so (as it does for that many running Recurring Jobs); it
+ * never throws on volume. No time zone, no clock: the window is wide
+ * enough for any zone (`openWorkSpan`), and the phone goes by each row's
+ * date. So it reads jobs, Recurring Jobs and who is also going, and not the
+ * business's row, which every booking, visit and numbered report patches.
+ *
+ * Kept on phones: a renamed or removed field means bumping KEPT_SHAPE. Its
+ * own, never joined into the directory, so a job's status changing doesn't
+ * send the whole client book again.
+ */
+export const openWork = query({
+  args: { businessId: v.id('businesses'), startKey: v.string() },
+  handler: async (ctx, { businessId, startKey }) => {
+    const { scope } = await requireActor(ctx, businessId)
+    if (!isDayKey(startKey)) throw new ConvexError('INVALID_DAY')
+    const { from, weekFrom, to } = openWorkSpan(startKey)
+
+    const [read, running, shared] = await Promise.all([
+      // Every status, one range: cancelled and binned jobs are dropped
+      // below rather than by a filter here, so what is read is bounded by
+      // the limit whatever the window holds.
+      ctx.db
+        .query('jobs')
+        .withIndex('by_business_date', (q) =>
+          q
+            .eq('businessId', businessId)
+            .gte('scheduledAt', from)
+            .lt('scheduledAt', to),
+        )
+        .take(OPEN_WORK_LIMIT + 1),
+      ctx.db
+        .query('recurrences')
+        .withIndex('by_business_active', (q) =>
+          q.eq('businessId', businessId).eq('active', true),
+        )
+        .filter((q) => q.eq(q.field('deletedAt'), undefined))
+        .take(OPEN_WORK_LIMIT + 1),
+      sharedJobIdsInRange(ctx, scope, { from, to }),
+    ])
+
+    // Past the limit, what was read is whole only before the first job
+    // left unread, so the rows stop before its time, leaving out any others
+    // read at that same time.
+    const cut =
+      read.length > OPEN_WORK_LIMIT
+        ? read[OPEN_WORK_LIMIT].scheduledAt
+        : Number.POSITIVE_INFINITY
+
+    const rows: Array<
+      ReturnType<typeof theirRow> | ReturnType<typeof otherRow>
+    > = []
+    // Each series' first visit still open from the week's start: the jobs
+    // are in date order, so the first found is the one.
+    const nextAt = new Map<Id<'recurrences'>, number>()
+    for (const job of read) {
+      if (job.scheduledAt >= cut) break
+      if (isBinned(job) || job.status === 'cancelled') continue
+      const open = isOpenStatus(job.status)
+      if (
+        open &&
+        job.recurrenceId !== undefined &&
+        job.scheduledAt >= weekFrom &&
+        !nextAt.has(job.recurrenceId)
+      ) {
+        nextAt.set(job.recurrenceId, job.scheduledAt)
+      }
+      if (inScope(scope, job, shared)) rows.push(theirRow(job))
+      else if (open) rows.push(otherRow(job))
+    }
+
+    const series = running.slice(0, OPEN_WORK_LIMIT).map((recurrence) => {
+      const next = nextAt.get(recurrence._id)
+      const interval = isInScope(scope, recurrence)
+        ? intervalOf(recurrence)
+        : null
+      return {
+        _id: recurrence._id,
+        propertyId: recurrence.propertyId,
+        ...(next !== undefined ? { nextAt: next } : {}),
+        ...(interval
+          ? {
+              intervalCount: interval.count,
+              intervalUnit: interval.unit,
+              jobType: recurrence.jobType,
+            }
+          : {}),
+      }
+    })
+
+    return {
+      rows,
+      series,
+      ...(read.length > OPEN_WORK_LIMIT || running.length > OPEN_WORK_LIMIT
+        ? { capped: true as const }
+        : {}),
+    }
+  },
+})
+
+/** A job or visit the viewer may see, as `openWork` sends it. */
+function theirRow(job: Doc<'jobs'>) {
+  return {
+    propertyId: job.propertyId,
+    at: slotOf(job),
+    scheduledAt: job.scheduledAt,
+    status: job.status,
+    jobId: job._id,
+    ...(job.jobNumber !== undefined ? { jobNumber: job.jobNumber } : {}),
+    jobType: job.jobType,
+    assignedMembershipId: job.assignedMembershipId,
+    ...(job.recurrenceId !== undefined
+      ? { recurrenceId: job.recurrenceId }
+      : {}),
+  }
+}
+
+/** Someone else's open job or visit: where and when, and nothing more. */
+function otherRow(job: Doc<'jobs'>): {
+  propertyId: Id<'properties'>
+  at: number
+  scheduledAt: number
+  series?: Id<'recurrences'>
+} {
+  return {
+    propertyId: job.propertyId,
+    at: slotOf(job),
+    scheduledAt: job.scheduledAt,
+    ...(job.recurrenceId !== undefined ? { series: job.recurrenceId } : {}),
+  }
+}
 
 /**
  * Per-day job counts for the month grid (§2.2), plus the suburb each day's

@@ -120,6 +120,35 @@ export async function sharedJobIds(
   return new Set(rows.flat().map((row) => row.jobId))
 }
 
+/**
+ * `sharedJobIds` over a window of `scheduledAt`: for a reader that already
+ * holds the business's jobs for those dates and asks only which are the
+ * scope's (`jobs.openWork`), so it reads no job a second time. Empty for the
+ * whole business.
+ */
+export async function sharedJobIdsInRange(
+  ctx: QueryCtx,
+  scope: RowScope,
+  opts: { from: number; to: number },
+): Promise<ReadonlySet<Id<'jobs'>>> {
+  const members = membersOf(scope)
+  if (members.length === 0) return new Set()
+  const rows = await Promise.all(
+    members.map((membershipId) =>
+      ctx.db
+        .query('jobPeople')
+        .withIndex('by_member_date', (q) =>
+          q
+            .eq('membershipId', membershipId)
+            .gte('scheduledAt', opts.from)
+            .lt('scheduledAt', opts.to),
+        )
+        .take(MAX_SHARED_READ),
+    ),
+  )
+  return new Set(rows.flat().map((row) => row.jobId))
+}
+
 /** `isInScope` for a job, counting the people also going on it. */
 export function inScope(
   scope: RowScope,

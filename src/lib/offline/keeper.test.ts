@@ -1157,9 +1157,12 @@ describe('pins', () => {
     expect(h.qc.getQueryCache().find({ queryKey: day(TODAY) })?.gcTime).toBe(
       Infinity,
     )
-    // All nineteen asked for at once.
+    // All nineteen asked for at once: every kept function but what is
+    // booked at each site, which waits for New Job's check to read it.
     await vi.advanceTimersByTimeAsync(10)
-    expect(new Set(h.convex.asked)).toEqual(new Set(KEPT_FNS))
+    expect(new Set(h.convex.asked)).toEqual(
+      new Set(KEPT_FNS.filter((fn) => fn !== 'jobs:openWork')),
+    )
   })
 
   test('a refused answer forgotten before it had data is asked for again on the next connection', async () => {

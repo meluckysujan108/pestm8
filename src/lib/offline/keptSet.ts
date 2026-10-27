@@ -195,12 +195,26 @@ function capsDigest(caps: Access['caps']): string {
   return (hash >>> 0).toString(36)
 }
 
-/** Whether `data` has the shape `fn` answers with: a list, or the directory. */
+/**
+ * The lists in each kept answer that isn't itself a list: the directory's
+ * clients and sites, and what is booked at each site.
+ */
+const LISTS_IN: Partial<Record<KeptFn, ReadonlyArray<string>>> = {
+  'clients:directory': ['clients', 'sites'],
+  'jobs:openWork': ['rows', 'series'],
+}
+
+/**
+ * Whether `data` has the shape `fn` answers with: a list, or an answer
+ * holding the lists `LISTS_IN` names.
+ */
 export function shapeOk(fn: KeptFn, data: unknown): boolean {
-  if (fn !== 'clients:directory') return Array.isArray(data)
+  const lists = LISTS_IN[fn]
+  if (!lists) return Array.isArray(data)
   if (typeof data !== 'object' || data === null) return false
-  const { clients, sites } = data as { clients?: unknown; sites?: unknown }
-  return Array.isArray(clients) && Array.isArray(sites)
+  return lists.every((name) =>
+    Array.isArray((data as Record<string, unknown>)[name]),
+  )
 }
 
 /** Where and when a kept row is being considered for use. */
