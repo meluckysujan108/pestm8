@@ -1,13 +1,15 @@
 import { describe, expect, test } from 'vitest'
 import {
   EVERYONE_GROUP,
+  NO_SITES,
   RECENT_GROUP,
   clientOptions,
+  pickerName,
   propertyOptions,
 } from './propertyOptions'
-import type { PickableClientSite, PickableProperty } from './propertyOptions'
+import type { PickableClient, PickableProperty } from './propertyOptions'
 import { filterByWords, pickOnEnter, startsFirst } from './searchMatch'
-import { sitesWithClients } from './directory'
+import { clientsForPicker, sitesWithClients } from './directory'
 import type { Directory } from './directory'
 import type { Id } from '../../convex/_generated/dataModel'
 
@@ -180,6 +182,14 @@ describe('how the picker lists them', () => {
     expect(offered('archer')).toEqual(['p-archived'])
   })
 
+  test('a client is named the same way in a row and in an action that offers them', () => {
+    // "New site for {pickerName}": never an archived client unmarked.
+    expect(pickerName({ name: 'Sam Wu', archivedAt: 1 })).toBe(
+      'Sam Wu (archived)',
+    )
+    expect(pickerName({ name: 'Sam Wu' })).toBe('Sam Wu')
+  })
+
   test('each row names the client and the address, so two sites of one client differ', () => {
     expect(propertyOptions([NGUYEN])[0].label).toBe(
       'J. Nguyen — 12 Wattle Street, Bayswater',
@@ -236,41 +246,68 @@ describe('what Enter in the search box takes', () => {
 })
 
 describe('the client picker for a new site (Prompt 6.3)', () => {
-  function site(
-    clientId: string,
-    client: PickableClientSite['client'],
+  type Site = PickableClient['sites'][number]
+  function client(
+    _id: string,
+    fields: Omit<PickableClient, '_id' | 'sites'>,
+    sites: Array<Site>,
+  ): PickableClient {
+    return { _id, ...fields, sites }
+  }
+  const at = (
     addressLine: string,
     suburb: string,
-  ): PickableClientSite {
-    return { clientId, client, addressLine, suburb }
-  }
-  const mahal = {
-    name: 'Mahal Mart',
-    phone: '+61 8 9000 1111',
-    kind: 'business' as const,
-  }
-  const SITES = [
-    site('c-mahal', mahal, '14 Kewdale Road', 'Kewdale'),
-    site('c-mahal', mahal, '5 Abernethy Road', 'Belmont'),
-    site('c-nguyen-1', { name: 'J. Nguyen' }, '12 Wattle Street', 'Bayswater'),
-    site('c-nguyen-2', { name: 'J. Nguyen' }, '3 Coode Street', 'Dianella'),
-    site(
-      'c-archer',
-      { name: 'A. Archer', archivedAt: 1 },
-      '9 Old Road',
-      'Bayswater',
-    ),
+    more: Partial<Site> = {},
+  ): Site => ({ addressLine, suburb, ...more })
+  const MAHAL = client(
+    'c-mahal',
+    {
+      name: 'Mahal Mart',
+      phone: '+61 8 9000 1111',
+      email: 'Accounts@MahalMart.com.au',
+      kind: 'business',
+      contacts: [
+        { name: 'Sarah Lee', phone: '0491 570 110', email: 'sarah@mahal.au' },
+      ],
+    },
+    [
+      at('14 Kewdale Road', 'Kewdale', {
+        siteContactName: 'Jan Kowalski',
+        siteContactPhone: '0433 222 111',
+      }),
+      at('5 Abernethy Road', 'Belmont'),
+    ],
+  )
+  const CLIENTS = [
+    MAHAL,
+    client('c-nguyen-1', { name: 'J. Nguyen' }, [
+      at('12 Wattle Street', 'Bayswater'),
+    ]),
+    client('c-nguyen-2', { name: 'J. Nguyen' }, [
+      at('3 Coode Street', 'Dianella'),
+    ]),
+    client('c-archer', { name: 'A. Archer', archivedAt: 1 }, [
+      at('9 Old Road', 'Bayswater'),
+    ]),
+    // No site yet: the one New site for is most often for.
+    client('c-sam', { name: 'Sam Wu', phone: '0491 570 156' }, []),
   ]
-  const find = (query: string) =>
-    filterByWords(clientOptions(SITES), query).map((o) => o.value)
+  const find = (query: string, clients = CLIENTS) =>
+    filterByWords(clientOptions(clients), query).map((o) => o.value)
 
   test('one option per client, saying where its sites are', () => {
-    expect(clientOptions(SITES).map((o) => o.label)).toEqual([
+    expect(clientOptions(CLIENTS).map((o) => o.label)).toEqual([
       'J. Nguyen — Bayswater',
       'J. Nguyen — Dianella',
       'Mahal Mart — Kewdale, Belmont',
+      `Sam Wu — ${NO_SITES}`,
       'A. Archer (archived) — Bayswater',
     ])
+  })
+
+  test('a client with no site yet is offered, said to have none', () => {
+    expect(find('sam')).toEqual(['c-sam'])
+    expect(find('0491 570 156')).toEqual(['c-sam'])
   })
 
   test('an archived client is still offered, last, so it is not typed in again', () => {
@@ -284,13 +321,93 @@ describe('the client picker for a new site (Prompt 6.3)', () => {
     expect(find('Dianella')).toEqual(['c-nguyen-2'])
   })
 
+  test('found by their email, whatever its capitals', () => {
+    expect(find('accounts@mahalmart.com.au')).toEqual(['c-mahal'])
+    expect(find('ACCOUNTS@MAHALMART')).toEqual(['c-mahal'])
+  })
+
+  test('a business found by a contact person’s name, number or email, and its sites’ contacts', () => {
+    expect(find('sarah lee')).toEqual(['c-mahal'])
+    expect(find('0491 570 110')).toEqual(['c-mahal'])
+    expect(find('+61 491 570 110')).toEqual(['c-mahal'])
+    expect(find('sarah@mahal.au')).toEqual(['c-mahal'])
+    expect(find('kowalski')).toEqual(['c-mahal'])
+    expect(find('0433 222 111')).toEqual(['c-mahal'])
+  })
+
+  test('a person client’s leftover contacts and site contacts find nothing', () => {
+    const switched = { ...MAHAL, _id: 'c-switched', kind: 'person' as const }
+    expect(find('sarah', [switched])).toEqual([])
+    expect(find('0491570110', [switched])).toEqual([])
+    expect(find('kowalski', [switched])).toEqual([])
+    expect(find('mahal', [switched])).toEqual(['c-switched'])
+  })
+
   test('many suburbs are summed up rather than listed', () => {
-    const many = ['Kewdale', 'Belmont', 'Welshpool', 'Cannington'].map((s, i) =>
-      site('c-mahal', mahal, `${i + 1} Road`, s),
+    const many = client(
+      'c-mahal',
+      { name: 'Mahal Mart' },
+      ['Kewdale', 'Belmont', 'Welshpool', 'Cannington'].map((s, i) =>
+        at(`${i + 1} Road`, s),
+      ),
     )
-    expect(clientOptions(many)[0].label).toBe(
+    expect(clientOptions([many])[0].label).toBe(
       'Mahal Mart — Kewdale, Belmont +2',
     )
+  })
+})
+
+describe('finding a client and address by their email and contact people', () => {
+  const AGENCY = {
+    ...property(
+      'p-agency',
+      {
+        name: 'Ray White Bayswater',
+        kind: 'business' as const,
+        email: 'Rentals@RayWhite.example',
+      },
+      '1 King William St',
+      'Bayswater',
+    ),
+    contacts: [
+      { name: 'Sarah Lee', phone: '0491 570 110', email: 'sarah@rw.example' },
+    ],
+  }
+  const JANE = property(
+    'p-jane',
+    { name: 'Jane Nguyen', email: 'jane@example.com', kind: 'person' },
+    '12 Wattle St',
+    'Bayswater',
+  )
+  const list = [AGENCY, JANE, ROBERTS]
+
+  test('the client’s own email, whatever its capitals', () => {
+    expect(offered('jane@example.com', list)).toEqual(['p-jane'])
+    expect(offered('JANE@EXAMPLE', list)).toEqual(['p-jane'])
+    expect(offered('rentals@raywhite', list)).toEqual(['p-agency'])
+  })
+
+  test('a contact person’s name, number in either form, or email finds the business', () => {
+    expect(offered('sarah lee', list)).toEqual(['p-agency'])
+    expect(offered('0491 570 110', list)).toEqual(['p-agency'])
+    expect(offered('+61 491 570 110', list)).toEqual(['p-agency'])
+    expect(offered('sarah@rw', list)).toEqual(['p-agency'])
+  })
+
+  test('a person client’s leftover contacts find nothing', () => {
+    const switched = {
+      ...AGENCY,
+      _id: 'p-switched',
+      client: { ...AGENCY.client!, kind: 'person' as const },
+    }
+    expect(offered('sarah', [switched])).toEqual([])
+    expect(offered('0491570110', [switched])).toEqual([])
+  })
+
+  test('each option’s search keys are worked out as it is built, not as it is searched', () => {
+    const [option] = propertyOptions([JANE])
+    expect(option.searchKey).toContain('jane@example com')
+    expect(option.labelKey).toBe('jane nguyen 12 wattle st bayswater')
   })
 })
 
@@ -360,24 +477,25 @@ describe('“Added recently”, then everyone A–Z', () => {
   })
 
   test('works the same for the "new site for" client picker, by when the client was added', () => {
-    const sites: Array<PickableClientSite> = [
+    const sites: Array<PickableClient> = [
       {
-        clientId: 'c-old',
-        addressLine: '1 A St',
-        suburb: 'Perth',
-        client: { name: 'Aaron', createdAt: NOW - 200 * DAY },
+        _id: 'c-old',
+        name: 'Aaron',
+        createdAt: NOW - 200 * DAY,
+        sites: [{ addressLine: '1 A St', suburb: 'Perth' }],
       },
       {
-        clientId: 'c-new',
-        addressLine: '2 B St',
-        suburb: 'Perth',
-        client: { name: 'Zara', createdAt: NOW - DAY },
+        _id: 'c-new',
+        name: 'Zara',
+        createdAt: NOW - DAY,
+        sites: [{ addressLine: '2 B St', suburb: 'Perth' }],
       },
       {
-        clientId: 'c-imp',
-        addressLine: '3 C St',
-        suburb: 'Perth',
-        client: { name: 'Bea', createdAt: NOW - DAY, importId: 'i' },
+        _id: 'c-imp',
+        name: 'Bea',
+        createdAt: NOW - DAY,
+        importId: 'i',
+        sites: [{ addressLine: '3 C St', suburb: 'Perth' }],
       },
     ]
     expect(clientOptions(sites, recent).map((o) => [o.value, o.group])).toEqual(
@@ -401,18 +519,19 @@ describe('“Added recently”, then everyone A–Z', () => {
   })
 
   test('a client sent as imported stays in A–Z in the "new site for" picker too', () => {
-    const sites: Array<PickableClientSite> = [
+    const sites: Array<PickableClient> = [
       {
-        clientId: 'c-imp',
-        addressLine: '3 C St',
-        suburb: 'Perth',
-        client: { name: 'Bea', createdAt: NOW - DAY, imported: true },
+        _id: 'c-imp',
+        name: 'Bea',
+        createdAt: NOW - DAY,
+        imported: true,
+        sites: [{ addressLine: '3 C St', suburb: 'Perth' }],
       },
       {
-        clientId: 'c-new',
-        addressLine: '2 B St',
-        suburb: 'Perth',
-        client: { name: 'Zara', createdAt: NOW - DAY },
+        _id: 'c-new',
+        name: 'Zara',
+        createdAt: NOW - DAY,
+        sites: [{ addressLine: '2 B St', suburb: 'Perth' }],
       },
     ]
     expect(clientOptions(sites, recent).map((o) => [o.value, o.group])).toEqual(
@@ -442,6 +561,7 @@ describe('the pickers over the slim directory', () => {
         name: 'Aaron Old',
         kind: 'person',
         phone: '0412 000 111',
+        email: 'aaron@example.com',
         clientNumber: 1,
         createdAt: NOW - 400 * DAY,
       },
@@ -475,7 +595,8 @@ describe('the pickers over the slim directory', () => {
         tags: ['Strata'],
         createdAt: NOW - 2 * DAY,
       },
-      // No site yet: nothing to book, so in neither picker.
+      // No site yet: nothing to book at, so not in the Property picker,
+      // but there in New site for's.
       {
         _id: clientId('c-none'),
         _creationTime: 5,
@@ -669,9 +790,7 @@ describe('the pickers over the slim directory', () => {
     expect(propertyOptions(sites, recent)).toEqual(
       propertyOptions(LIST, recent),
     )
-    expect(clientOptions(sites, recent)).toEqual(clientOptions(LIST, recent))
     expect(propertyOptions(sites)).toEqual(propertyOptions(LIST))
-    expect(clientOptions(sites)).toEqual(clientOptions(LIST))
   })
 
   test('“Added recently” leaves out the imported and the archived', () => {
@@ -686,23 +805,32 @@ describe('the pickers over the slim directory', () => {
       ['p-mart-midland', EVERYONE_GROUP],
       ['p-arch', EVERYONE_GROUP],
     ])
-    expect(clientOptions(sites, recent).map((o) => [o.value, o.group])).toEqual(
-      [
-        ['c-new', RECENT_GROUP],
-        ['c-mart', RECENT_GROUP],
-        ['c-old', EVERYONE_GROUP],
-        ['c-imp', EVERYONE_GROUP],
-        ['c-arch', EVERYONE_GROUP],
-      ],
-    )
+    expect(
+      clientOptions(clientsForPicker(DIRECTORY), recent).map((o) => [
+        o.value,
+        o.group,
+      ]),
+    ).toEqual([
+      ['c-none', RECENT_GROUP],
+      ['c-new', RECENT_GROUP],
+      ['c-mart', RECENT_GROUP],
+      ['c-old', EVERYONE_GROUP],
+      ['c-imp', EVERYONE_GROUP],
+      ['c-arch', EVERYONE_GROUP],
+    ])
   })
 
-  test('an archived client is offered, labelled; one with no site is not', () => {
+  test('an archived client is offered, labelled; one with no site only for a new site', () => {
     const sites = sitesWithClients(DIRECTORY)
     expect(
       propertyOptions(sites).find((o) => o.value === 'p-arch')?.label,
     ).toBe('Archer & Co (archived) — 9 Old Rd, Bayswater')
-    expect(clientOptions(sites).map((o) => o.value)).not.toContain('c-none')
+    expect(propertyOptions(sites).map((o) => o.value)).not.toContain('c-none')
+    expect(
+      clientOptions(clientsForPicker(DIRECTORY)).find(
+        (o) => o.value === 'c-none',
+      )?.label,
+    ).toBe(`Nell Nosite — ${NO_SITES}`)
   })
 })
 

@@ -288,7 +288,7 @@ export async function chooseProperty(
 ) {
   await sheet.getByLabel('Property').click()
   await page
-    .getByRole('textbox', { name: 'Search by name or address' })
+    .getByRole('textbox', { name: 'Search by name, address, phone or email' })
     .fill(search)
   await page.getByRole('button', { name: option }).click()
   await expect(sheet.getByLabel('Property')).toContainText(option)

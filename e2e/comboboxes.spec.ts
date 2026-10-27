@@ -69,7 +69,7 @@ test('the property combobox filters by client name, not just address', async ({ 
 
   const sheet = page.getByRole('dialog')
   await sheet.getByLabel('Property').click()
-  await page.getByRole('textbox', { name: 'Search by name or address' }).fill('Roberts')
+  await page.getByRole('textbox', { name: 'Search by name, address, phone or email' }).fill('Roberts')
 
   await expect(page.getByRole('button', { name: /M\. Roberts/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /J\. Nguyen/ })).toHaveCount(0)
@@ -174,7 +174,7 @@ test('the client search matches every word typed, across name and address', asyn
 
   const sheet = page.getByRole('dialog')
   await sheet.getByLabel('Property').click()
-  const search = page.getByRole('textbox', { name: 'Search by name or address' })
+  const search = page.getByRole('textbox', { name: 'Search by name, address, phone or email' })
 
   // A name and a suburb together: not next to each other in the label.
   await search.fill('nguyen bayswater')

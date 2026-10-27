@@ -50,6 +50,16 @@ async function signAcross(p) {
   await p.waitForTimeout(200)
 }
 
+/** New Job's Property picker opened, and `query` typed into its search. */
+async function searchProperty(p, query, settle = 900) {
+  await p.waitForTimeout(settle)
+  await p.getByRole('button', { name: 'Property' }).click()
+  await p
+    .getByRole('textbox', { name: 'Search by name, address, phone or email' })
+    .fill(query)
+  await p.waitForTimeout(500)
+}
+
 const PLAN = {
   // Settings → Xero and My Xero (Release 1: connect), one state each.
   xero: { full: true, before: async (p) => p.waitForTimeout(500) },
@@ -645,6 +655,75 @@ const PLAN = {
       await p.getByRole('button', { name: 'Book job' }).scrollIntoViewIfNeeded()
       await p.waitForTimeout(300)
     },
+  },
+  // Search first (the matching plan's M2, 28 Oct 2026): the caller's email
+  // finds her site, the list ending with New site for her.
+  'newjob-picker-email-match': {
+    before: (p) => searchProperty(p, 'jane.nguyen@example.com'),
+  },
+  // A contact person's mobile finds the agency's every site.
+  'newjob-picker-contact-mobile': {
+    spec: 'newjob-picker-email-match',
+    before: (p) => searchProperty(p, '0491 570 110'),
+  },
+  // A number saved without its area code, found with it.
+  'newjob-picker-landline-key': {
+    spec: 'newjob-picker-email-match',
+    before: (p) => searchProperty(p, '08 7010 1234'),
+  },
+  // Nothing matches: the way in to a new client, naming what it fills.
+  'newjob-picker-no-match-add-phone': {
+    spec: 'newjob-picker-no-match-add',
+    before: (p) => searchProperty(p, '0491 570 158'),
+  },
+  'newjob-picker-no-match-add-email': {
+    spec: 'newjob-picker-no-match-add',
+    before: (p) => searchProperty(p, 'new.caller@example.com'),
+  },
+  'newjob-picker-no-match-add-address': {
+    spec: 'newjob-picker-no-match-add',
+    before: (p) => searchProperty(p, '9 Banksia Rd'),
+  },
+  'newjob-picker-no-match-add-name': {
+    spec: 'newjob-picker-no-match-add',
+    before: (p) => searchProperty(p, 'Kim Pham'),
+  },
+  'newjob-picker-no-match-add-other': {
+    spec: 'newjob-picker-no-match-add',
+    before: (p) => searchProperty(p, '6014'),
+  },
+  // A client with no site yet, found by name: a new site for him, not a
+  // second Sam Wu.
+  'newjob-picker-siteless-name': {
+    spec: 'newjob-picker-no-match-add',
+    before: (p) => searchProperty(p, 'Sam Wu'),
+  },
+  // …and tapped: the New client tab, the number in Phone, focus on it.
+  'newjob-picker-no-match-added': {
+    spec: 'newjob-picker-no-match-add',
+    before: async (p) => {
+      await searchProperty(p, '0491 570 158')
+      await p
+        .getByRole('button', { name: 'New client, phone “0491 570 158”' })
+        .click()
+      await p.waitForTimeout(700)
+    },
+  },
+  'newjob-picker-no-match-offline': {
+    before: (p) => searchProperty(p, '0491 570 158'),
+  },
+  'newjob-picker-detail-two': {
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Property' }).click()
+      await p.waitForTimeout(700)
+    },
+  },
+  'clients-search-phone': { before: async (p) => p.waitForTimeout(500) },
+  // Timing only: the picker over 10,000 clients, searched by a number. The
+  // console has each commit's time (`TenKTimings`).
+  'newjob-picker-10k': {
+    before: (p) => searchProperty(p, '0491 005 000', 1500),
   },
   'business-switch-no-signal': {
     before: async (p) => {
