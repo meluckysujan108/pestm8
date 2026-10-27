@@ -55,8 +55,9 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * `asOf`: when the list was last known right (`keeper.asOf`), or with it
  * still live, when the server last spoke. `xero`: whether the live sheet
  * would have a Xero row, as far as memory shows (`xeroKnown`). `email`:
- * theirs, from a day's row for a visit of theirs (`keptClientEmail`), for
- * the Email the live sheet has beside Call: looked for as the client first
+ * theirs, from the client list, or for a copy kept before it carried
+ * emails, a day's row for a visit of theirs (`keptClientEmail`), for the
+ * Email the live sheet has beside Call: looked for as the client first
  * shows, and kept while they do, so it never joins Call and Text later,
  * narrowing them under a thumb.
  */
@@ -106,7 +107,7 @@ export function useKeptClient(
   const nextEmail =
     email === null && state === 'kept' && kept !== null
       ? {
-          value: keptClientEmail(kept.sites, (match) =>
+          value: keptClientEmail(kept, (match) =>
             keeper.findDayRowWhere(match),
           ),
         }
@@ -151,8 +152,9 @@ export function useKeptClient(
  * A client opened with no answer from PestM8 (the line down, or the answer
  * late), shown read-only from the phone's client list (`useKeptClient`), in
  * place of the client sheet until PestM8 answers. What a technician needs at
- * the door: who they are, their number, Call and Text (and Email where a day
- * the phone holds says it), and each site with Map and its site contact.
+ * the door: who they are, their number, Call, Text and Email (where the
+ * client list has it, or for an older copy a day the phone holds), and each
+ * site with Map and its site contact.
  * Their jobs, notes, contacts and Xero aren't kept, and each says it opens
  * when there is signal (Xero only where the live sheet would have a row for
  * it). Nothing here changes anything: no Edit, no status to change, no site
@@ -164,8 +166,9 @@ export function useKeptClient(
  * Email it is laid out as the live sheet is, line for line, Edit's row and
  * the status menu's chevron held unseen, and the line saying why comes after
  * them: when PestM8 answers, Call is where it was, under the thumb that may
- * be on it. Where the client has an email no day the phone holds says, the
- * live sheet's Email joins Call and Text, and all three narrow.
+ * be on it. Where the client has an email the phone's copy doesn't (one
+ * kept before the list carried emails, with no day saying it), the live
+ * sheet's Email joins Call and Text, and all three narrow.
  *
  * Typed from `clients.directory`'s rows rather than `clients.get`'s: a
  * change to the list's fields shows here as a type error, not as a sheet
@@ -192,8 +195,8 @@ export function KeptClientView({
    * with signal. Where Xero isn't set up the live sheet has none, nor does
    * this. */
   xero?: boolean
-  /** Theirs, from a day's row (`useKeptClient`): Email beside Call and
-   * Text, as on the live sheet. */
+  /** Theirs, from the client list or a day's row (`useKeptClient`): Email
+   * beside Call and Text, as on the live sheet. */
   email?: string
 }) {
   useShowsKept(true)

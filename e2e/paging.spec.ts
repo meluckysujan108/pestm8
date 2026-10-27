@@ -133,7 +133,9 @@ test('Clients opens on the newest page, finds anyone by search, and loads the re
 
   // The oldest is not on the first page, but search finds it.
   await hydrated(page, 'clients')
-  const search = page.getByLabel('Search by name or address')
+  const search = page.getByLabel(
+    'Search clients by name, address, phone or email',
+  )
   await search.fill('nguyen')
   await expect(page).toHaveURL(/[?&]q=nguyen(&|$)/)
   await expect(cards).toHaveCount(1)
@@ -187,7 +189,7 @@ test('an archived client stays off Clients, and stays pickable — last, labelle
   )
   await newJob.getByRole('button', { name: 'Property' }).click()
   await page
-    .getByRole('textbox', { name: 'Search by name or address' })
+    .getByRole('textbox', { name: 'Search by name, address, phone or email' })
     .fill('zed')
   await expect(
     page.getByRole('button', { name: /Zed Archived \(archived\)/ }),

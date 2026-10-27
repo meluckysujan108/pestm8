@@ -992,7 +992,9 @@ test('with no signal, the Clients page lists every client from the copy kept on 
     await expect(page.getByText(/Could not load/)).toHaveCount(0)
 
     // A search runs over the copy, as it does over the live list.
-    await page.getByLabel('Search by name or address').fill('Beat')
+    await page
+      .getByLabel('Search clients by name, address, phone or email')
+      .fill('Beat')
     await expect(page.getByText('Beatrice Byford')).toBeVisible()
     await expect(page.getByText('Arthur Wellard')).toHaveCount(0)
 

@@ -140,6 +140,26 @@ export const NEW_CLIENT_ERROR_COPY: ErrorCopy = {
   INVALID_ABN: 'That ABN does not pass the ATO check. Check its 11 digits.',
 }
 
+/** The fields a caller may put focus in (`newClientFieldId`). */
+export type NewClientFocusField =
+  'clientName' | 'phone' | 'email' | 'addressLine'
+
+/**
+ * The id of one of `NewClientFields`' inputs, for a form that passed it
+ * `idPrefix`: New Job puts focus in the field a picker's "New client, phone
+ * …" filled, as a fix does, rather than leaving it on a field gone from the
+ * screen.
+ */
+export function newClientFieldId(
+  idPrefix: string,
+  field: NewClientFocusField,
+): string {
+  // The street's id is the address block's own (VerifiedAddressFields).
+  return field === 'addressLine'
+    ? `${idPrefix}-street`
+    : `${idPrefix}-${field === 'clientName' ? 'name' : field}`
+}
+
 /**
  * The client + first-property fields, shared between `NewPropertySheet.tsx`
  * (adding a client on its own) and `NewJobSheet.tsx` (adding one inline
@@ -155,6 +175,7 @@ export function NewClientFields({
   value,
   onChange,
   businessState,
+  idPrefix,
 }: {
   value: NewClientFieldsValue
   onChange: (patch: Partial<NewClientFieldsValue>) => void
@@ -162,11 +183,16 @@ export function NewClientFields({
    * suggested first, one in another state is pointed out, and a phone number
    * missing its area code most likely has this state's. */
   businessState: string
+  /** Ids for the fields a caller puts focus in (`newClientFieldId`). */
+  idPrefix?: string
 }) {
   const kindId = useId()
   const abnId = useId()
-  const phoneId = useId()
-  const emailId = useId()
+  const ownId = useId()
+  const prefix = idPrefix ?? ownId
+  const nameId = newClientFieldId(prefix, 'clientName')
+  const phoneId = newClientFieldId(prefix, 'phone')
+  const emailId = newClientFieldId(prefix, 'email')
   const business = value.kind === 'business'
   const [addingSiteContact, setAddingSiteContact] = useState(false)
   const siteContactInput = useRef<HTMLInputElement>(null)
@@ -195,6 +221,7 @@ export function NewClientFields({
 
       <Field label={business ? 'Company name' : 'Client name'}>
         <Input
+          id={nameId}
           value={value.clientName}
           onChange={(clientName) => onChange({ clientName })}
           required
@@ -215,6 +242,7 @@ export function NewClientFields({
         value={value}
         onChange={onChange}
         businessState={businessState}
+        idPrefix={prefix}
       />
 
       {/* The same labels as the client sheet's edit form: a business's phone
@@ -302,16 +330,20 @@ export function SiteAddressFields({
   value,
   onChange,
   businessState,
+  idPrefix,
 }: {
   value: Pick<NewSiteValue, 'addressLine' | 'suburb' | 'state' | 'postcode'>
   onChange: (patch: Partial<NewSiteValue>) => void
   /** The work area: an address in another state is pointed out. */
   businessState: string
+  /** The inputs' ids' start (VerifiedAddressFields'): the street is
+   * `${idPrefix}-street`. */
+  idPrefix?: string
 }) {
-  const idPrefix = useId()
+  const ownId = useId()
   return (
     <VerifiedAddressFields
-      idPrefix={idPrefix}
+      idPrefix={idPrefix ?? ownId}
       value={value}
       onChange={onChange}
       workState={businessState}
@@ -358,11 +390,13 @@ export function SiteContactFields({
 }
 
 function Input({
+  id,
   value,
   onChange,
   required,
   inputRef,
 }: {
+  id?: string
   value: string
   onChange: (v: string) => void
   required?: boolean
@@ -370,6 +404,7 @@ function Input({
 }) {
   return (
     <input
+      id={id}
       ref={inputRef}
       type="text"
       value={value}
