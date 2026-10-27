@@ -263,14 +263,36 @@ export async function signInViaUi(
  * the click has to happen again. This is the same hydration race the sign-in
  * helper avoids by waiting for the submit button to enable; elsewhere there is
  * no such readiness signal to wait on.
+ *
+ * Once a click has landed, each retry looks again before clicking: on a loaded
+ * machine the click may have worked and its result just been slow to show. A
+ * second click then acts twice (closes the menu it opened, collapses the row it
+ * expanded) or, with a sheet now open over it, finds its target hidden from the
+ * accessibility tree and waits out its whole timeout. Not before the first
+ * click, and not after one that failed: a predicate like `toHaveCount(0)` can
+ * hold before anything has happened.
  */
 export async function clickUntil(
   locator: Locator,
   settled: () => Promise<unknown>,
   timeout = 30_000,
 ) {
+  let clicked = false
   await expect(async () => {
+    if (clicked) {
+      try {
+        await settled()
+        return
+      } catch (error) {
+        // Gone, behind a sheet the click opened or after a navigation it
+        // started: the click worked, and another could only wait for a target
+        // that isn't there. Keep looking instead.
+        if ((await locator.count()) === 0) throw error
+        // Still there and nothing came of it: the click was swallowed.
+      }
+    }
     await locator.click()
+    clicked = true
     await settled()
   }).toPass({ timeout })
 }
