@@ -21,23 +21,40 @@ import type { KeyboardEvent } from 'react'
  * tap chooses: an arrow pressed to look, or to scroll, must not answer the
  * question. The unchosen segments are drawn in `ink-2` then, not `muted`:
  * each is an answer to read, in sun, not the quiet other half of a switch.
+ *
+ * Under a caption on a form, the caption names it: give the caption an id and
+ * pass it as `labelledBy`. Never wrap it in a `<label>` (or a `Field` that is
+ * one): a label names only its first control, so the first segment took the
+ * caption as its name ("Client Client", not "Existing client"), and a tap on
+ * the caption chose it.
  */
 export function Segmented<T extends string>({
   value,
   options,
   onChange,
   label,
+  labelledBy,
   disabled = false,
   kind = 'tabs',
 }: {
   value: T
   options: Array<{ value: T; label: string }>
   onChange: (value: T) => void
-  label: string
   /** Until the page hydrates, so a tap is never swallowed by inert markup. */
   disabled?: boolean
   kind?: 'tabs' | 'choice'
-}) {
+} & (
+  | {
+      /** The group's name, where nothing on screen says it. */
+      label: string
+      labelledBy?: undefined
+    }
+  | {
+      /** The id of the visible caption that names the group. */
+      labelledBy: string
+      label?: undefined
+    }
+)) {
   const buttons = useRef<Array<HTMLButtonElement | null>>([])
   const choice = kind === 'choice'
   const selectedIndex = options.findIndex((option) => option.value === value)
@@ -70,6 +87,7 @@ export function Segmented<T extends string>({
     <div
       role={choice ? 'radiogroup' : 'tablist'}
       aria-label={label}
+      aria-labelledby={labelledBy}
       onKeyDown={onKeyDown}
       className="flex rounded-segmented bg-fill-track p-0.5"
     >

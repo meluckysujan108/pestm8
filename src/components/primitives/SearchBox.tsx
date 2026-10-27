@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useId, useRef, useState } from 'react'
 import { Search, X } from 'lucide-react'
 import { recordSend, settleEcho, settlesAt } from './searchEcho'
 
@@ -34,6 +34,7 @@ export function SearchBox({
   placeholder?: string
 }) {
   const [draft, setDraft] = useState(value)
+  const labelId = useId()
   // Sent, oldest first, and not yet echoed back through `value`.
   const unechoed = useRef<Array<string>>([])
 
@@ -58,8 +59,13 @@ export function SearchBox({
   return (
     <label className="flex h-10 flex-1 items-center gap-2 rounded-xl border border-field-edge bg-surface-3 px-3 focus-within:ring-2 focus-within:ring-blue">
       <Search size={16} strokeWidth={2} className="shrink-0 text-muted" />
-      <span className="sr-only">{label}</span>
+      <span id={labelId} className="sr-only">
+        {label}
+      </span>
       <input
+        // Named by its word alone: by the <label> around it, it was "Search
+        // clients Clear search" whenever there was something to clear.
+        aria-labelledby={labelId}
         type="search"
         value={draft}
         onChange={(event) => setDraft(event.target.value)}

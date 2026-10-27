@@ -381,6 +381,7 @@ function NewJobForm({
   const hydrated = useHydrated()
   const lineDown = useLineDown()
   const lineDownId = useId()
+  const clientChoiceId = useId()
   // The new client's or new site's address, email and phone, checked at Book:
   // what may be wrong is listed above the button, and a second press books it
   // as it is. An existing property has nothing to check.
@@ -551,10 +552,14 @@ function NewJobForm({
         </Drawer.Title>
 
         {properties.length > 0 && (
-          <Field label="Client">
+          // Not a Field: its <label> would name only the first segment.
+          <div className="mt-4 flex flex-col gap-1.5">
+            <span id={clientChoiceId} className="section-label">
+              Client
+            </span>
             <Segmented
               kind="choice"
-              label="Client"
+              labelledBy={clientChoiceId}
               // A new site is still an existing client's, so that tab stays
               // chosen; tapping it again leaves the site being added alone.
               value={mode === 'new' ? 'new' : 'existing'}
@@ -568,7 +573,7 @@ function NewJobForm({
                 { value: 'new', label: 'New client' },
               ]}
             />
-          </Field>
+          </div>
         )}
 
         {mode === 'existing' ? (

@@ -163,6 +163,7 @@ export function NewClientFields({
    * missing its area code most likely has this state's. */
   businessState: string
 }) {
+  const kindId = useId()
   const abnId = useId()
   const phoneId = useId()
   const emailId = useId()
@@ -178,15 +179,19 @@ export function NewClientFields({
 
   return (
     <>
-      <Field label="Client type">
+      {/* Not a Field: its <label> would name only the first segment. */}
+      <div className="mt-4 flex flex-col gap-1.5">
+        <span id={kindId} className="section-label">
+          Client type
+        </span>
         <Segmented
           kind="choice"
-          label="Client type"
+          labelledBy={kindId}
           value={value.kind}
           onChange={(kind) => onChange({ kind })}
           options={KIND_CHOICES}
         />
-      </Field>
+      </div>
 
       <Field label={business ? 'Company name' : 'Client name'}>
         <Input
