@@ -1203,7 +1203,7 @@ function JobEditForm({
           value={propertyId}
           onChange={setPropertyId}
           options={propertyOptionList}
-          placeholder="Search by name or address"
+          placeholder="Search by name, address, phone or email"
           // Searched before the other sites have arrived, a miss is not
           // an answer yet.
           noMatchLabel={

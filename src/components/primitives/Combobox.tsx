@@ -1,7 +1,21 @@
-import { useCallback, useId, useRef, useState } from 'react'
-import type { Ref } from 'react'
+import {
+  useCallback,
+  useDeferredValue,
+  useId,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+import type { ReactNode, Ref } from 'react'
 import { Check, ChevronsUpDown, Plus, Search, X } from 'lucide-react'
-import { filterByWords, pickOnEnter, startsFirst } from '#/lib/searchMatch'
+import {
+  decideDetails,
+  joinDetails,
+  orderedMatches,
+  pickOnEnter,
+} from '#/lib/searchMatch'
+import { usePickerList } from '#/lib/usePickerList'
 import { NEUTRAL_BUTTON_COMPACT } from './buttons'
 import { Sheet } from './Sheet'
 
@@ -11,6 +25,11 @@ export type ComboboxOption = {
   /** What the search matches against, when it should be more than the
    * label — a phone number or postcode nobody wants to read in the list. */
   searchText?: string
+  /** `searchText` (or the label) and the label as the search compares
+   * them, worked out once when the options are built (`withSearchKeys` in
+   * lib/searchMatch.ts), so a long list is not normalised on every key. */
+  searchKey?: string
+  labelKey?: string
   /** A second, quieter line under the label in the list ("Added Tue 29
    * Sept"). Never on the closed field, and never matched or picked by. */
   detail?: string
@@ -20,12 +39,43 @@ export type ComboboxOption = {
   group?: string
 }
 
+/** A row that does something other than choose: "New client, phone
+ * “0412 345 678”", "New site for Jane Nguyen". The sheet closes, then
+ * `onSelect` runs, and focus goes where it puts it rather than back to the
+ * field. */
+export type ComboboxAction = {
+  label: string
+  onSelect: () => void
+  /** A line under it, its own element, so it can decide its words once as
+   * it shows: "Newer clients show when you have signal." */
+  hint?: ReactNode
+}
+
+/** What the caller knows about a query beyond the words in each row: a
+ * phone number's or an email's holders, from the match index. */
+export type ComboboxLookup = {
+  /** Option values to list first, in this order, whether or not their
+   * words match. */
+  first: ReadonlyArray<string>
+  /** A row to end the list with. */
+  end?: ComboboxAction | null
+}
+
+/** Opens the list from outside, with a query typed: "Show them" in a match
+ * row. The keyboard stays down, as for any open: the search takes focus
+ * only on a computer, or when tapped. */
+export type ComboboxHandle = {
+  openWith: (query: string) => void
+}
+
 /**
  * Past this many matches the list asks for more typing instead of rendering
  * every row: a phone sheet with a few thousand buttons in it is slow to open
  * and useless to scroll.
  */
 const MAX_ROWS = 100
+
+const NO_DETAILS: ReadonlyMap<string, string | undefined> = new Map()
 
 type Choice =
   | {
@@ -65,11 +115,20 @@ type Choice =
  *
  * `allowCustom` decides what happens when the typed query has no match: true
  * (job type) offers an "Add …" row that commits the typed text; false
- * (property — a job must reference a real property) shows `noMatchLabel`
- * with no way to submit unlisted text.
+ * (property — a job must reference a real property) shows `noMatchLabel`,
+ * and under it `noMatchAction`'s row where the caller offers one: the way in
+ * to a new client, with what was typed in the field it fills.
  *
  * Every word typed must match, in any order, so "nguyen bayswater" finds the
- * row whose label reads "J. Nguyen — 12 Wattle Street, Bayswater".
+ * row whose label reads "J. Nguyen — 12 Wattle Street, Bayswater". A caller
+ * that knows more about a query (`lookup`: a phone number's holders, from
+ * the match index) puts rows first that the words alone would miss, and may
+ * end the list with a row of its own.
+ *
+ * The list follows the query a moment behind (`useDeferredValue`), so typing
+ * into a book of ten thousand sites never waits on the list; and it is only
+ * filtered while the sheet is open, then kept as it was while the sheet
+ * slides away (`usePickerList`).
  */
 export function Combobox({
   options,
@@ -80,6 +139,10 @@ export function Combobox({
   allowCustom = false,
   customLabel,
   noMatchLabel = 'No matches',
+  noMatchAction,
+  lookup,
+  detailOf,
+  handleRef,
   ariaLabel,
   invalid = false,
   errorId,
@@ -98,6 +161,18 @@ export function Combobox({
   allowCustom?: boolean
   customLabel?: (query: string) => string
   noMatchLabel?: string
+  /** The row under `noMatchLabel` when a typed query matches nothing, or
+   * null for none. */
+  noMatchAction?: (query: string) => ComboboxAction | null
+  /** Rows a query brings first, and a row to end with (`ComboboxLookup`). */
+  lookup?: (query: string) => ComboboxLookup | null
+  /** A line about a row worked out as it first shows, rather than baked
+   * into the options ("Booked Thu 30 Oct"), and kept while the sheet is
+   * open (`decideDetails`): a push that changes it never grows a row under
+   * a thumb. It goes before the option's own `detail`, joined with " · ". */
+  detailOf?: (value: string) => string | undefined
+  /** `openWith`, for opening the list with a query typed. */
+  handleRef?: Ref<ComboboxHandle>
   ariaLabel?: string
   /** Marks the field invalid and ties it to the message that says why. */
   invalid?: boolean
@@ -106,17 +181,33 @@ export function Combobox({
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  /** Counts the times the sheet has opened. */
+  const [opening, setOpening] = useState(0)
+  // What the list shows follows the query a moment behind: the field takes
+  // each key at once, and the list catches up between them. A query held
+  // over from an earlier opening is never shown, not even for a frame: the
+  // list opens on what this opening was given.
+  const typed = useMemo(() => ({ query, opening }), [query, opening])
+  const behind = useDeferredValue(typed)
+  const listQuery = behind.opening === opening ? behind.query : query
   /**
    * Values the list does not offer — a job type typed in once — that have
    * been chosen since the sheet opened. Kept as rows until it closes, so
    * unticking one does not pull it out from under the finger.
    */
   const [extras, setExtras] = useState<Array<string>>([])
+  /** Each shown row's `detailOf` line, as it was when the row first showed
+   * since the sheet opened. */
+  const [details, setDetails] = useState(NO_DETAILS)
   const ownTrigger = useRef<HTMLButtonElement>(null)
+  /** Where focus goes when the sheet shuts: the field, unless an action row
+   * has put it somewhere of its own. */
+  const returnTo = useRef<HTMLButtonElement>(null)
   // The field is also the caller's, to move focus to when booking is refused.
   const setTrigger = useCallback(
     (node: HTMLButtonElement | null) => {
       ownTrigger.current = node
+      returnTo.current = node
       if (typeof triggerRef === 'function') triggerRef(node)
       else if (triggerRef) triggerRef.current = node
     },
@@ -149,15 +240,32 @@ export function Combobox({
         ...chosen.filter((value) => !offered(value) && !extras.includes(value)),
       ]
     : []
-  const rows: Array<ComboboxOption> = [
-    ...options,
-    ...unlisted.map((value) => ({ value, label: value })),
-  ]
-  const filtered = filterByWords(rows, query)
-  // Typed: one list, names starting with the text first (searchMatch.ts).
-  // Not typed: the caller's order, under its headings.
-  const searching = query.trim() !== ''
-  const ordered = searching ? startsFirst(filtered, query) : filtered
+  const unlistedKey = unlisted.join('\n')
+  const rows = useMemo<ReadonlyArray<ComboboxOption>>(
+    () =>
+      unlistedKey === ''
+        ? options
+        : [
+            ...options,
+            ...unlistedKey
+              .split('\n')
+              .map((value) => ({ value, label: value })),
+          ],
+    [options, unlistedKey],
+  )
+  // Typed: one list, the lookup's rows first, then names starting with the
+  // text (searchMatch.ts). Not typed: the caller's order, under its
+  // headings. Closed: what it last showed, kept while the sheet slides away
+  // (`usePickerList`).
+  const list = usePickerList({
+    open,
+    rows,
+    query: listQuery,
+    lookup,
+    allowCustom,
+  })
+  const { found, ordered } = list
+  const searching = list.query.trim() !== ''
   const shown = ordered.slice(0, MAX_ROWS)
   const sections: Array<{ group?: string; rows: Array<ComboboxOption> }> = []
   for (const row of shown) {
@@ -167,17 +275,40 @@ export function Combobox({
     else sections.push({ group, rows: [row] })
   }
 
-  const trimmedQuery = query.trim()
-  const hasExactMatch = rows.some(
-    (o) => o.label.toLowerCase() === trimmedQuery.toLowerCase(),
-  )
-  const showCustomRow = allowCustom && trimmedQuery.length > 0 && !hasExactMatch
+  // Each row's line from `detailOf`, decided as it first shows and kept.
+  const decided =
+    open && detailOf
+      ? decideDetails(
+          details,
+          shown.map((row) => row.value),
+          detailOf,
+        )
+      : details
+  if (decided !== details) setDetails(decided)
 
-  function openSheet() {
-    setQuery('')
+  const trimmedQuery = list.query.trim()
+  const showCustomRow =
+    allowCustom && trimmedQuery.length > 0 && !list.hasExactMatch
+  const endRow = found?.end ?? null
+  const nothing = ordered.length === 0 && !showCustomRow && endRow === null
+  const shownQuery = list.query
+  const action = useMemo(
+    () => (nothing && searching ? (noMatchAction?.(shownQuery) ?? null) : null),
+    [nothing, searching, noMatchAction, shownQuery],
+  )
+
+  /** Opens the sheet with `initial` in the search, its rows' lines decided
+   * afresh. */
+  function openSheet(initial = '') {
+    setQuery(initial)
+    setOpening((n) => n + 1)
     setExtras(chosen.filter((value) => !offered(value)))
+    setDetails(NO_DETAILS)
+    returnTo.current = ownTrigger.current
     setOpen(true)
   }
+
+  useImperativeHandle(handleRef, () => ({ openWith: openSheet }))
 
   function search(next: string) {
     setQuery(next)
@@ -221,6 +352,14 @@ export function Combobox({
     search('')
   }
 
+  /** An action row tapped: the sheet shuts, and the action puts focus
+   * where it is going (the field it filled), not back on this field. */
+  function act(chosenAction: ComboboxAction) {
+    returnTo.current = null
+    setOpen(false)
+    chosenAction.onSelect()
+  }
+
   return (
     <>
       <button
@@ -240,7 +379,7 @@ export function Combobox({
             .join(' ') || undefined
         }
         aria-invalid={invalid || undefined}
-        onClick={openSheet}
+        onClick={() => openSheet()}
         // Red while invalid even with focus on it: focus is moved here when
         // booking is refused, and a blue focus ring would hide the reason.
         className={`flex min-h-12 w-full items-center justify-between gap-2 rounded-xl border border-field-edge bg-surface-3 px-3.5 py-2.5 text-[16px] text-ink outline-none ${invalid ? 'ring-2 ring-red' : 'focus-visible:ring-2 focus-visible:ring-blue'}`}
@@ -268,7 +407,7 @@ export function Combobox({
         onClose={() => setOpen(false)}
         title={title ?? ariaLabel ?? ''}
         description={description}
-        returnFocusRef={ownTrigger}
+        returnFocusRef={returnTo}
         initialFocusRef={searchRef}
         footer={
           <button
@@ -293,11 +432,17 @@ export function Combobox({
               onChange={(e) => search(e.target.value)}
               // The sheet is portalled outside any form, so Enter would
               // otherwise do nothing at all. It takes a row only when it is
-              // plain which one was meant (see pickOnEnter).
+              // plain which one was meant (see pickOnEnter), for what is
+              // typed now, not for a list a key behind.
               onKeyDown={(e) => {
                 if (e.key !== 'Enter') return
                 e.preventDefault()
-                const picked = pickOnEnter(filtered, query, allowCustom)
+                const now = orderedMatches(
+                  rows,
+                  query,
+                  query.trim() === '' ? undefined : lookup?.(query)?.first,
+                )
+                const picked = pickOnEnter(now, query, allowCustom)
                 if (picked !== null) take(picked)
                 // The phone's key says Done: with several rows still left,
                 // put the keyboard away so they can be seen and tapped.
@@ -356,6 +501,7 @@ export function Combobox({
                 // Full: a row not ticked can't be, and looks it. Still
                 // focusable and read out, so the reason can be found.
                 const blocked = full && !on
+                const detail = joinDetails(decided.get(o.value), o.detail)
                 return (
                   <li key={o.value}>
                     <button
@@ -379,9 +525,9 @@ export function Combobox({
                         <span className="block break-words text-body text-ink">
                           {o.label}
                         </span>
-                        {o.detail && (
+                        {detail && (
                           <span className="block text-caption text-muted">
-                            {o.detail}
+                            {detail}
                           </span>
                         )}
                       </span>
@@ -400,11 +546,19 @@ export function Combobox({
           </section>
         ))}
 
-        {filtered.length > shown.length && (
+        {ordered.length > shown.length && (
           <p className="px-1 py-2 text-caption text-muted">
-            Showing {shown.length} of {filtered.length}. Keep typing to narrow
-            it down.
+            Showing {shown.length} of {ordered.length}. Keep typing to narrow it
+            down.
           </p>
+        )}
+
+        {endRow && (
+          <ActionRow
+            action={endRow}
+            onSelect={act}
+            className={shown.length > 0 ? 'mt-1.5' : undefined}
+          />
         )}
 
         {showCustomRow && (
@@ -418,12 +572,41 @@ export function Combobox({
           </button>
         )}
 
-        {filtered.length === 0 && !showCustomRow && (
-          <p className="px-1 py-3 text-center text-caption text-grey-ink">
+        {nothing && (
+          <p
+            className={`px-1 text-center text-caption text-grey-ink ${action ? 'pt-3 pb-2' : 'py-3'}`}
+          >
             {noMatchLabel}
           </p>
         )}
+        {action && <ActionRow action={action} onSelect={act} />}
       </Sheet>
     </>
+  )
+}
+
+/** A row that does something rather than choose (`ComboboxAction`), drawn as
+ * the "Add …" row is, with its hint under it. */
+function ActionRow({
+  action,
+  onSelect,
+  className,
+}: {
+  action: ComboboxAction
+  onSelect: (action: ComboboxAction) => void
+  className?: string
+}) {
+  return (
+    <div className={className}>
+      <button
+        type="button"
+        onClick={() => onSelect(action)}
+        className="flex min-h-12 w-full items-center gap-2 rounded-xl border border-hairline bg-surface px-3 py-2.5 text-left text-body font-semibold text-blue transition active:scale-[.99]"
+      >
+        <Plus size={17} strokeWidth={2.2} className="shrink-0" />
+        <span className="min-w-0 break-words">{action.label}</span>
+      </button>
+      {action.hint}
+    </div>
   )
 }

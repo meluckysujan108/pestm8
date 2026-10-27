@@ -11,6 +11,7 @@ import { dayKeyOf } from '../../../convex/lib/dates'
 import { isOffline } from '#/lib/online'
 import { keeper } from './keeper'
 import { RENDERED_AT_KEY } from './keptSet'
+import { NEWER_CLIENTS_WITH_SIGNAL } from './keptClients'
 import type { CSSProperties } from 'react'
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 import type { LineDown } from './keeper'
@@ -352,6 +353,20 @@ export function useBehindOnce(
   })
   if (next !== latch) setLatch(next)
   return next?.behind ?? false
+}
+
+/**
+ * The line under a picker's way in to a new client (New Job's "New client,
+ * phone …"), where the client list it searched may be missing someone added
+ * since (`mayBeBehind`): "Newer clients show when you have signal.", or null
+ * where it is up to date. For a hint that is drawn only while nothing
+ * matches: decided as it shows, and kept for as long as it does
+ * (`useBehindOnce`), so the row above it never moves as it is typed into.
+ */
+export function useNewerClientsHint(directoryKey: QueryKey): string | null {
+  return useBehindOnce(directoryKey, true, 'no-match')
+    ? NEWER_CLIENTS_WITH_SIGNAL
+    : null
 }
 
 /**

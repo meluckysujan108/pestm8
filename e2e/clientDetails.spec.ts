@@ -305,7 +305,7 @@ test('a new site for an existing business is booked from New Job, without a seco
 
   await sheet.getByLabel('New site for').click()
   await page
-    .getByRole('textbox', { name: 'Search by name, phone or suburb' })
+    .getByRole('textbox', { name: 'Search by name, phone, email or suburb' })
     .fill('Mahal')
   await page.getByRole('button', { name: /^Mahal Mart/ }).click()
   await sheet.getByLabel('Site contact name').fill('Priya Shah')

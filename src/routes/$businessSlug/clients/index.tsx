@@ -6,6 +6,7 @@ import { Plus, Upload } from 'lucide-react'
 import { z } from 'zod'
 import { api } from '../../../../convex/_generated/api'
 import { clientFacets } from '../../../../convex/lib/clientFacets'
+import { areaCodeOf } from '../../../../convex/lib/contactKeys'
 import { KeptCopyNote } from '#/components/shell/KeptCopyNote'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { CardCells, ListPending } from '#/components/shell/Pending'
@@ -56,7 +57,7 @@ import {
 import { useStillPendingAfter } from '#/components/products/hooks'
 import {
   filterClientRows,
-  matchesClientSearch,
+  searchClientRows,
   useClientFilters,
 } from '#/lib/clientFilters'
 import { clientRows } from '#/lib/directory'
@@ -311,15 +312,15 @@ function ClientsPage() {
   // Every client the page lists, in the order chosen, that the search finds.
   // The filters' choices and counts are worked out from these, before the
   // filters narrow them, as they always were.
+  // A local number typed or saved without its area code is the business's.
+  const areaCode = areaCodeOf(business.state)
   const searched = useMemo(() => {
     if (!directory.data) return undefined
     const rows = clientRows(directory.data).sort(
       sort === 'az' ? byName : newestFirst,
     )
-    return searching
-      ? rows.filter((row) => matchesClientSearch(row, searchTerm))
-      : rows
-  }, [directory.data, sort, searching, searchTerm])
+    return searching ? searchClientRows(rows, searchTerm, areaCode) : rows
+  }, [directory.data, sort, searching, searchTerm, areaCode])
   const filtered = useMemo(
     () => searched && filterClientRows(searched, { kind, suburb, status, tag }),
     [searched, kind, suburb, status, tag],
@@ -496,8 +497,8 @@ function ClientsPage() {
               replace: true,
             })
           }
-          label="Search by name or address"
-          placeholder="Search by name, address or #number"
+          label="Search clients by name, address, phone or email"
+          placeholder="Search by name, address, phone, email or #number"
         />
       </div>
 

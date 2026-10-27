@@ -207,7 +207,9 @@ test('typing in the client search keeps every character, and an old view link op
   // between two keys it put the committed term back over what came after —
   // "wattle" arrived as "e". Found by label, which the old bare input had
   // too, so the old page fails on the value rather than on finding the box.
-  const search = page.getByLabel('Search by name or address')
+  const search = page.getByLabel(
+    'Search clients by name, address, phone or email',
+  )
   await search.pressSequentially('wattle', { delay: 120 })
 
   await expect(search).toHaveValue('wattle')

@@ -89,11 +89,20 @@ const rootRoute = createRootRoute({ component: Specimen })
 const splat = createRoute({ getParentRoute: () => rootRoute, path: '$' })
 // The business's own route, with the context the app's gives it, for a
 // component that reads it (`useRouteContext({ from: '/$businessSlug' })`):
-// New Job starts a new address in the business's state.
+// New Job starts a new address in the business's state, and leaves the
+// business's and the person's own number and email out of what a number
+// typed into its pickers finds.
 const business = createRoute({
   getParentRoute: () => rootRoute,
   path: '$businessSlug',
-  beforeLoad: () => ({ business: { state: 'WA' } }),
+  beforeLoad: () => ({
+    business: {
+      state: 'WA',
+      phone: '08 7010 9000',
+      email: 'office@swanriverpest.example',
+      membership: { phone: '0491 570 006' },
+    },
+  }),
 })
 const inBusiness = createRoute({ getParentRoute: () => business, path: '$' })
 const router = createRouter({

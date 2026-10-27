@@ -2,6 +2,7 @@
 
 import { BUSY_SITES_FOR_LIST, resolveBusy } from './busyFixtures'
 import { JOB_TYPES_LIST, JOB_TYPES_MANAGE } from './jobTypeFixtures'
+import { resolveMatch } from './matchFixtures'
 import { clientFacets } from '../../convex/lib/clientFacets'
 import { XERO_FIXTURES, XERO_LIVE, XERO_MUTATIONS } from './xeroFixtures'
 
@@ -1120,6 +1121,8 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
 export function resolveFixture(fn: string, args: unknown): unknown {
   const busy = resolveBusy(fn, args)
   if (busy !== undefined) return busy
+  const match = resolveMatch(fn, args)
+  if (match !== undefined) return match
   const f = FIXTURES[fn]
   return f ? f(args) : undefined
 }

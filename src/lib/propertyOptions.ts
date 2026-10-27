@@ -1,6 +1,7 @@
 import { siteContactOf } from '../../convex/lib/siteContact'
 import { dayKeyOf } from '../../convex/lib/dates'
 import { formatJobDate } from '#/lib/format'
+import { withSearchKeys } from '#/lib/searchMatch'
 import type { ComboboxOption } from '#/components/primitives/Combobox'
 
 /**
@@ -25,6 +26,14 @@ export const RECENT_LIMIT = 8
 const RECENT_WINDOW_MS = 90 * 24 * 60 * 60 * 1000
 export const RECENT_GROUP = 'Added recently'
 export const EVERYONE_GROUP = 'Everyone, A–Z'
+
+/**
+ * A–Z as a person reads it: case and accents aside, and numbers by their
+ * value ("2 Hay St" before "10 Hay St"). One collator for every sort, made
+ * once: `localeCompare` with options builds one per call, ten thousand
+ * times over for a big book.
+ */
+const AZ = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
 function addedLabel(createdAt: number, recent: RecentOptions): string {
   return `Added ${formatJobDate(
@@ -62,6 +71,13 @@ function newest<T>(
     .slice(0, RECENT_LIMIT)
 }
 
+/** A contact person of a business client, as the pickers search them. */
+export type PickableContact = {
+  name: string
+  phone?: string
+  email?: string
+}
+
 /** The fields of a `properties.list` row the picker needs. */
 export type PickableProperty = {
   _id: string
@@ -83,9 +99,14 @@ export type PickableProperty = {
   client: {
     name: string
     phone?: string
+    email?: string
     kind?: 'person' | 'business'
     archivedAt?: number
   } | null
+  /** The client's contact people, a business client's only
+   * (`sitesWithClients`): an agency's property manager rings from her own
+   * mobile. */
+  contacts?: ReadonlyArray<PickableContact>
 }
 
 /**
@@ -94,16 +115,21 @@ export type PickableProperty = {
  * send a technician.
  *
  * Each option is found by the client's name, the street, the suburb, the
- * postcode or the client's phone number — the number the office is usually
- * looking at when someone rings to book. A business site is also found by its
- * site contact's name and number: the caretaker who rings about the building
- * is not head office, and may not know the client's name at all.
+ * postcode, the client's phone number — the number the office is usually
+ * looking at when someone rings to book — or their email. A business site is
+ * also found by its site contact's name and number, and by the business's
+ * contact people's names, numbers and emails: the caretaker who rings about
+ * the building, or the agency's property manager, is not head office, and
+ * may not know the client's name at all.
  *
  * An archived client stays pickable, labelled and listed last. Nothing in the
  * app can unarchive a client yet, and the Clients page hides them, so leaving
  * them out here would make an archive permanent in everything but the
  * database — and the office would type them in again as a new client, giving
  * the same house a second history.
+ *
+ * Each option's search keys are worked out here, once per build
+ * (`withSearchKeys`), not on every keystroke.
  */
 export function propertyOptions(
   properties: ReadonlyArray<PickableProperty>,
@@ -144,22 +170,27 @@ function alphabetical(
       Number(Boolean(b.client?.archivedAt))
     if (archived !== 0) return archived
     return (
-      clientName(a).localeCompare(clientName(b), undefined, {
-        sensitivity: 'base',
-      }) ||
-      a.addressLine.localeCompare(b.addressLine, undefined, {
-        sensitivity: 'base',
-        numeric: true,
-      })
+      AZ.compare(clientName(a), clientName(b)) ||
+      AZ.compare(a.addressLine, b.addressLine)
     )
   })
 }
 
+/**
+ * A client's name as every picker row and action names them: "(archived)"
+ * after an archived client's, so one is never offered unmarked ("New site
+ * for Sam Wu (archived)").
+ */
+export function pickerName(client: {
+  name: string
+  archivedAt?: number
+}): string {
+  return client.archivedAt ? `${client.name} (archived)` : client.name
+}
+
 /** One site as a picker row. */
 function propertyOption(p: PickableProperty): ComboboxOption {
-  const name = p.client?.archivedAt
-    ? `${clientName(p)} (archived)`
-    : clientName(p)
+  const name = p.client ? pickerName(p.client) : clientName(p)
   // A person client's leftover site contact is hidden everywhere else, so
   // it must not be what makes their house turn up here.
   const site = siteContactOf({
@@ -167,7 +198,7 @@ function propertyOption(p: PickableProperty): ComboboxOption {
     siteContactName: p.siteContactName,
     siteContactPhone: p.siteContactPhone,
   })
-  return {
+  return withSearchKeys({
     value: p._id,
     label: `${name} — ${p.addressLine}, ${p.suburb}`,
     searchText: [
@@ -176,10 +207,27 @@ function propertyOption(p: PickableProperty): ComboboxOption {
       p.suburb,
       p.postcode,
       phoneForms(p.client?.phone),
+      p.client?.email ?? '',
       site?.name ?? '',
       phoneForms(site?.phone),
+      contactsText(p.client?.kind, p.contacts),
     ].join(' '),
-  }
+  })
+}
+
+/**
+ * A business client's contact people as search text: each one's name, number
+ * in both forms and email. None for a person client, whose contacts the app
+ * hides (and the directory doesn't send).
+ */
+function contactsText(
+  kind: 'person' | 'business' | undefined,
+  contacts: ReadonlyArray<PickableContact> | undefined,
+): string {
+  if (kind !== 'business' || !contacts) return ''
+  return contacts
+    .map((c) => [c.name, phoneForms(c.phone), c.email ?? ''].join(' '))
+    .join(' ')
 }
 
 /**
@@ -198,69 +246,62 @@ function clientName(p: PickableProperty): string {
   return p.client?.name ?? 'Unknown client'
 }
 
-/** The fields of a `properties.list` row the client picker needs. */
-export type PickableClientSite = {
-  clientId: string
-  addressLine: string
-  suburb: string
-  client: {
-    name: string
-    phone?: string
-    kind?: 'person' | 'business'
-    archivedAt?: number
-    /** For "Added recently", as `PickableProperty`'s. */
-    createdAt?: number
-    importId?: string
-    importedFrom?: string
-    imported?: boolean
-  } | null
+/** A client as the "whose new site is this" picker needs them
+ * (`clientsForPicker`): their own fields, sites and contact people. */
+export type PickableClient = {
+  _id: string
+  name: string
+  phone?: string
+  email?: string
+  kind?: 'person' | 'business'
+  archivedAt?: number
+  /** For "Added recently", as `PickableProperty`'s. */
+  createdAt?: number
+  importId?: string
+  importedFrom?: string
+  imported?: boolean
+  /** Oldest first. None for a client with no site yet. */
+  sites: ReadonlyArray<{
+    addressLine: string
+    suburb: string
+    siteContactName?: string
+    siteContactPhone?: string
+  }>
+  contacts?: ReadonlyArray<PickableContact>
 }
+
+/** Said where a client's suburbs would be, for one with no site yet. */
+export const NO_SITES = 'No sites'
 
 /**
  * The options for "whose new site is this" (Prompt 6.3): one per client,
- * built from the sites already loaded for the Property picker.
+ * from the client list, so a client with no site yet is there, labelled "No
+ * sites": the one New site for is most often for.
  *
- * From the sites rather than the client list, for two reasons. An archived
- * client is still here, labelled and last, as in the Property picker: the
- * office found them there, and turning them away would leave "New client"
- * as the only way on — a second record for the same business. And each
- * option says where the client's sites are, because two clients can share a
- * name, and a new site filed under the wrong one sends its reports and its
- * Call to someone else.
+ * An archived client is still here, labelled and last, as in the Property
+ * picker: the office found them there, and turning them away would leave
+ * "New client" as the only way on — a second record for the same business.
+ * And each option says where the client's sites are, because two clients can
+ * share a name, and a new site filed under the wrong one sends its reports
+ * and its Call to someone else.
  *
- * Found by the name, the client's number in either form, or any of their
- * streets and suburbs.
+ * Found by the name, the client's number in either form, their email, any of
+ * their streets and suburbs, and for a business its sites' contacts and its
+ * contact people.
  */
 export function clientOptions(
-  properties: ReadonlyArray<PickableClientSite>,
+  clients: ReadonlyArray<PickableClient>,
   recent?: RecentOptions,
 ): Array<ComboboxOption> {
-  const byClient = new Map<
-    string,
-    {
-      client: NonNullable<PickableClientSite['client']>
-      sites: Array<PickableClientSite>
-    }
-  >()
-  for (const p of properties) {
-    if (!p.client) continue
-    const entry = byClient.get(p.clientId)
-    if (entry) entry.sites.push(p)
-    else byClient.set(p.clientId, { client: p.client, sites: [p] })
-  }
-  const top = newest(
-    [...byClient.entries()],
-    recent,
-    ([clientId, { client }]) => ({
-      key: clientId,
-      createdAt: client.createdAt,
-      imported:
-        client.imported === true ||
-        client.importId !== undefined ||
-        client.importedFrom !== undefined,
-      archived: Boolean(client.archivedAt),
-    }),
-  )
+  const top = newest(clients, recent, (client) => ({
+    key: client._id,
+    createdAt: client.createdAt,
+    imported:
+      client.imported === true ||
+      client.importId !== undefined ||
+      client.importedFrom !== undefined,
+    archived: Boolean(client.archivedAt),
+  }))
   const topAt = new Map(top.map((t) => [t.key, t.createdAt]))
   const grouped = (option: ComboboxOption): ComboboxOption => {
     if (top.length === 0) return option
@@ -269,42 +310,56 @@ export function clientOptions(
       ? { ...option, group: EVERYONE_GROUP }
       : { ...option, group: RECENT_GROUP, detail: addedLabel(addedAt, recent!) }
   }
-  const options = [...byClient.entries()]
-    .sort(([, a], [, b]) => {
+  const options = [...clients]
+    .sort((a, b) => {
       const archived =
-        Number(Boolean(a.client.archivedAt)) -
-        Number(Boolean(b.client.archivedAt))
+        Number(Boolean(a.archivedAt)) - Number(Boolean(b.archivedAt))
       if (archived !== 0) return archived
       return (
-        a.client.name.localeCompare(b.client.name, undefined, {
-          sensitivity: 'base',
-        }) ||
-        a.sites[0].suburb.localeCompare(b.sites[0].suburb, undefined, {
-          sensitivity: 'base',
-        })
+        AZ.compare(a.name, b.name) ||
+        AZ.compare(a.sites[0]?.suburb ?? '', b.sites[0]?.suburb ?? '')
       )
     })
-    .map(([clientId, { client, sites }]) => {
-      const suburbs = [...new Set(sites.map((s) => s.suburb.trim()))].filter(
-        Boolean,
-      )
-      const where =
-        suburbs.length > 2
-          ? `${suburbs.slice(0, 2).join(', ')} +${suburbs.length - 2}`
-          : suburbs.join(', ')
-      const name = client.archivedAt ? `${client.name} (archived)` : client.name
-      return {
-        value: clientId,
-        label: where ? `${name} — ${where}` : name,
-        searchText: [
-          client.name,
-          phoneForms(client.phone),
-          ...sites.flatMap((s) => [s.addressLine, s.suburb]),
-        ].join(' '),
-      }
-    })
-    .map(grouped)
+    .map((client) => grouped(clientOption(client)))
   // The newest first, in their own order; everyone else stays A–Z.
-  const first = top.flatMap((t) => options.find((o) => o.value === t.key) ?? [])
-  return [...first, ...options.filter((o) => !topAt.has(o.value))]
+  const byValue = new Map(options.map((o) => [o.value, o]))
+  return [
+    ...top.flatMap((t) => byValue.get(t.key) ?? []),
+    ...options.filter((o) => !topAt.has(o.value)),
+  ]
+}
+
+/** One client as a picker row. */
+function clientOption(client: PickableClient): ComboboxOption {
+  const suburbs = [...new Set(client.sites.map((s) => s.suburb.trim()))].filter(
+    Boolean,
+  )
+  const where =
+    client.sites.length === 0
+      ? NO_SITES
+      : suburbs.length > 2
+        ? `${suburbs.slice(0, 2).join(', ')} +${suburbs.length - 2}`
+        : suburbs.join(', ')
+  const name = pickerName(client)
+  // A person client's leftover site contacts are hidden everywhere else.
+  const siteContacts = client.sites.flatMap((s) => {
+    const contact = siteContactOf({
+      clientKind: client.kind,
+      siteContactName: s.siteContactName,
+      siteContactPhone: s.siteContactPhone,
+    })
+    return contact ? [contact.name ?? '', phoneForms(contact.phone)] : []
+  })
+  return withSearchKeys({
+    value: client._id,
+    label: where ? `${name} — ${where}` : name,
+    searchText: [
+      client.name,
+      phoneForms(client.phone),
+      client.email ?? '',
+      ...client.sites.flatMap((s) => [s.addressLine, s.suburb]),
+      ...siteContacts,
+      contactsText(client.kind, client.contacts),
+    ].join(' '),
+  })
 }

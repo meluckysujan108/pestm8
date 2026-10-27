@@ -84,20 +84,25 @@ export function keptClientState(at: {
 
 /**
  * The client's email, for the Email the live sheet has beside Call and
- * Text: the client list doesn't carry it, but a day's row for a visit to
- * one of their sites does (`jobs.listDay`'s `clientEmail`, read off the
- * same client), in memory or in the phone's copy (`keeper.findDayRowWhere`).
- * Undefined where no day the phone holds has a visit of theirs, or they
- * have no email.
+ * Text: the client list's own (`clients.directory` carries it since 28 Oct
+ * 2026). A copy kept before then, or one for someone not sent emails, has
+ * none, and then a day's row for a visit to one of their sites may
+ * (`jobs.listDay`'s `clientEmail`, read off the same client), in memory or
+ * in the phone's copy (`keeper.findDayRowWhere`). Undefined where neither
+ * has it, or they have no email.
  */
 export function keptClientEmail(
-  sites: ReadonlyArray<{ _id: string }>,
+  kept: {
+    client: { email?: string }
+    sites: ReadonlyArray<{ _id: string }>
+  },
   findRow: (
     match: (row: { propertyId: string }) => boolean,
   ) => { row: { clientEmail: string } } | null,
 ): string | undefined {
-  if (sites.length === 0) return undefined
-  const ids = new Set(sites.map((site) => site._id))
+  if (kept.client.email) return kept.client.email
+  if (kept.sites.length === 0) return undefined
+  const ids = new Set(kept.sites.map((site) => site._id))
   return findRow((row) => ids.has(row.propertyId))?.row.clientEmail || undefined
 }
 
