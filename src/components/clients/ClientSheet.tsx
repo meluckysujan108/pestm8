@@ -896,6 +896,7 @@ function ClientEditForm({
   // answered: what is in the fields then, not when Save was pressed.
   const latestArgs = useLatest(args)
 
+  const kindId = `${id}-kind`
   const phoneId = `${id}-phone`
   const emailId = `${id}-email`
   const abnId = `${id}-abn`
@@ -935,15 +936,20 @@ function ClientEditForm({
           return warnings.guard(e, () => save.mutateAsync(latestArgs.current()))
         }}
       >
-        <WrappedField label="Client type">
+        {/* Not a WrappedField: its <label> would name only the first
+            segment. */}
+        <div className="flex flex-col gap-1.5">
+          <span id={kindId} className="section-label">
+            Client type
+          </span>
           <Segmented
             kind="choice"
-            label="Client type"
+            labelledBy={kindId}
             value={kind}
             onChange={setKind}
             options={KIND_CHOICES}
           />
-        </WrappedField>
+        </div>
         <WrappedField
           label={kind === 'business' ? 'Company name' : 'Client name'}
         >
