@@ -396,6 +396,29 @@ describe('removing a demo', () => {
     demoProductUploads = crossed.uploads
     demoRendered = crossed.rendered
 
+    // Someone books a near-duplicate of a demo client: "may be the same
+    // customer" rows between demo clients (clientMatchHints.ts), which the
+    // seed makes none of.
+    await t.run(async (ctx) => {
+      const [a, b] = await ctx.db
+        .query('clients')
+        .withIndex('by_business', (q) => q.eq('businessId', base.businessId))
+        .take(2)
+      for (const [clientId, otherClientId] of [
+        [a._id, b._id],
+        [b._id, a._id],
+      ]) {
+        await ctx.db.insert('clientMatchHints', {
+          businessId: base.businessId,
+          clientId,
+          otherClientId,
+          evidence: ['mobile'],
+          madeAt: Date.now(),
+          madeBy: base.members.owner,
+        })
+      }
+    })
+
     // Someone tries "Bring your clients across" in the demo: the import's
     // record stays behind it, whatever the file made. (A row it refused, so
     // the demo's own counts stay the seed's.)
@@ -583,6 +606,16 @@ describe('removing a demo', () => {
       expect(n, what).toBe(0)
     }
     expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort())
+    expect(
+      await t.run((ctx) =>
+        ctx.db
+          .query('clientMatchHints')
+          .withIndex('by_businessId_and_answer', (q) =>
+            q.eq('businessId', base.businessId),
+          )
+          .collect(),
+      ),
+    ).toEqual([])
 
     // Every file, bar those a real business uses too, and those the seed did
     // not make.

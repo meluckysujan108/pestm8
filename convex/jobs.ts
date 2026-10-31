@@ -11,6 +11,7 @@ import {
 } from './lib/dates'
 import {
   activateLeadAt,
+  checkPropertyTarget,
   newClientFields,
   newPropertyFields,
   resolvePropertyId,
@@ -50,7 +51,7 @@ import type { RowScope } from './lib/capabilities'
 import type { ActorEnvelope, WriteEnvelope } from './lib/actor'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import { listsEverything, requireActor, requireWriteActor } from './lib/actor'
-import { recordOnBehalf } from './lib/audit'
+import { recordAudit, recordOnBehalf } from './lib/audit'
 import {
   mayEditJob,
   requireBookable,
@@ -86,6 +87,14 @@ import {
   noteRepeat,
 } from './lib/clientRequest'
 import { asMembershipArg, requireOutboxSender } from './lib/outboxGuards'
+import {
+  backstop,
+  matchCheckArg,
+  matchedOn,
+  proposedOf,
+  siteCheckArg,
+} from './lib/findSame'
+import { noteMatchHints } from './clientMatchHints'
 
 /**
  * Hands out the next human-sayable job number for a business and advances
@@ -1210,6 +1219,12 @@ export const create = mutation({
     // (lib/outboxGuards.ts): refused unless that is who is writing, in their
     // own account. Never stored.
     asMembership: asMembershipArg,
+    // The server's backstop (lib/findSame.ts): the matching clients the
+    // person booked past, and the work at the site they were shown. Sent
+    // only by a screen that checks; without them nothing more is checked.
+    // Never stored.
+    matchCheck: matchCheckArg,
+    siteCheck: siteCheckArg,
   },
   handler: async (
     ctx,
@@ -1222,6 +1237,8 @@ export const create = mutation({
       alsoGoing: rawAlsoGoing,
       clientRequestId: rawRequestId,
       asMembership,
+      matchCheck,
+      siteCheck,
       ...args
     },
   ) => {
@@ -1279,10 +1296,35 @@ export const create = mutation({
     // figure. Stored as nothing rather than as whatever the form defaulted to.
     const price = hidePrices(env.caps) ? 0 : args.price
 
-    const propertyId = await resolvePropertyId(ctx, args.businessId, {
-      propertyId: existingPropertyId,
-      newProperty,
-      newClient,
+    const target = { propertyId: existingPropertyId, newProperty, newClient }
+    // Everything the target itself would be refused for (a client in the
+    // Recycle bin, a number that can't be dialled), before the backstop:
+    // whatever it lets through is then booked, so its answer is never had
+    // for nothing (properties.ts).
+    await checkPropertyTarget(ctx, args.businessId, target)
+    // Last before anything is written, and only when asked: a client
+    // already in the book, or work already at the address (MATCHED_CLIENT,
+    // SITE_BOOKED). A refusal writes nothing.
+    const checked = await backstop(
+      ctx,
+      env,
+      args.businessId,
+      proposedOf(target),
+      {
+        matchCheck,
+        siteCheck,
+        at: args.scheduledAt,
+        now: Date.now(),
+      },
+    )
+
+    const propertyId = await resolvePropertyId(ctx, args.businessId, target)
+    // A booking the outbox moved onto an existing client, as the audit row
+    // below records it, with the site it landed on: read before the lead is
+    // made active, so it says whether this booking did that, for "Book as a
+    // new client instead" (2c-J) to put back.
+    const matched = await matchedOn(ctx, checked.applied, propertyId, {
+      madeSite: existingPropertyId === undefined,
     })
     // Booked work makes a lead a client (lib/clientRecord.ts).
     await activateLeadAt(ctx, propertyId)
@@ -1318,7 +1360,30 @@ export const create = mutation({
       }
     }
 
-    await recordOnBehalf(ctx, writeAttribution(env.actor), {
+    // A new client that may be someone already in the book, for the
+    // office to look at (clientMatchHints.ts). Only a new client has any.
+    if (checked.hints.length > 0) {
+      const site = await ctx.db.get(propertyId)
+      if (site) {
+        await noteMatchHints(
+          ctx,
+          {
+            businessId: args.businessId,
+            clientId: site.clientId,
+            madeBy: env.actor.real._id,
+          },
+          checked.hints,
+        )
+      }
+    }
+
+    // A booking the outbox moved onto an existing client after MATCHED_CLIENT
+    // is on the record whoever sent it, switched or not: nobody tapped it,
+    // the job carries no author, and the record is the phone's account of
+    // the move (`matchCheck.applied`, `by: 'outbox'` only), as it landed. It
+    // is also what "Book as a new client instead" (2c-J) will read back
+    // (`automaticMoveOf`).
+    const entry = {
       businessId: args.businessId,
       action: 'job.create',
       entityType: 'jobs',
@@ -1327,8 +1392,11 @@ export const create = mutation({
         jobNumber,
         assignedMembershipId: args.assignedMembershipId,
         ...(alsoGoing.length > 0 && { alsoGoing }),
+        ...(matched && { matched }),
       },
-    })
+    }
+    if (matched) await recordAudit(ctx, writeAttribution(env.actor), entry)
+    else await recordOnBehalf(ctx, writeAttribution(env.actor), entry)
     return jobId
   },
 })

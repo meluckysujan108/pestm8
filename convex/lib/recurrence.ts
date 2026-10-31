@@ -210,6 +210,42 @@ export function occurrencesFrom(
   return out
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Never backfill: a missed visit is not something to invent after the
+ * fact. Whether `at` is more than a day before `now`, the day the engine
+ * still projects onto (recurrences.ts `materialiseOne`).
+ */
+export function isBackfill(at: number, now: number): boolean {
+  return at < now - DAY_MS
+}
+
+/**
+ * When a series being booked has its first visit: at its anchor, booked by
+ * hand with it; or, for one that starts more than a day before `now`, where
+ * no visit is invented for the missed date (`isBackfill`), the first one
+ * the engine projects, from the same day on, however far ahead. What the
+ * check for other work at the site that week goes by, on the server
+ * (`recurrences.create`, lib/findSame.ts) and on the phone before Book, so
+ * the two check the same week: the anchor of a series started weeks ago is
+ * a date nobody goes to.
+ */
+export function firstVisitAt(
+  series: { anchorDate: number } & Interval,
+  timezone: string,
+  now: number,
+): number {
+  if (!isBackfill(series.anchorDate, now)) return series.anchorDate
+  const first = occurrencesFrom(series.anchorDate, series, {
+    timezone,
+    from: now - DAY_MS,
+    until: Number.MAX_SAFE_INTEGER,
+    limit: 1,
+  }).at(0)
+  return first ?? series.anchorDate
+}
+
 const UNIT_NOUN: Record<IntervalUnit, string> = {
   day: 'day',
   week: 'week',

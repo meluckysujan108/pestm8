@@ -24,6 +24,7 @@ import {
 } from './lib/xeroHooks'
 import { deriveNoteFields, docFromPlainText } from './lib/richText'
 import { purgeNote } from './notes'
+import { clearMatchHints } from './clientMatchHints'
 import { prosemirrorSync } from './notesSync'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
@@ -619,6 +620,8 @@ export const undoStep = internalMutation({
           // the match's counts. Any contact already in Xero stays there;
           // PestM8 never deletes there.
           await dropXeroLinksForClient(ctx, client._id)
+          // Any "may be the same customer" naming it, on either side.
+          await clearMatchHints(ctx, client._id)
           await ctx.db.delete('clients', client._id)
           removed += 1
         }
