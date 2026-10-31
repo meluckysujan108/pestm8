@@ -30,9 +30,15 @@ import type { MutationCtx, QueryCtx } from '../_generated/server'
  * (an ArgumentValidationError, not a ConvexError) before its lookup can
  * answer it. That includes the ones only a booking kept on the phone sends
  * (lib/outboxGuards.ts): `asMembership` on both bookings, and
- * `refuseBackfill` on `recurrences.create`. Like every other check, theirs
- * come after the lookup. `convex/outboxArgs.test.ts` sends the bookings a
- * phone keeps, written out as the first phones to keep them do.
+ * `refuseBackfill` on `recurrences.create`; and the server's backstop
+ * (lib/findSame.ts): `matchCheck` on all four and `siteCheck` on both
+ * bookings, every field of each as it is now (`by`, `dismissed`, `applied`
+ * and its `evidence`; `seen` and its pairs with their `jobId`,
+ * `seenSeries`), and the `matchEvidence` words in schema.ts. A field may be
+ * added to them, as optional; none may be dropped, renamed or narrowed.
+ * Like every other check, theirs come after the lookup.
+ * `convex/outboxArgs.test.ts` sends the bookings a phone keeps, written out
+ * as the first phones to keep them do.
  *
  * And once any row carries an id, a schema without the field (or without
  * `wipedClientRequests`) can't be pushed to that deployment: Convex checks

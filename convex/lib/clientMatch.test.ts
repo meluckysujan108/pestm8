@@ -1189,6 +1189,11 @@ describe('the automatic rule, for a booking sent later', () => {
     expect(
       autoRule(index, exact, {}, { mode: 'site', dismissed: [jane.clientId] }),
     ).toBe(false)
+    // A resend moved onto her as a new site there, after another phone's
+    // booking of the same caller made that very site: still hers.
+    expect(
+      autoRule(index, exact, {}, { mode: 'site', applied: jane.clientId }),
+    ).toBe(true)
 
     const [near] = matchNewSite(
       index,

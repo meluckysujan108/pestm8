@@ -1,4 +1,5 @@
 import { clientScope } from './capabilities'
+import type { Role } from './capabilities'
 import type { Doc, Id } from '../_generated/dataModel'
 import type { QueryCtx } from '../_generated/server'
 import type { ActorEnvelope } from './actor'
@@ -17,7 +18,13 @@ import type { ActorEnvelope } from './actor'
  * who holds a number from it. A narrowed directory therefore goes without
  * contact people, which makes the phone read it as a copy that can't say
  * who else holds a number; anything that sends a narrowed copy of the book
- * for matching needs the same.
+ * for matching needs the same. The server's own check when a booking saves
+ * (lib/findSame.ts) follows suit: it matches only against the clients in
+ * the caller's book, judges nothing Same for them (`matchBookComplete`),
+ * and checks a typed address for work only at those clients' sites, so it
+ * never refuses what their phone couldn't have shown. The cost is that two
+ * bookings at one address, one of them outside a narrowed member's book,
+ * are not stopped for them; work at a site chosen by its id still is.
  *
  * "The clients whose properties you have jobs at" — the rule the toggle
  * promised. Two things about how it is computed matter more than the rule
@@ -80,4 +87,40 @@ export function inClientScope(
   clientId: Id<'clients'>,
 ): boolean {
   return visible === 'all' || visible.has(clientId)
+}
+
+/**
+ * Who is sent clients' emails and business clients' contact people: every
+ * role, subcontractors included (the owner's answer, 27 Oct 2026). Any
+ * member may be the one a caller rings, and they already hold names, phones
+ * and addresses. The account being read decides (`readScope`), so an owner
+ * looking through a subcontractor's eyes sees what they would.
+ *
+ * Without them, a directory carries no `email` and no `contacts`, and the
+ * phone's matcher reads the copy as incomplete (lib/clientMatch.ts).
+ */
+const CONTACT_DETAILS_ROLES: ReadonlySet<Role> = new Set([
+  'owner',
+  'contractor',
+  'subcontractor',
+])
+
+export function contactDetailsFor(env: ActorEnvelope): boolean {
+  return CONTACT_DETAILS_ROLES.has(env.readScope.role)
+}
+
+/**
+ * Whether what someone may see of the book is everything matching reads:
+ * emails and contact people, for their role, and every client. Only then
+ * does `clients.directory` send contact people, so only then is their
+ * phone's copy complete (lib/clientMatch.ts `complete`), and only then does
+ * the server's own check judge a match as Same for them
+ * (lib/findSame.ts). One test for both, so the server never refuses what
+ * the phone, from the same book, could not have called Same.
+ */
+export function matchBookComplete(
+  env: ActorEnvelope,
+  visible: Set<Id<'clients'>> | 'all',
+): boolean {
+  return contactDetailsFor(env) && visible === 'all'
 }

@@ -21,6 +21,8 @@ import {
   noteRepeat,
   propertyMadeBy,
 } from './lib/clientRequest'
+import { backstop, matchCheckArg, proposedOf } from './lib/findSame'
+import { noteMatchHints } from './clientMatchHints'
 
 /** Embeds the owning client alongside a property — the detail-view shape
  * (mirrors how `jobs.get` embeds `assignee`/`property` wholesale). */
@@ -170,6 +172,17 @@ const propertyAddressFields = {
 const propertyAddressObject = v.object(propertyAddressFields)
 
 /**
+ * A site's postcode as it is stored: trimmed, because sites are found by it
+ * exactly (`by_business_and_postcode`, for an import and for the check when
+ * a booking saves, lib/findSame.ts), and "6053 " is not "6053". The client
+ * sheet's Add property and edit send it as typed, and their four-digit
+ * check passes "6053 ".
+ */
+function storedPostcode(raw: string): string {
+  return raw.trim()
+}
+
+/**
  * Inserts a property for a client already checked to be this business's.
  * Shared by `createForClient` and `resolvePropertyId`'s new-site branch, so a
  * site added from the client sheet and one added while booking are the same
@@ -198,7 +211,7 @@ async function insertPropertyForClient(
     addressLine: input.addressLine,
     suburb: input.suburb,
     state: input.state,
-    postcode: input.postcode,
+    postcode: storedPostcode(input.postcode),
     ...(siteContactName !== undefined && { siteContactName }),
     ...(siteContactPhone !== undefined && { siteContactPhone }),
     ...(input.addressCheck !== undefined && {
@@ -243,10 +256,20 @@ export const createForClient = mutation({
     clientId: v.id('clients'),
     ...propertyAddressFields,
     clientRequestId: clientRequestIdArg,
+    // Whether the client already has this site, asked again by the server
+    // (lib/findSame.ts): MATCHED_CLIENT unless the person was shown it and
+    // saved anyway. Sent only by a screen that checks. Never stored.
+    matchCheck: matchCheckArg,
   },
   handler: async (
     ctx,
-    { businessId, clientId, clientRequestId: rawRequestId, ...input },
+    {
+      businessId,
+      clientId,
+      clientRequestId: rawRequestId,
+      matchCheck,
+      ...input
+    },
   ) => {
     const requestId = checkClientRequestId(rawRequestId)
     await requireMembership(ctx, businessId)
@@ -259,7 +282,7 @@ export const createForClient = mutation({
           noteRepeat(
             'properties',
             made.row,
-            { clientId, ...input },
+            { clientId, ...input, postcode: storedPostcode(input.postcode) },
             SITE_FIELDS,
           )
         }
@@ -267,6 +290,19 @@ export const createForClient = mutation({
       }
     }
     await requireClientOf(ctx, businessId, clientId)
+    if (matchCheck) {
+      // The site's own refusals first (`checkPropertyTarget`), so whatever
+      // the check lets through is made.
+      const newProperty = { clientId, ...input }
+      await checkPropertyTarget(ctx, businessId, { newProperty })
+      await backstop(
+        ctx,
+        await requireActor(ctx, businessId),
+        businessId,
+        proposedOf({ newProperty }),
+        { matchCheck, now: Date.now() },
+      )
+    }
     return insertPropertyForClient(ctx, businessId, clientId, input, requestId)
   },
 })
@@ -416,6 +452,51 @@ export async function resolvePropertyId(
 }
 
 /**
+ * Refuses, writing nothing, every target `resolvePropertyId` would refuse,
+ * and in its order: a site or client that isn't the business's or is in the
+ * Recycle bin (NOT_FOUND), no target at all (MISSING_PROPERTY), and typed
+ * details that can't be right, as `insertClientAndProperty` and
+ * `insertPropertyForClient` refuse them (INVALID_ABN, INVALID_EMAIL,
+ * INVALID_PHONE, a site contact's number included, TAG_TOO_LONG,
+ * TOO_MANY_TAGS). Kept in step with those two.
+ *
+ * Run before the server's backstop (lib/findSame.ts), so that whatever the
+ * backstop lets through is made: nothing after it refuses. Run after it, a
+ * check that found nothing could be made to fail on purpose (a phone number
+ * of "12"), and a refusal on the other answer would say, for nothing, that a
+ * typed number is a client's or when another member has work at an address.
+ * This way each try that finds nothing books, and the office sees it.
+ */
+export async function checkPropertyTarget(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+  input: Parameters<typeof resolvePropertyId>[2],
+): Promise<void> {
+  if (input.propertyId !== undefined) {
+    const property = unbinned(await ctx.db.get(input.propertyId))
+    if (!property || property.businessId !== businessId) {
+      throw new ConvexError('NOT_FOUND')
+    }
+    return
+  }
+  if (input.newProperty) {
+    await requireClientOf(ctx, businessId, input.newProperty.clientId)
+    normalisePhone(input.newProperty.siteContactPhone)
+    return
+  }
+  if (!input.newClient) throw new ConvexError('MISSING_PROPERTY')
+  const client = input.newClient
+  const isBusiness = (client.kind ?? 'person') === 'business'
+  if (isBusiness) normaliseAbn(client.abn)
+  normaliseEmail(client.email)
+  normalisePhone(client.phone)
+  normaliseTags(client.tags ?? [])
+  // A person's site contact is never stored (the client is who is on site),
+  // so it is never refused either.
+  if (isBusiness) normalisePhone(client.siteContactPhone)
+}
+
+/**
  * A lead becomes a client when work is booked for them: the client at this
  * property, if a lead, is made active. Called by the mutations that book —
  * `jobs.create`, `recurrences.create`, `recurrences.convertJobToRecurring`
@@ -457,10 +538,14 @@ export const create = mutation({
     ...newClientFields.fields,
     // On the site it makes, which is what this returns (lib/clientRequest.ts).
     clientRequestId: clientRequestIdArg,
+    // Whether the new client is someone already in the book, asked again by
+    // the server (lib/findSame.ts), as `jobs.create` asks it. Sent only by a
+    // screen that checks. Never stored.
+    matchCheck: matchCheckArg,
   },
   handler: async (
     ctx,
-    { businessId, clientRequestId: rawRequestId, ...input },
+    { businessId, clientRequestId: rawRequestId, matchCheck, ...input },
   ) => {
     const requestId = checkClientRequestId(rawRequestId)
     await requireMembership(ctx, businessId)
@@ -469,11 +554,50 @@ export const create = mutation({
       // was lost gets its site back, and numbers no second client.
       const made = await propertyMadeBy(ctx, businessId, requestId)
       if (made) {
-        if (made.row) noteRepeat('properties', made.row, input, SITE_FIELDS)
+        if (made.row) {
+          noteRepeat(
+            'properties',
+            made.row,
+            { ...input, postcode: storedPostcode(input.postcode) },
+            SITE_FIELDS,
+          )
+        }
         return made.id
       }
     }
-    return insertClientAndProperty(ctx, businessId, input, requestId)
+    if (!matchCheck) {
+      return insertClientAndProperty(ctx, businessId, input, requestId)
+    }
+    // MATCHED_CLIENT before anything is written; otherwise the client is
+    // made, with any possible duplicates noted against it. The typed
+    // details' own refusals come first (`checkPropertyTarget`), so whatever
+    // the check lets through is made.
+    await checkPropertyTarget(ctx, businessId, { newClient: input })
+    const env = await requireActor(ctx, businessId)
+    const checked = await backstop(
+      ctx,
+      env,
+      businessId,
+      proposedOf({ newClient: input }),
+      { matchCheck, now: Date.now() },
+    )
+    const propertyId = await insertClientAndProperty(
+      ctx,
+      businessId,
+      input,
+      requestId,
+    )
+    if (checked.hints.length > 0) {
+      const site = await ctx.db.get(propertyId)
+      if (site) {
+        await noteMatchHints(
+          ctx,
+          { businessId, clientId: site.clientId, madeBy: env.actor.real._id },
+          checked.hints,
+        )
+      }
+    }
+    return propertyId
   },
 })
 
@@ -518,6 +642,9 @@ export const update = mutation({
         ([, value]) => value !== undefined,
       ),
     )
+    if (fields.postcode !== undefined) {
+      fields.postcode = storedPostcode(fields.postcode)
+    }
     // Written as `undefined` when cleared — which is how a patch removes a
     // field. Without this a blank would be stored as an empty string, and a
     // site contact who moved on could never be taken off again.

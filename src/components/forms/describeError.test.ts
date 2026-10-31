@@ -1,8 +1,63 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { ConvexError } from 'convex/values'
-import { ERROR_COPY, describeError, errorCode } from './describeError'
+import {
+  ERROR_COPY,
+  convexCode,
+  describeError,
+  errorCode,
+} from './describeError'
 
 afterEach(() => vi.unstubAllGlobals())
+
+describe('convexCode', () => {
+  test('reads a ConvexError carrying a string', () => {
+    expect(convexCode(new ConvexError('SITE_BOOKED'))).toBe('SITE_BOOKED')
+  })
+
+  test('reads the code of a refusal that brings its rows', () => {
+    expect(
+      convexCode(
+        new ConvexError({
+          code: 'MATCHED_CLIENT',
+          candidates: [{ clientId: 'c1', name: 'Jane Nguyen', auto: false }],
+        }),
+      ),
+    ).toBe('MATCHED_CLIENT')
+    expect(
+      convexCode(new ConvexError({ code: 'SITE_REPEATS', series: [] })),
+    ).toBe('SITE_REPEATS')
+  })
+
+  test('reads data on anything that carries it, as the socket hands it over', () => {
+    expect(convexCode({ data: { code: 'SITE_BOOKED', rows: [] } })).toBe(
+      'SITE_BOOKED',
+    )
+  })
+
+  test('never reads a code out of a message', () => {
+    for (const message of [
+      'MATCHED_CLIENT',
+      '[CONVEX M(jobs:create)] Uncaught Error: MATCHED_CLIENT at handler',
+      'NOT_FOUND',
+      'ArgumentValidationError: Object contains extra field `matchCheck`',
+    ]) {
+      expect(convexCode(new Error(message))).toBeNull()
+    }
+    // Where errorCode still finds its own codes, for words only.
+    expect(errorCode(new Error('Uncaught Error: NOT_FOUND'))).toBe('NOT_FOUND')
+    expect(convexCode(new Error('Uncaught Error: NOT_FOUND'))).toBeNull()
+  })
+
+  test('data that is neither a string nor an object with a string code is nothing', () => {
+    expect(convexCode(new ConvexError({ code: 3 }))).toBeNull()
+    expect(convexCode(new ConvexError({ rows: [] }))).toBeNull()
+    expect(convexCode({ data: null })).toBeNull()
+    expect(convexCode({ data: 42 })).toBeNull()
+    expect(convexCode(null)).toBeNull()
+    expect(convexCode(undefined)).toBeNull()
+    expect(convexCode('SITE_BOOKED')).toBeNull()
+  })
+})
 
 describe('errorCode', () => {
   test('reads a ConvexError carrying a string', () => {

@@ -16,6 +16,7 @@ import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { WriteEnvelope } from './lib/actor'
 import { dropAlsoGoing } from './lib/jobPeople'
 import { keepWipedRequest } from './lib/clientRequest'
+import { clearMatchHints } from './clientMatchHints'
 import {
   countXeroLinksOf,
   dropXeroLinksForClient,
@@ -1007,6 +1008,8 @@ export const wipeStep = internalMutation({
         // xero: its links go with it — one per connected organisation, a
         // handful. The contact stays in Xero; PestM8 never deletes there.
         await dropXeroLinksForClient(ctx, client._id)
+        // Any "may be the same customer" naming it, on either side.
+        await clearMatchHints(ctx, client._id)
         await ctx.db.delete('clients', client._id)
       }
       return again()

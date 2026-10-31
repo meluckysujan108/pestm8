@@ -3,7 +3,7 @@ import { internalMutation, mutation, query } from './_generated/server'
 import { allocateJobNumber } from './jobs'
 import { isBinned, unbinned } from './lib/bin'
 import { requireActor, requireWriteActor } from './lib/actor'
-import { recordOnBehalf } from './lib/audit'
+import { recordAudit, recordOnBehalf } from './lib/audit'
 import { insertJobNote } from './notes'
 import { isInScope, writeAttribution } from './lib/capabilities'
 import {
@@ -36,11 +36,14 @@ import {
   HORIZON_DAYS,
   assertInterval,
   describeInterval,
+  firstVisitAt,
   intervalOf,
+  isBackfill,
   occurrencesFrom,
 } from './lib/recurrence'
 import {
   activateLeadAt,
+  checkPropertyTarget,
   clientNameOf,
   newClientFields,
   newPropertyFields,
@@ -48,6 +51,14 @@ import {
 } from './properties'
 import { intervalUnit } from './schema'
 import { jobsInScope } from './lib/jobScope'
+import {
+  backstop,
+  matchCheckArg,
+  matchedOn,
+  proposedOf,
+  siteCheckArg,
+} from './lib/findSame'
+import { noteMatchHints } from './clientMatchHints'
 import type { WriteEnvelope } from './lib/actor'
 import type { Interval } from './lib/recurrence'
 import type { MutationCtx, QueryCtx } from './_generated/server'
@@ -278,6 +289,10 @@ export const create = mutation({
     // refused FIRST_VISIT_PAST once that visit is more than a day gone,
     // instead of booked without it as below. Never stored.
     refuseBackfill: refuseBackfillArg,
+    // As jobs.create's (lib/findSame.ts), with a second Recurring Job at the
+    // site refused too (SITE_REPEATS). Never stored.
+    matchCheck: matchCheckArg,
+    siteCheck: siteCheckArg,
   },
   handler: async (
     ctx,
@@ -288,6 +303,8 @@ export const create = mutation({
       clientRequestId: rawRequestId,
       asMembership,
       refuseBackfill,
+      matchCheck,
+      siteCheck,
       ...args
     },
   ) => {
@@ -326,7 +343,7 @@ export const create = mutation({
     // A phone that kept the booking with no signal, and could send it only
     // after its first visit had gone, would otherwise book the series with
     // that visit quietly left out. The person picks a new start instead.
-    if (refuseBackfill && isBackfill(args.anchorDate)) {
+    if (refuseBackfill && isBackfill(args.anchorDate, Date.now())) {
       throw new ConvexError('FIRST_VISIT_PAST')
     }
 
@@ -340,10 +357,44 @@ export const create = mutation({
     // booking a series onto its assignee for as long as it runs.
     await requireBookable(ctx, env, args.businessId, args.assignedMembershipId)
 
-    const propertyId = await resolvePropertyId(ctx, args.businessId, {
-      propertyId: existingPropertyId,
-      newProperty,
-      newClient,
+    const target = { propertyId: existingPropertyId, newProperty, newClient }
+    // As jobs.create's: the target's own refusals first, so whatever the
+    // backstop lets through is booked.
+    await checkPropertyTarget(ctx, args.businessId, target)
+    // As jobs.create's, by the first visit (`firstVisitAt`: for a series
+    // started in the past, the first one booked, not its anchor): a client
+    // already in the book, a Recurring Job already at the site, or work
+    // there that week (MATCHED_CLIENT, SITE_REPEATS, SITE_BOOKED). A refusal
+    // writes nothing.
+    const business = await ctx.db.get('businesses', args.businessId)
+    const checked = await backstop(
+      ctx,
+      env,
+      args.businessId,
+      proposedOf(target),
+      {
+        matchCheck,
+        siteCheck,
+        at: business
+          ? firstVisitAt(
+              {
+                anchorDate: args.anchorDate,
+                count: args.intervalCount,
+                unit: args.intervalUnit,
+              },
+              business.timezone,
+              Date.now(),
+            )
+          : args.anchorDate,
+        series: true,
+        now: Date.now(),
+      },
+    )
+
+    const propertyId = await resolvePropertyId(ctx, args.businessId, target)
+    // As jobs.create's: read before the lead is made active.
+    const matched = await matchedOn(ctx, checked.applied, propertyId, {
+      madeSite: existingPropertyId === undefined,
     })
     // A standing arrangement is booked work: a lead becomes a client
     // (lib/clientRecord.ts), even when its first visit is in the past.
@@ -371,7 +422,7 @@ export const create = mutation({
     // cron, as `recurring`. The engine then finds its instant taken and
     // projects only the visits after it.
     const recurrence = await ctx.db.get(recurrenceId)
-    if (recurrence && !isBackfill(recurrence.anchorDate)) {
+    if (recurrence && !isBackfill(recurrence.anchorDate, Date.now())) {
       await insertVisit(
         ctx,
         recurrence,
@@ -401,13 +452,42 @@ export const create = mutation({
         })
       }
     }
-    await recordSeriesWrite(ctx, env, recurrenceId, 'recurrence.create', {
+    // As jobs.create's (clientMatchHints.ts). Only a new client has any.
+    if (checked.hints.length > 0) {
+      const site = await ctx.db.get(propertyId)
+      if (site) {
+        await noteMatchHints(
+          ctx,
+          {
+            businessId: args.businessId,
+            clientId: site.clientId,
+            madeBy: env.actor.real._id,
+          },
+          checked.hints,
+        )
+      }
+    }
+
+    const meta = {
       assignedMembershipId: args.assignedMembershipId,
       interval: describeInterval({
         count: args.intervalCount,
         unit: args.intervalUnit,
       }),
-    })
+    }
+    // As jobs.create's: a series the outbox moved onto an existing client
+    // is on the record whoever sent it.
+    if (matched) {
+      await recordAudit(ctx, writeAttribution(env.actor), {
+        businessId: args.businessId,
+        action: 'recurrence.create',
+        entityType: 'recurrences',
+        entityId: recurrenceId,
+        meta: { ...meta, matched },
+      })
+    } else {
+      await recordSeriesWrite(ctx, env, recurrenceId, 'recurrence.create', meta)
+    }
     return recurrenceId
   },
 })
@@ -602,11 +682,6 @@ export const stopForClient = mutation({
     return { stopped, skipped }
   },
 })
-
-/** Never backfill: a missed visit is not something to invent after the fact. */
-function isBackfill(scheduledAt: number): boolean {
-  return scheduledAt < Date.now() - 24 * 60 * 60 * 1000
-}
 
 /**
  * One visit of a series. `origin` decides its first status: `recurrence` for a

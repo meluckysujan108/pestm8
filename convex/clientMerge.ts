@@ -3,6 +3,7 @@ import type { Infer } from 'convex/values'
 import type { WithoutSystemFields } from 'convex/server'
 import { mutation, query } from './_generated/server'
 import { MAX_GROUP_ROWS, putInBin } from './bin'
+import { settleHintsOnMerge } from './clientMatchHints'
 import {
   hasCapability,
   requireActor,
@@ -450,6 +451,15 @@ export const merge = mutation({
     // what it gained, and for any contact it took over.
     await dropXeroLinksForClient(ctx, from._id)
     await markClientForXero(ctx, into._id)
+
+    // "May be the same customer": theirs is answered, merged; B's with
+    // anyone else become A's, B being part of A now (clientMatchHints.ts).
+    await settleHintsOnMerge(ctx, {
+      from: from._id,
+      into: into._id,
+      by: env.actor.real._id,
+      now,
+    })
 
     // Ids and numbers only, as every bin row: the audit log outlives B's
     // wipe, so it must not carry its name. Enough to say afterwards which
