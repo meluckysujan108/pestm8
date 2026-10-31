@@ -28,6 +28,13 @@ async function openJob(page: Page, slug: string, at: number, name: RegExp) {
       sheet.getByRole('heading', { name: 'Property', exact: true }),
     ).toBeVisible({ timeout: 3_000 }),
   )
+  // The live sheet, not the job as its day lists it: when `jobs.get` takes
+  // longer than the sheet waits (KEPT_JOB_WAIT_MS, as on a loaded machine),
+  // the sheet shows that kept copy, with Property and Details but no Notes,
+  // until PestM8 answers.
+  await expect(
+    sheet.getByRole('heading', { name: 'Notes', exact: true }),
+  ).toBeVisible()
   return sheet
 }
 

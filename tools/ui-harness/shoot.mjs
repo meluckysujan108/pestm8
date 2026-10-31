@@ -648,6 +648,37 @@ const PLAN = {
       await p.waitForTimeout(300)
     },
   },
+  // The top of New Job: the Client choice under its caption, and New client's
+  // Client type. Found by their own words (27 Oct 2026: the <label> around
+  // the choice had named "Existing client" "Client Client").
+  'newjob-client': {
+    spec: 'newjob',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p
+        .getByRole('radio', { name: 'Existing client', exact: true })
+        .waitFor()
+    },
+  },
+  'newjob-new-client': {
+    spec: 'newjob',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('radio', { name: 'New client', exact: true }).click()
+      await p.getByRole('radio', { name: 'Residential', exact: true }).waitFor()
+      await p.waitForTimeout(300)
+    },
+  },
+  // The client's edit form: Client type over its name.
+  'client-edit': {
+    spec: 'client',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Edit client details' }).click()
+      await p.getByRole('radio', { name: 'Commercial', exact: true }).waitFor()
+      await p.waitForTimeout(400)
+    },
+  },
   // The foot of the form: the caption above Book job.
   'newjob-no-signal': {
     before: async (p) => {

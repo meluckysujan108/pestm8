@@ -99,6 +99,7 @@ export function TeamSection({
   )
   const viewer = members.find((m) => m._id === access.membershipId)
   const emailId = useId()
+  const roleId = useId()
   const warnings = useSaveWarnings()
 
   // Read when a link comes back, not when it was asked for: a sheet closed
@@ -362,10 +363,12 @@ export function TeamSection({
               >
                 {viewerIsOwner && (
                   <div className="mb-3 flex flex-col gap-1.5">
-                    <span className={FIELD_LABEL}>Joins as</span>
+                    <span id={roleId} className={FIELD_LABEL}>
+                      Joins as
+                    </span>
                     <Segmented
                       kind="choice"
-                      label="Joins as"
+                      labelledBy={roleId}
                       value={inviteRole}
                       options={INVITE_ROLE_OPTIONS}
                       onChange={setInviteRole}

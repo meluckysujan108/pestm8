@@ -404,7 +404,7 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 
 - **A field on a sheet or a page** (on the canvas): its label is a `section-label` above it, wrapping the control, `<label className="flex flex-col gap-1.5"><span className="section-label">`. `FormField` does this.
 - **A field inside a card** (a Settings group, an onboarding card): its label is `FIELD_LABEL`, in body weight, through `FieldRow`. The group's heading is the one in capitals, outside the card.
-- **A composite control** (a segmented choice, a set of chips) is a `role="group"` with the same label style and `aria-labelledby`.
+- **A composite control** (a segmented choice, a set of chips) is a `role="group"` with the same label style and `aria-labelledby`, never inside a `<label>`. A label names only its first control, so New Job's "Existing client" was called "Client Client", and a tap on the caption chose it. A `Segmented` is its own group: give the caption an id and pass it as `labelledBy` **(lint)**.
 
 **Other rules:**
 
@@ -800,7 +800,7 @@ This isn't a pass at the end. Each point below is how the shared pieces already 
 - An error that appears is `role="alert"`, once: `FieldMessage` drops the role after announcing.
 - Anything that updates in place (a count, "Saved") uses `aria-live="polite"`.
 
-**Segmented** is a `tablist` or a `radiogroup`, with roving tabindex and arrow keys. Use the component, not buttons in a row. With nothing chosen yet, the arrows only move between the segments and Space, Enter or a tap chooses, so a question that saves on its answer is never answered by a key pressed to look.
+**Segmented** is a `tablist` or a `radiogroup`, with roving tabindex and arrow keys. Use the component, not buttons in a row. The caption above it names it (`labelledBy`); with none on screen, `label` does, and each segment is named by its own words. With nothing chosen yet, the arrows only move between the segments and Space, Enter or a tap chooses, so a question that saves on its answer is never answered by a key pressed to look.
 
 **Contrast.** Text that must be read clears 4.5:1 (see 2.1). `statusColours.test.ts` checks every ratio the tokens decide.
 
@@ -1055,6 +1055,7 @@ Lint refuses the rules marked **(lint)**; review catches the rest.
 
 - A control under 44px with no `tap-target`.
 - An input under 16px, or a placeholder as the only label.
+- A `Segmented` inside a `<label>`, or inside a sheet's `Field` or `WrappedField`, which render one **(lint)**. Its caption is a `<span id>` beside it, passed as `labelledBy`.
 
 **States and copy:**
 

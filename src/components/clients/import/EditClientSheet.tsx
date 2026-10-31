@@ -183,11 +183,13 @@ function EditForm({
       }}
     >
       <div className="mt-1 flex flex-col gap-1.5">
-        <span className="section-label">Client type</span>
+        <span id={`${ids}-kind`} className="section-label">
+          Client type
+        </span>
         {/* An answer, not a view: a radio group, as the client form's. */}
         <Segmented
           kind="choice"
-          label="Client type"
+          labelledBy={`${ids}-kind`}
           value={draft.kind}
           disabled={!hydrated}
           onChange={(kind) => set({ kind })}
