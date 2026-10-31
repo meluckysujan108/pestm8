@@ -3,8 +3,8 @@
  *
  * The outbox keeps a booking made in New Job on the phone, in its own
  * IndexedDB database (outboxStore.ts), and sends it while PestM8 is open with
- * signal. Nothing writes an item yet: the store, its clears and its rules
- * come first, so a phone is cleared properly before it can ever hold one.
+ * signal. New Job keeps one (book.ts) only in a build with keeping switched
+ * on (`OUTBOX_ENABLED`); everywhere else it sends straight, as it always has.
  *
  * Imports nothing, so rootState.ts can reach outboxStore.ts, and through it
  * this, without bringing anything else into the root route.

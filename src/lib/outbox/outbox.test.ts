@@ -225,3 +225,29 @@ describe('reading again', () => {
     expect(model.all().map((i) => i.localId)).toEqual([item.localId])
   })
 })
+
+describe('a booking New Job keeps (`keep`)', () => {
+  test('is in memory as it lands, told to the other tabs, noted as this tab’s own, and its revision moves', async () => {
+    const backend = await outboxOf('u1', [])
+    const { model, broadcast, listener } = await tab(backend)
+    listener.mockClear()
+    const before = model.revision()
+    const item = itemFor('u1')
+    expect(await model.keep(item)).toBe('kept')
+    expect(model.get(item.localId)?.requestId).toBe(item.requestId)
+    expect(backend.items.get(item.localId)?.state).toBe('waiting')
+    expect(model.keptHere.has(item.localId)).toBe(true)
+    expect(listener).toHaveBeenCalled()
+    expect(model.revision()).toBeGreaterThan(before)
+    expect(vi.mocked(broadcast.current.postMessage)).toHaveBeenCalled()
+  })
+
+  test('one the store refuses (another person’s) is neither in memory nor noted', async () => {
+    const backend = await outboxOf('u1', [])
+    const { model } = await tab(backend)
+    const someoneElses = itemFor('u2')
+    expect(await model.keep(someoneElses)).toBe('refused')
+    expect(model.get(someoneElses.localId)).toBeUndefined()
+    expect(model.keptHere.has(someoneElses.localId)).toBe(false)
+  })
+})

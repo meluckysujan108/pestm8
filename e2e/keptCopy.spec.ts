@@ -60,6 +60,18 @@ const PAGE_AGE_MS = 3 * 60_000
 const convexHost = new URL(process.env.VITE_CONVEX_URL!).host
 
 /**
+ * What Book job says with no signal (NewJobSheet.tsx `bookingCaption`): kept
+ * on the phone in a build with the outbox switched on
+ * (`VITE_PESTM8_OUTBOX=on`, served through `E2E_BASE_URL`), and as it always
+ * said in Playwright's own build, which has no flag until the outbox is
+ * switched on for good.
+ */
+const BOOKING_NO_SIGNAL =
+  process.env.VITE_PESTM8_OUTBOX === 'on'
+    ? 'No signal — the booking is kept on this phone and goes when PestM8 is open with signal.'
+    : 'No signal — the booking goes when you have signal. Keep PestM8 open until then.'
+
+/**
  * What the console says when hydration goes wrong: React's own words in
  * development, and in the production build these run against, only its
  * error number (418, 423 and 425 are the mismatches).
@@ -461,11 +473,7 @@ test('with no signal, the schedule and New Job open from the copy kept on the ph
     // business's own services, and a word on when the booking goes.
     await newJobButton(page).click()
     const sheet = page.getByRole('dialog')
-    await expect(
-      sheet.getByText(
-        'No signal — the booking goes when you have signal. Keep PestM8 open until then.',
-      ),
-    ).toBeVisible()
+    await expect(sheet.getByText(BOOKING_NO_SIGNAL)).toBeVisible()
     await expect(sheet.getByText('Choose a client and address')).toBeVisible()
     await chooseProperty(page, sheet, 'Arthur', /Arthur Wellard/)
     await sheet.getByLabel('Job type').click()

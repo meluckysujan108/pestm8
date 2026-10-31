@@ -12,11 +12,7 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useRouteContext } from '@tanstack/react-router'
 import { flushSync } from 'react-dom'
 import { Drawer } from 'vaul'
-import {
-  SHEET_BODY,
-  SheetShell,
-  useSheetLock,
-} from '#/components/primitives/Sheet'
+import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
 import {
   DEFAULT_INTERVAL,
@@ -31,11 +27,11 @@ import type {
 } from '#/components/primitives/Combobox'
 import { Segmented } from '#/components/primitives/Segmented'
 import { JobTypePicker } from './JobTypePicker'
+import { useNewJobBooking } from './useNewJobBooking'
 import { useJobTypes } from '#/lib/useJobTypes'
 import {
   EMPTY_NEW_CLIENT,
   EMPTY_NEW_SITE,
-  NEW_CLIENT_ERROR_COPY,
   NewClientFields,
   SiteAddressFields,
   SiteContactFields,
@@ -50,17 +46,22 @@ import {
   useLatest,
   useSaveWarnings,
 } from '#/components/forms/SaveWarnings'
-import type { ErrorCopy } from '#/components/forms/describeError'
 import type {
   NewClientFieldsValue,
   NewSiteValue,
 } from '#/components/clients/NewClientFields'
 import type { Id } from '../../../convex/_generated/dataModel'
-import { bookingCall } from '#/lib/outbox/outboxItem'
 import type { SendableBooking } from '#/lib/outbox/outboxItem'
+import { bookingDisplay, contactPersonFor } from '#/lib/outbox/outboxRow'
+import { useCanKeep, useDraftRequestId } from '#/lib/outbox/useOutbox'
+import { saysKept } from '#/lib/outbox/book'
+import type { BookingWho } from '#/lib/outbox/book'
 import { useHydrated } from '#/lib/useHydrated'
 import { useLineDown } from '#/lib/offline/useLineDown'
 import type { LineDown } from '#/lib/offline/useLineDown'
+import { keeper } from '#/lib/offline/keeper'
+import { lensOf } from '#/lib/offline/keptSet'
+import { signedInUserId } from '#/lib/rootState'
 import {
   clientOptions,
   pickerName,
@@ -80,13 +81,15 @@ import {
   siteLessFound,
 } from '#/lib/clientSearch'
 import type { NoMatchRoute, PropertyListEnd } from '#/lib/clientSearch'
-import { useNewerClientsHint } from '#/lib/offline/useKept'
+import { useNewerClientsHint, useReadableAll } from '#/lib/offline/useKept'
 import { useMatchIndex } from '#/lib/useMatchIndex'
 import { rq } from '#/lib/routeQueries'
 import { personLabel, roleLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
 import { JobTimeFields, useJobTimes } from './JobTimeFields'
 import { SheetPending } from '#/components/shell/Pending'
+import { EmptyState } from '#/components/primitives/EmptyState'
+import { BOOKING_ERROR_COPY } from './bookingCopy'
 import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
 import { MAX_JOB_NOTES_LENGTH } from '../../../convex/lib/jobNotes'
@@ -109,33 +112,75 @@ const JOB_TYPE_ERROR_ID = 'new-job-type-error'
 const OPENING_TIMES = { start: '09:00', end: '10:00', length: 60 }
 
 /**
- * Why a booking failed, in FormAlert. This used to say "You may not have
- * access to that calendar" whatever had happened — for no signal, and for an
- * email the server refused, too — so the person went looking at permissions
- * for a typo. Access is named only when access is what was refused.
- */
-const BOOKING_ERROR_COPY: ErrorCopy = {
-  ...NEW_CLIENT_ERROR_COPY,
-  NO_ACCESS:
-    'Could not book this job: your access does not cover that calendar. Ask the business owner.',
-  INVALID_ASSIGNEE:
-    'Could not book this job: someone on it is no longer on the team. Choose someone else under Assigned to or Also going.',
-  TOO_MANY_PEOPLE: `Could not book this job: a job can have up to ${MAX_ALSO_GOING} people also going. Take someone off and try again.`,
-  NOTES_TOO_LONG: `Could not book this job: the note is longer than ${MAX_JOB_NOTES_LENGTH} characters. Shorten it and try again.`,
-  default: 'Could not book this job. Check your signal and try again.',
-}
-
-/**
  * Above Book job while the line is down (lib/offline/useLineDown.ts). The
  * booking isn't refused: the Convex client holds it until the line is back,
  * then sends it, for as long as the app stays open. So it says that, rather
  * than leave "Booking…" looking like a hang.
  */
-const BOOKING_WAITS: Record<LineDown, string> = {
+export const BOOKING_WAITS: Record<LineDown, string> = {
   'no-signal':
     'No signal — the booking goes when you have signal. Keep PestM8 open until then.',
   unreachable:
     'Could not reach PestM8 — the booking goes once it can. Keep PestM8 open until then.',
+}
+
+/**
+ * …and where it would be kept on the phone (lib/outbox/book.ts): it is safe
+ * there, so nothing needs to stay open for it, and it goes the next time
+ * PestM8 is open with signal.
+ */
+export const BOOKING_KEPT: Record<LineDown, string> = {
+  'no-signal':
+    'No signal — the booking is kept on this phone and goes when PestM8 is open with signal.',
+  unreachable:
+    'Could not reach PestM8 — the booking is kept on this phone and goes once PestM8 answers.',
+}
+
+/** The words above Book job with the line down. */
+export function bookingCaption(lineDown: LineDown, keeps: boolean): string {
+  return (keeps ? BOOKING_KEPT : BOOKING_WAITS)[lineDown]
+}
+
+/**
+ * New Job with the line down and nothing on the phone to make it of (plan
+ * §3.4): said, in place of a placeholder that would wait for good. First
+ * use, a copy more than 21 days old, another view's or another account's
+ * copy: the sheet opens the form by itself once they can be read.
+ */
+export const NEW_JOB_NOT_ON_PHONE = {
+  title: 'New Job isn’t on this phone yet',
+  body: 'It needs the client list and the team, which this phone doesn’t have yet. It opens when you have signal.',
+}
+
+/**
+ * What New Job's sheet holds (plan §3.4): nothing while it is closed; the
+ * form where it can be made, and kept while it is up, whatever the line
+ * does then, so nothing typed is ever taken away; otherwise
+ * `NEW_JOB_NOT_ON_PHONE`.
+ */
+export function newJobBody(at: {
+  open: boolean
+  onPhone: boolean
+  /** The form has mounted, this opening of the sheet. */
+  formUp: boolean
+}): 'none' | 'form' | 'notOnPhone' {
+  if (!at.open) return 'none'
+  return at.onPhone || at.formUp ? 'form' : 'notOnPhone'
+}
+
+/** The sheet's body when New Job can't be made (`NEW_JOB_NOT_ON_PHONE`). */
+export function NewJobNotOnPhone() {
+  return (
+    <div className={`${SHEET_BODY} pt-3`}>
+      <Drawer.Title className="text-sheet-title text-ink">New job</Drawer.Title>
+      <div className="mt-4">
+        <EmptyState
+          title={NEW_JOB_NOT_ON_PHONE.title}
+          body={NEW_JOB_NOT_ON_PHONE.body}
+        />
+      </div>
+    </div>
+  )
 }
 
 /**
@@ -176,12 +221,28 @@ export function NewJobSheet({
    * field of the form, starting on `dayKey`. */
   pickDate?: boolean
 }) {
+  // What the form is made of, on the phone or on its way: with the line
+  // down and none of it here, the sheet says so rather than wait for good.
+  // The job types too, or a phone without them would book the nine every
+  // business starts with.
+  const onPhone = useReadableAll([
+    rq.directory(businessId).queryKey,
+    rq.roster(businessId).queryKey,
+    rq.jobTypes(businessId).queryKey,
+  ])
+  // Asked as the sheet opens, and until the form is up: from then on the
+  // form stays, whatever the line does (the job types, which it doesn't
+  // wait for, may still be on their way).
+  const [formUp, setFormUp] = useState(false)
+  if (!open && formUp) setFormUp(false)
+  const body = newJobBody({ open, onPhone, formUp })
   return (
     <SheetShell open={open} onClose={onClose}>
       {/* The form suspends on the property and team lists. Its own
           boundary lets the sheet slide up at once; without one, the first
           open blanked the whole app until both had loaded. */}
-      {open && (
+      {body === 'notOnPhone' && <NewJobNotOnPhone />}
+      {body === 'form' && (
         <Suspense
           fallback={
             <SheetPending
@@ -202,6 +263,7 @@ export function NewJobSheet({
             onBooked={onBooked}
             forProperty={forProperty}
             pickDate={pickDate}
+            onShown={setFormUp}
           />
         </Suspense>
       )}
@@ -218,6 +280,7 @@ function NewJobForm({
   onBooked,
   forProperty,
   pickDate,
+  onShown,
 }: {
   businessId: Id<'businesses'>
   dayKey: string
@@ -227,6 +290,8 @@ function NewJobForm({
   onBooked?: () => void
   forProperty?: Id<'properties'>
   pickDate: boolean
+  /** The form is up (`newJobBody`). */
+  onShown: (shown: true) => void
 }) {
   // The slim directory the Schedule warms (`clients.directory`), as the
   // screens read it (`normaliseDirectory`: the same object for the same
@@ -242,6 +307,7 @@ function NewJobForm({
     convexQuery(api.memberships.listForBusiness, { businessId }),
   )
   const jobTypeList = useJobTypes(businessId).entries
+  useEffect(() => onShown(true), [onShown])
 
   // A business with no properties yet has nothing to pick from, so it starts
   // straight in "new client" mode rather than hitting a dead end.
@@ -322,7 +388,22 @@ function NewJobForm({
     price !== '' ||
     workOrder.trim() !== '' ||
     repeats
-  useSheetLock(changed, { whileUnchanged: false })
+  // Each opening of the sheet is one draft, with its own request id
+  // (`useDraftRequestId`), and its own Book, with the sheet's lock
+  // (`useNewJobBooking`): once the booking is kept on the phone, closing the
+  // sheet loses nothing, and asks nothing; and a confirmed "Discard your
+  // changes?" discards the press under way as it is confirmed.
+  const draft = useDraftRequestId()
+  const convexCreate = useConvexMutation(api.jobs.create)
+  const convexCreateRecurrence = useConvexMutation(api.recurrences.create)
+  const booking = useNewJobBooking(
+    changed,
+    { booked: onBooked, close: onClose },
+    (call) =>
+      call.fn === 'jobs.create'
+        ? convexCreate(call.args)
+        : convexCreateRecurrence(call.args),
+  )
   /**
    * Null while "Recurring Job" is chosen but the interval does not describe
    * one — an emptied count field, say, which native validation lets through
@@ -424,13 +505,14 @@ function NewJobForm({
   const lineDown = useLineDown()
   const lineDownId = useId()
   const clientChoiceId = useId()
+  // Whether a booking made now would be kept on the phone: which words go
+  // above Book job with the line down, until a press is under way, when
+  // they follow where that press's booking is (`saysKept`).
+  const canKeep = useCanKeep(draft.keepable)
   // The new client's or new site's address, email and phone, checked at Book:
   // what may be wrong is listed above the button, and a second press books it
   // as it is. An existing property has nothing to check.
   const saveWarnings = useSaveWarnings()
-
-  const convexCreate = useConvexMutation(api.jobs.create)
-  const convexCreateRecurrence = useConvexMutation(api.recurrences.create)
 
   // A repeating booking is a recurrence, not a job: creating it materialises
   // the first occurrence and every one after it, so the two paths are distinct
@@ -443,20 +525,57 @@ function NewJobForm({
   // Which mutation, with what, is `bookingCall`'s (lib/outbox/outboxItem.ts):
   // the one mapping, which a booking kept on the phone to send later goes
   // through as well, so the two can never send a booking differently.
+  //
+  // Book writes the booking to the phone first where it can, and sends it
+  // with the draft's request id either way (lib/outbox/book.ts): the sheet
+  // closes on the job, or on the booking kept, and a refusal that made
+  // nothing is thrown for FormAlert, as it always was.
   const create = useMutation({
-    // Returns a job id or a recurrence id depending on the branch, and the
-    // caller needs neither — void keeps them from being conflated.
-    mutationFn: (args: SendableBooking): Promise<void> => {
-      const call = bookingCall(args)
-      return call.fn === 'jobs.create'
-        ? convexCreate(call.args).then(() => undefined)
-        : convexCreateRecurrence(call.args).then(() => undefined)
-    },
-    onSuccess: () => {
-      onBooked?.()
-      onClose()
-    },
+    mutationFn: (args: SendableBooking) =>
+      booking.session.book(args, draft, whoFor(args)),
   })
+
+  /**
+   * Who is booking, and what the card of a booking kept on the phone shows
+   * until the real one lands (`bookingDisplay`), as the form has it at the
+   * press.
+   */
+  function whoFor(args: SendableBooking): BookingWho {
+    return {
+      userId: signedInUserId(),
+      lens: lensOf(access),
+      membershipId: access.membershipId,
+      business: { slug: business.slug, name: business.name },
+      display: () => {
+        const property = args.property
+        const site =
+          'propertyId' in property
+            ? properties.find((p) => p._id === property.propertyId)
+            : undefined
+        // Who the card names to ask for, as a day this phone holds lists
+        // that site: the client list doesn't say which contact is the one.
+        const listed =
+          site === undefined
+            ? null
+            : (keeper.findDayRowWhere(
+                (row) =>
+                  row.businessId === businessId && row.propertyId === site._id,
+              )?.row ?? null)
+        return bookingDisplay(args, {
+          sites: properties,
+          siteClient,
+          roster: members,
+          businessState,
+          contactPerson: contactPersonFor(
+            site?.client ?? siteClient,
+            site?.contacts ??
+              directory.contacts.filter((c) => c.clientId === siteClientId),
+            listed,
+          ),
+        })
+      },
+    }
+  }
 
   /**
    * Whose site it is comes first. Asked on the Book button's click as well as
@@ -1099,7 +1218,14 @@ function NewJobForm({
         <div className="mt-5">
           {lineDown && (
             <p id={lineDownId} className="mb-2 text-caption text-ink-2">
-              {BOOKING_WAITS[lineDown]}
+              {bookingCaption(
+                lineDown,
+                saysKept({
+                  pending: create.isPending,
+                  path: booking.path,
+                  canKeep,
+                }),
+              )}
             </p>
           )}
           <button

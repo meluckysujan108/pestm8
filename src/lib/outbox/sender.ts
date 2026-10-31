@@ -123,14 +123,21 @@ import type { OutboxKind } from './outboxSet'
  * go again yet, or moved it on. */
 type StepResult = 'skipped' | 'acted' | 'progress'
 
-/** What the person's sheet hears of the send it started (`sendHeld`). */
+/**
+ * What the person's sheet hears of the send it started (`sendHeld`). The
+ * sender never deletes a booking on an answer: what it writes is safe
+ * whatever the sheet does next, and only the sheet, still open, takes a
+ * booking off the phone, before it says so (book.ts).
+ */
 export type SendOutcome =
   | { outcome: 'sent'; id: string }
-  /** Refused, nothing made: the sheet still open owns it, and it is gone
-   * from the phone (or needs a look, if it couldn't be deleted). */
-  | { outcome: 'refused'; error: unknown }
-  /** The server's kill switch: gone from the phone, to be sent straight. */
-  | { outcome: 'paused' }
+  /** Refused, nothing made: the sheet's to show, while it is still open.
+   * `left`: the booking as the refusal left it, needing a look, for the
+   * sheet to take off the phone first; absent, nothing of it is on it. */
+  | { outcome: 'refused'; error: unknown; left?: OutboxItem }
+  /** The server's kill switch: the booking held (`left`), for the sheet,
+   * while it is still open, to take off the phone and send straight. */
+  | { outcome: 'paused'; error: unknown; left?: OutboxItem }
   /** The sender has it from here. */
   | { outcome: 'kept' }
 
@@ -424,11 +431,13 @@ export class Sender {
   /**
    * A sheet still open on the booking it just kept: while this is held and
    * the sheet still waits on the send it started (`sendHeld`), a refusal
-   * that made nothing is the sheet's (its FormAlert says so) and the booking
-   * goes from the phone. Otherwise, once released, on the sender's own send,
-   * or once `sendHeld` has answered, a refusal makes it need a look, and it
-   * is never deleted. Decided in the same turn as the answer. Released when
-   * the sheet closes or unmounts.
+   * that made nothing is the sheet's to hear, once the booking needs a look
+   * on the phone (or the kill switch's, once it is held): the sheet, if it
+   * is still open then, takes it off the phone before its FormAlert says so
+   * (book.ts). Otherwise, once released, on the sender's own send, or once
+   * `sendHeld` has answered, nobody hears of it, and it stays as written.
+   * Decided in the same turn as the answer. Released when the sheet closes
+   * or unmounts.
    */
   watchAnswer(localId: string): { release: () => void } {
     this.handles.set(localId, (this.handles.get(localId) ?? 0) + 1)
@@ -454,7 +463,7 @@ export class Sender {
    * refusal that comes later makes it need a look. The sheet waits on this
    * alone, so it can never stop waiting while a refusal is still its to
    * show. An answer in time that is the sheet's is waited for until the
-   * phone has done what it says.
+   * phone has written what it says.
    */
   sendHeld(localId: string, lock: HeldLock): Promise<SendOutcome> {
     return new Promise((resolve) => {
@@ -607,7 +616,13 @@ export class Sender {
       return listener ? 'skipped' : this.settle(item)
     }
     const problem = preSendProblem(item, Date.now())
-    if (problem !== null) {
+    // A booking its sheet sends as it is made, with signal, is booked as
+    // online books it: whether its first visit has gone is the server's to
+    // say (`refuseBackfill`, a day back), not the phone's hour inside that.
+    if (
+      problem !== null &&
+      !(listener !== undefined && problem === 'FIRST_VISIT_PAST')
+    ) {
       const changed = await deps.outbox.change(
         'pre-send',
         localId,
@@ -1007,10 +1022,11 @@ export class Sender {
     const deps = this.deps
     if (!deps) return 'acted'
     // Decided now, in the turn the answer came in: whether the sheet that
-    // sent it is still open on it, and still waiting, to own a refusal that
-    // made nothing. On the sender's own send, or once that sheet has closed
-    // or stopped waiting, nobody would hear of it: a refusal then makes the
-    // booking need a look, and it is never deleted (F1).
+    // sent it is still open on it, and still waiting, to hear of a refusal
+    // that made nothing. Either way the booking is never deleted here: a
+    // refusal makes it need a look, and the kill switch holds it, whatever
+    // the sheet does while that is written (F1). The sheet, told, takes it
+    // off the phone only if it is still open then (book.ts).
     const sheetOwns =
       listener !== undefined &&
       listener.waiting() &&
@@ -1043,6 +1059,9 @@ export class Sender {
 
     if ('ok' in answer) {
       const resultId = String(answer.ok)
+      // In memory before anything waits on the phone's storage: a day's list
+      // takes the job for the booking's as soon as it shows (latchSlots.ts).
+      deps.outbox.noteAnswered(id, resultId, now)
       listener?.tell({ outcome: 'sent', id: resultId })
       this.signedOutInARow = 0
       this.switchedInARow = 0
@@ -1108,18 +1127,21 @@ export class Sender {
         listener?.tell({ outcome: 'kept' })
         return 'acted'
       }
-      case 'PAUSED':
-        // Nothing was made: an open sheet sends it straight instead.
-        if (sheetOwns) {
-          const gone = await change('answered', () => 'delete')
-          if (gone === 'deleted') {
-            listener.tell({ outcome: 'paused' })
-            return 'progress'
-          }
+      case 'PAUSED': {
+        // Nothing was made. Held, so it never goes until the hold is up;
+        // the sheet still open on it sends it straight instead.
+        const left = await hold(holdUntil('PAUSED', 1, now))
+        if (sheetOwns && (typeof left === 'object' || left === 'gone')) {
+          listener.tell({
+            outcome: 'paused',
+            error,
+            ...(typeof left === 'object' && { left }),
+          })
+          return 'acted'
         }
-        await hold(holdUntil('PAUSED', 1, now))
         listener?.tell({ outcome: 'kept' })
         return 'acted'
+      }
       case 'ACCESS':
         await hold(holdUntil('ACCESS', 1, now))
         listener?.tell({ outcome: 'kept' })
@@ -1150,14 +1172,20 @@ export class Sender {
       case 'SITE_GONE':
       case 'FIELD': {
         const code = c.code ?? 'CONVEX_ERROR'
+        // Nothing was made. Needing a look, it never goes by itself; the
+        // sheet still open on it shows the refusal, as today, once it has
+        // taken it off the phone. A mark that didn't land leaves it locked,
+        // the sender's, so the sheet closes with it kept.
+        const left = await needsLook(code)
         if (sheetOwns) {
-          // The sheet's FormAlert has it, and nothing was made: as today.
-          const gone = await change('answered', () => 'delete')
-          if (gone !== 'deleted') await needsLook(code)
-          listener.tell({ outcome: 'refused', error })
-          return 'progress'
+          if (typeof left === 'object') {
+            listener.tell({ outcome: 'refused', error, left })
+          } else if (left === 'gone') {
+            listener.tell({ outcome: 'refused', error })
+          } else {
+            listener.tell({ outcome: 'kept' })
+          }
         }
-        await needsLook(code)
         return 'progress'
       }
       case 'SERVER': {

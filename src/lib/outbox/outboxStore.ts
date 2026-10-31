@@ -41,7 +41,8 @@ import type { Id } from '../../../convex/_generated/dataModel'
  *   whatever the wipe after it does. Two more notes there tell every other
  *   tab when its read or its claim is out of date ("What other tabs did").
  *
- * Nothing writes an item yet. Its clears are in place first.
+ * New Job's Book writes an item (book.ts), in a build with keeping switched
+ * on; every other change is a guarded one, below.
  *
  * Imports only `logConnection`, outboxSet.ts and types, so rootState.ts can
  * clear it without bringing anything else into the root route.
@@ -103,10 +104,13 @@ export interface OutboxBackend {
     { owner: OutboxOwner; dropped: number; marked: number } | 'error'
   >
   /** Adds `item`. Only over the same draft's own item while that is still
-   * waiting or needing a look, and only for this epoch's person. */
+   * waiting or needing a look, and only for this epoch's person; and only
+   * while `wanted` says so, asked in the transaction just before it writes:
+   * a keep given up on (`giveUpKeep`) is refused, never written late. */
   keep: (
     epoch: string,
     item: OutboxItem,
+    wanted?: () => boolean,
   ) => Promise<'kept' | 'exists' | 'refused' | 'error'>
   /** Reads one item and writes what `change` makes of it, in one
    * transaction. Never brings back an item that has gone. */
@@ -290,8 +294,8 @@ export function updateDecision(
 // ── The changes ────────────────────────────────────────────────────────────
 // What each move does to the item it reads, and when it refuses. The caller
 // of the ones marked "holds the lock" holds the item's Web Lock
-// (`pestm8-outbox:item:{localId}`), so no other tab is sending, settling or
-// adopting it meanwhile; the guard here is what holds across tabs without it.
+// (`pestm8-outbox:item:{localId}`), so no other tab is sending or settling
+// it meanwhile; the guard here is what holds across tabs without it.
 
 /** An Edit open in another tab, its lease not yet run out. */
 function editedElsewhere(item: OutboxItem, now: number, tab?: string): boolean {
@@ -338,27 +342,6 @@ export function beginSendChange(now: number): (item: OutboxItem) => Change {
       updatedAt: now,
     }
   }
-}
-
-/**
- * Holds the lock. A booking whose keep was late, while New Job's own call
- * for it is still out: that call becomes the item's, started `startedAt`.
- */
-export function adoptChange(
-  startedAt: number,
-  now: number,
-): (item: OutboxItem) => Change {
-  return (item) =>
-    isReadable(item) && item.state === 'waiting' && item.attempts === 0
-      ? {
-          ...item,
-          state: 'sending',
-          attempts: 1,
-          lastAttemptAt: startedAt,
-          sentKinds: [item.kind as OutboxKind],
-          updatedAt: now,
-        }
-      : 'abort'
 }
 
 /** The server answered an attempt: as `apply` says, while it is locked. */
@@ -646,6 +629,71 @@ function dropTombstones(covered: ReadonlyArray<Tombstone>): void {
   )
 }
 
+// ── The bookings New Job gave up keeping ───────────────────────────────────
+
+/**
+ * The bookings New Job gave up keeping (`giveUpKeep`), by key, kept in
+ * localStorage as well as in memory. A keep whose transaction had passed its
+ * check before New Job gave it up still lands, and the sheet takes it off
+ * the phone again (book.ts); until it has, every reader treats it as gone
+ * (`stillKept`), so nothing shows or sends it, and the next page load
+ * deletes it (`sweep`). So a page closed while the phone's storage was still
+ * writing never leaves a booking the person was told was not kept to go
+ * later. An entry goes once the sheet has taken the booking off, or left it
+ * needing a look (`forgetGivenUp`), or once a page load has deleted it.
+ * Without localStorage nothing is kept at all (`localNotesWork`): New Job
+ * sends straight, as it always did.
+ */
+const GIVEN_UP_KEY = 'pestm8-outbox-given-up'
+const GIVEN_UP_KEPT = 50
+const PROBE_KEY = 'pestm8-outbox-probe'
+
+/**
+ * Whether localStorage takes this page's notes now, tried with one of its
+ * own, written and taken away again. Keeping a booking relies on them (a
+ * keep given up on, `giveUpKeep`, and a sign-out's tombstone), so without
+ * them New Job keeps nothing and sends straight (book.ts `canKeepNow`).
+ */
+export function localNotesWork(): boolean {
+  try {
+    const notes = storage()
+    if (!notes) return false
+    notes.setItem(PROBE_KEY, newEpoch())
+    notes.removeItem(PROBE_KEY)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function readGivenUp(): Array<string> {
+  try {
+    const raw = storage()?.getItem(GIVEN_UP_KEY)
+    if (!raw) return []
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed)
+      ? parsed.filter((each): each is string => typeof each === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
+function writeGivenUp(list: ReadonlyArray<string>): void {
+  try {
+    if (list.length === 0) storage()?.removeItem(GIVEN_UP_KEY)
+    else storage()?.setItem(GIVEN_UP_KEY, JSON.stringify(list))
+  } catch {
+    // See the tombstone's.
+  }
+}
+
+/** Whether New Job gave `localId` up, in this tab or another, and nothing
+ * has taken it off the phone since. Read afresh. */
+export function givenUpNoted(localId: string): boolean {
+  return readGivenUp().includes(localId)
+}
+
 // ── What other tabs did ────────────────────────────────────────────────────
 
 /**
@@ -901,7 +949,7 @@ export const idbOutboxBackend: OutboxBackend = {
     )
   },
 
-  keep(epoch, item) {
+  keep(epoch, item, wanted = () => true) {
     return transact<'kept' | 'exists' | 'refused'>(
       'readwrite',
       (stores, done) => {
@@ -911,12 +959,14 @@ export const idbOutboxBackend: OutboxBackend = {
           const existingRequest = stores.items.get(item.localId)
           existingRequest.onsuccess = () => {
             const found: unknown = existingRequest.result
-            const decided = keepDecision(
-              owner,
-              epoch,
-              item,
-              isItem(found) ? found : undefined,
-            )
+            const decided = !wanted()
+              ? 'refused'
+              : keepDecision(
+                  owner,
+                  epoch,
+                  item,
+                  isItem(found) ? found : undefined,
+                )
             if (decided === 'kept') stores.items.put(item)
             done(decided)
           }
@@ -1050,6 +1100,8 @@ let ownerNow: OutboxOwner | null | undefined
 const cleared: Array<(item: OutboxItem) => boolean> = []
 // …and anyone's but the person signed in, once someone is.
 let onlyFor: string | null = null
+// The keeps this page load has given up on (`giveUpKeep`).
+const givenUp = new Set<string>()
 let swept: Promise<void> | null = null
 const wipeListeners = new Set<() => void>()
 // Whoever holds the bookings in memory (outbox.ts), told when this tab has
@@ -1088,13 +1140,15 @@ function forgetClaim(): void {
 
 /**
  * Whether `item`, as read, is still on the phone: not discarded by a
- * sign-out (here or in another tab), nor cleared since (a business the
- * person was removed from, anyone's but the person signed in). Whoever holds
- * items in memory asks it again before using one.
+ * sign-out (here or in another tab), nor given up by New Job (`giveUpKeep`),
+ * nor cleared since (a business the person was removed from, anyone's but
+ * the person signed in). Whoever holds items in memory asks it again before
+ * using one.
  */
 export function stillKept(item: OutboxItem): boolean {
   return (
     !tombstoned(item) &&
+    !givenUpNoted(item.localId) &&
     (onlyFor === null || item.userId === onlyFor) &&
     !cleared.some((gone) => gone(item))
   )
@@ -1291,7 +1345,8 @@ export function onOutboxWiped(listener: () => void): () => void {
 /**
  * As soon as a page load knows who is signed in (rootState.ts), and again
  * whenever the server says so afresh. Every page load, once: bookings a
- * sign-out discarded go, and so do ones sent before it. Then the outbox is
+ * sign-out discarded go, and so do ones New Job gave up keeping
+ * (`giveUpKeep`) and ones sent before it. Then the outbox is
  * made the person's, and anyone else's bookings go (the sign-in screens say
  * so first); the same person in a new session has theirs marked
  * (`claimDecision`). A claim that fails is tried again, on its own and
@@ -1324,11 +1379,14 @@ export function checkOutboxOwner(user: OutboxUser | null): void {
 
 async function sweep(): Promise<void> {
   const covered = readTombstones()
+  const givenUpThen = readGivenUp()
   const removed = await withinMs(
     STORE_OP_MS,
     backend.removeWhere(
       (item) =>
-        coveredBy(covered, item) || (item.state === 'sent' && isReadable(item)),
+        coveredBy(covered, item) ||
+        givenUpThen.includes(item.localId) ||
+        (item.state === 'sent' && isReadable(item)),
     ),
   )
   if (removed === 'error') {
@@ -1337,8 +1395,11 @@ async function sweep(): Promise<void> {
   }
   // Before the tombstone goes: other tabs' reads from before now may hold
   // what it covered.
-  if (removed > 0 || covered.length > 0) renewNote(CLEARED_KEY)
+  if (removed > 0 || covered.length > 0 || givenUpThen.length > 0) {
+    renewNote(CLEARED_KEY)
+  }
   dropTombstones(covered)
+  forgetGivenUpAll(givenUpThen)
   if (removed > 0) {
     logConnection('outbox-purge', { why: 'page-load', n: removed })
     notifyChanged()
@@ -1504,40 +1565,89 @@ function claimNow(): { epoch: string } | 'refused' | 'waiting' {
 
 /**
  * Adds a booking for this page load's person, within STORE_OP_MS, its claim
- * included. Nothing calls it yet: New Job keeps nothing until the outbox is
- * switched on.
+ * included: New Job's Book, through `OutboxModel.keep` (outbox.ts).
+ *
+ * `'error'` once STORE_OP_MS is up says only that it hadn't answered: its
+ * transaction may still commit after that. So `landed` is told what it came
+ * to whenever that is, and a keep this page load has given up on
+ * (`giveUpKeep`) is refused in its own transaction, never written late.
  */
 export function keepOutboxItem(
   item: OutboxItem,
+  landed?: (result: 'kept' | 'exists' | 'refused' | 'error') => void,
 ): Promise<'kept' | 'exists' | 'refused' | 'error'> {
-  return withinMs(
-    STORE_OP_MS,
-    claimToWrite().then((claim) =>
-      typeof claim === 'string' ? claim : backend.keep(claim.epoch, item),
-    ),
-  ).then((kept) => {
+  const localId = item.localId
+  const done = claimToWrite()
+    .then((claim) =>
+      typeof claim === 'string'
+        ? claim
+        : backend.keep(claim.epoch, item, () => !givenUp.has(localId)),
+    )
+    .catch(() => 'error' as const)
+  if (landed) void done.then(landed)
+  return withinMs(STORE_OP_MS, done).then((kept) => {
     if (kept === 'error') logConnection('outbox-store-failed', { op: 'keep' })
     return kept
   })
 }
 
 /**
+ * Gives up on keeping `localId` this page load: New Job sends it straight,
+ * its keep not in time, or its sheet was discarded before it said the
+ * booking was kept (book.ts). A keep of it still on its way is refused in
+ * its own transaction, so it can never land as a booking nobody is waiting
+ * on, to be sent later. One whose transaction had passed that check lands
+ * all the same, and the sheet takes it off again: until it has, it is noted
+ * as given up in localStorage too, so no tab shows or sends it, and the next
+ * page load deletes it if this one never got to (`stillKept`, `sweep`).
+ * Synchronous, so it holds from the moment it is asked.
+ */
+export function giveUpKeep(localId: string): void {
+  givenUp.add(localId)
+  writeGivenUp(
+    [...readGivenUp().filter((each) => each !== localId), localId].slice(
+      -GIVEN_UP_KEPT,
+    ),
+  )
+}
+
+/**
+ * The booking New Job gave up is off the phone, or left on it needing a
+ * look, where it shows and never goes by itself (book.ts): no longer
+ * treated as gone. A keep of it on its way is still refused.
+ */
+export function forgetGivenUp(localId: string): void {
+  forgetGivenUpAll([localId])
+}
+
+function forgetGivenUpAll(gone: ReadonlyArray<string>): void {
+  if (gone.length === 0) return
+  writeGivenUp(readGivenUp().filter((each) => !gone.includes(each)))
+}
+
+/**
  * One guarded change to one item (the changes above), within STORE_OP_MS,
  * its claim included. `op` names it in the note a failure leaves.
+ *
+ * As with a keep, `'error'` once STORE_OP_MS is up says only that it hadn't
+ * answered: its transaction may still commit. `landed` is told what it came
+ * to whenever that is.
  */
 export function changeOutboxItem(
   op: string,
   localId: string,
   change: (item: OutboxItem) => Change,
+  landed?: (result: StoreResult<OutboxItem | 'deleted'>) => void,
 ): Promise<StoreResult<OutboxItem | 'deleted'>> {
-  return withinMs(
-    STORE_OP_MS,
-    claimToWrite().then((claim) =>
+  const done = claimToWrite()
+    .then((claim) =>
       typeof claim === 'string'
         ? claim
         : backend.update(claim.epoch, localId, change),
-    ),
-  ).then((result) => {
+    )
+    .catch(() => 'error' as const)
+  if (landed) void done.then(landed)
+  return withinMs(STORE_OP_MS, done).then((result) => {
     if (result === 'error') logConnection('outbox-store-failed', { op })
     return result
   })
@@ -1559,6 +1669,7 @@ export function setOutboxBackendForTests(next: OutboxBackend): void {
   wantedNote = null
   claiming = null
   onlyFor = null
+  givenUp.clear()
   cleared.length = 0
   swept = null
   wipeListeners.clear()

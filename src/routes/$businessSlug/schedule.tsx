@@ -73,6 +73,8 @@ import type { ScheduleView } from '#/lib/scheduleViews'
 import type { Access } from '#/lib/access'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { HEADER_ADD_BUTTON } from '#/components/primitives/buttons'
+import { OutboxGroup } from '#/components/schedule/OutboxGroup'
+import { useOutboxDay, useOutboxPlaces } from '#/lib/outbox/useOutbox'
 
 const searchSchema = z.object({
   // Lives in the URL, not useState: the day a tech is looking at survives a
@@ -84,6 +86,11 @@ const searchSchema = z.object({
   // Lets a job be deep-linked straight to its detail sheet — e.g. from a
   // client's job history — without depending on which day is on screen.
   jobId: z.string().optional(),
+  // A booking on this phone, not sent yet, opened from its card: its
+  // `localId`, never in `jobId`, which the server would refuse as no job's
+  // id (lib/outbox/). Opened only once the page has hydrated and the
+  // phone's bookings have been read.
+  outboxId: z.string().optional(),
   // How the day is rendered, in the URL for the same reason `date` is: the way
   // a tech prefers to read their day should survive a refresh (§5.1). A link
   // to a view that no longer exists opens the default rather than erroring.
@@ -92,6 +99,9 @@ const searchSchema = z.object({
   // the URL as it opens, so a refresh does not open it again.
   newJob: z.boolean().optional().catch(undefined),
 })
+
+/** A day's cards: two columns from md, the same cards re-flowed. */
+const DAY_GRID = 'flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch'
 
 /** How long a navigation in the browser waits for the owner's news (the
  * set-up guide, who joined) before the day shows without it. */
@@ -252,7 +262,7 @@ function ScheduleBody({
   // The account being worked in, so the day opens on the right person's round.
   const acting = useActing()
   const mode = useViewMode()
-  const { date, jobId, view, newJob } = Route.useSearch()
+  const { date, jobId, view, newJob, outboxId } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const openJobId = jobId ?? null
   // A replace gives the entry a new history key, and a new key scrolls the
@@ -260,7 +270,22 @@ function ScheduleBody({
   // person's place in the day or the week behind it.
   const setOpenJobId = (id: string | null) =>
     navigate({
-      search: (prev) => ({ ...prev, jobId: id ?? undefined }),
+      search: (prev) => ({
+        ...prev,
+        jobId: id ?? undefined,
+        outboxId: undefined,
+      }),
+      replace: true,
+      resetScroll: false,
+    })
+  // A booking on this phone, not sent yet, opened as a job is.
+  const setOpenOutboxId = (localId: string | null) =>
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        jobId: undefined,
+        outboxId: localId ?? undefined,
+      }),
       replace: true,
       resetScroll: false,
     })
@@ -401,23 +426,65 @@ function ScheduleBody({
   // its (canonicalised) day set, so the desktop panel asking for the same day
   // shares this entry rather than issuing a second request — which is what the
   // `isDesktop ? [] : ...` dance was working around.
+  // The day's bookings on this phone, not sent yet, in a group of their own
+  // under its cards, each keeping its slot until the day is drawn afresh
+  // (lib/outbox/latchSlots.ts). The week has none of them yet. A day the
+  // phone keeps no copy of still has those: under "Not on this phone".
+  const outboxDayKey = notKept ? requestedKey : selectedKey
+  const outboxDay = useOutboxDay({
+    businessId: business._id,
+    dayShown: outboxDayKey,
+    timezone: business.timezone,
+    rows: notKept ? [] : jobs,
+    drawsCards: shownView !== 'week' && !notKept && filteredJobs.length > 0,
+    redrawKey: `${outboxDayKey}|${shownView}|${notKept}|${status}|${staffId}|${mode ?? ''}|${acting.membershipId}`,
+    allStatuses: status === 'all' && shownView !== 'week',
+    staffId,
+    mineOnly: mode === 'mine' ? acting.membershipId : null,
+  })
+  // On a day not kept, under its "Not on this phone", with no forecast.
+  const notKeptOutbox = (
+    <OutboxGroup
+      day={outboxDay}
+      timezone={business.timezone}
+      dayShown={outboxDayKey}
+      onOpenItem={setOpenOutboxId}
+      onOpenJob={setOpenJobId}
+      weatherOf={() => ({ status: 'outOfWindow' })}
+      grid={DAY_GRID}
+      className="mt-6"
+    />
+  )
+  // Its sites' forecasts asked for with the jobs', so a booking's strip is
+  // there when its card is.
+  const outboxPlaces = useOutboxPlaces(
+    business._id,
+    selectedKey,
+    business.timezone,
+  )
   const weather = useWeather(
     business._id,
     business.state,
     today,
-    jobs.map((j) => ({
+    [...jobs, ...outboxPlaces].map((j) => ({
       dayKey: selectedKey,
       suburb: j.suburb,
       postcode: j.postcode,
       state: j.propertyState,
     })),
   )
+  // The jobs a booking's slot now draws, kept out of the ordered list until
+  // the next redraw.
+  const listedJobs = filteredJobs.filter(
+    (job) => !outboxDay.hidden.has(job._id),
+  )
 
   // Coordinates come from the raw entries: a travel hint is geography, and
   // must not disappear just because a forecast is still in flight. Measured
   // over the work still ahead only — see `jobsAhead`.
-  const travel = travelHintsFor(jobsAhead(filteredJobs), (job) =>
-    weather.byKey[weatherKeyOf(job.suburb, job.postcode, selectedKey)],
+  const travel = travelHintsFor(
+    jobsAhead(listedJobs),
+    (job) => weather.byKey[weatherKeyOf(job.suburb, job.postcode, selectedKey)],
   )
 
   // `jobId` is deliberately dropped rather than carried: moving to another day
@@ -584,6 +651,7 @@ function ScheduleBody({
                     />
                   </div>
                   {notKeptDay}
+                  {notKeptOutbox}
                 </div>
               ) : shownView === 'week' ? (
                 <div className="flex min-w-0 flex-col gap-3">
@@ -616,6 +684,7 @@ function ScheduleBody({
                   view={activeView}
                   onViewChange={setView}
                   onOpenJob={setOpenJobId}
+                  onOpenItem={setOpenOutboxId}
                   // The desktop layout only renders in the browser (it
                   // waits on a media query), so this is always live.
                   onNewJob={() => setNewJobOpen(true)}
@@ -733,10 +802,13 @@ function ScheduleBody({
             )}
 
             {notKept ? (
-              notKeptDay
+              <>
+                {notKeptDay}
+                {notKeptOutbox}
+              </>
             ) : shownView === 'week' ? (
               weekView
-            ) : jobs.length === 0 ? (
+            ) : jobs.length === 0 && outboxDay.slots.length === 0 ? (
               <EmptyState
                 title={
                   mode === 'mine' ? 'Nothing booked for you' : 'Nothing booked'
@@ -751,7 +823,7 @@ function ScheduleBody({
                   </EmptyStateButton>
                 }
               />
-            ) : filteredJobs.length === 0 ? (
+            ) : filteredJobs.length === 0 && outboxDay.slots.length === 0 ? (
               // The day has jobs; the filters hide them. The thing to do is
               // change the filters, not book one.
               <NoMatches
@@ -763,26 +835,54 @@ function ScheduleBody({
                 }}
               />
             ) : (
-              // Two columns from md: the same cards, re-flowed. A tablet
-              // screen showing one 460px column of jobs wastes the extra
-              // width that makes a week readable at a glance.
-              <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch">
-                {filteredJobs.map((job) => (
-                  <JobCard
-                    key={job._id}
-                    job={job}
-                    travel={travel[job._id]}
-                    weather={weather.cell(job.suburb, job.postcode, selectedKey)}
-                    timezone={business.timezone}
-                    onOpen={setOpenJobId}
-                    hideTechnician
-                    dayShown={selectedKey}
-                  />
-                ))}
-                {Object.keys(weather.byKey).length > 0 && (
-                  <WeatherCredit className="md:col-span-2" />
+              <>
+                {listedJobs.length > 0 && (
+                  // Two columns from md: the same cards, re-flowed. A tablet
+                  // screen showing one 460px column of jobs wastes the extra
+                  // width that makes a week readable at a glance.
+                  <div className={DAY_GRID}>
+                    {listedJobs.map((job) => (
+                      <JobCard
+                        key={job._id}
+                        job={job}
+                        travel={travel[job._id]}
+                        weather={weather.cell(
+                          job.suburb,
+                          job.postcode,
+                          selectedKey,
+                        )}
+                        timezone={business.timezone}
+                        onOpen={setOpenJobId}
+                        hideTechnician
+                        dayShown={selectedKey}
+                      />
+                    ))}
+                    {outboxDay.slots.length === 0 &&
+                      Object.keys(weather.byKey).length > 0 && (
+                        <WeatherCredit className="md:col-span-2" />
+                      )}
+                  </div>
                 )}
-              </div>
+                {/* After the cards, never among them: below the last card,
+                    it moves nothing above it whenever it comes. */}
+                <OutboxGroup
+                  day={outboxDay}
+                  timezone={business.timezone}
+                  dayShown={selectedKey}
+                  onOpenItem={setOpenOutboxId}
+                  onOpenJob={setOpenJobId}
+                  weatherOf={(row) =>
+                    weather.cell(row.suburb, row.postcode ?? '', selectedKey)
+                  }
+                  grid={DAY_GRID}
+                  className={listedJobs.length > 0 ? 'mt-6' : ''}
+                />
+                {/* Still the last thing on the day, under the group. */}
+                {(outboxDay.slots.length > 0 || listedJobs.length === 0) &&
+                  Object.keys(weather.byKey).length > 0 && (
+                    <WeatherCredit className="mt-2.5" />
+                  )}
+              </>
             )}
           </section>
         </>
@@ -793,6 +893,7 @@ function ScheduleBody({
         businessSlug={business.slug}
         timezone={business.timezone}
         jobId={openJobId}
+        outboxId={outboxId ?? null}
         canReassign={canDispatch}
         canDelete={canManageClients}
         onClose={() => setOpenJobId(null)}

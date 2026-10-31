@@ -50,7 +50,27 @@ import { JobCard } from '#/components/schedule/JobCard'
 import { RecurringServices } from '#/components/schedule/RecurringServices'
 import { useBusinessDay } from '#/lib/useBusinessDay'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
-import { NewJobSheet } from '#/components/schedule/NewJobSheet'
+import {
+  NewJobNotOnPhone,
+  NewJobSheet,
+} from '#/components/schedule/NewJobSheet'
+import { OutboxGroup } from '#/components/schedule/OutboxGroup'
+import { DayAgendaPanel } from '#/components/schedule/DayAgendaPanel'
+import { keeper } from '#/lib/offline/keeper'
+import { outbox } from '#/lib/outbox/outbox'
+import { keepOutboxItem, peekOutbox } from '#/lib/outbox/outboxStore'
+import type { OutboxItem } from '#/lib/outbox/outboxItem'
+import type { OutboxDay } from '#/lib/outbox/useOutbox'
+import {
+  HARNESS_TOKEN,
+  MADE,
+  SENDING,
+  SENT,
+  TO_SEND,
+  WAITING,
+  laterAt,
+  outboxDayOf,
+} from './outboxFixtures'
 import { BusinessSwitcher } from '#/components/shell/BusinessSwitcher'
 import { JobTimeFields, useJobTimes } from '#/components/schedule/JobTimeFields'
 import { ClientSheet } from '#/components/clients/ClientSheet'
@@ -545,6 +565,64 @@ function NewJobNoSignal() {
     <NoSignal>
       <NewJob />
     </NoSignal>
+  )
+}
+
+/**
+ * Someone signed in, and the phone's bookings read: with keeping switched
+ * on (the harness's build has it), New Job would keep a booking on the
+ * phone, and says so above Book job.
+ */
+function KeepsOnPhone({ children }: { children: ReactNode }) {
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    seedRootState({ token: HARNESS_TOKEN, theme: 'system' })
+    void peekOutbox().then(() => setReady(true))
+  }, [])
+  return ready ? children : null
+}
+
+/** PestM8 not answering: the socket down long enough to count, as the
+ * keeper says once it has been 8 s on screen. One specimen to a page load. */
+function Unreachable({ children }: { children: ReactNode }) {
+  useState(() => {
+    keeper.downReason = () => 'unreachable'
+    return null
+  })
+  return children
+}
+
+/** New Job with no signal, where the booking would be kept on the phone. */
+function NewJobKeptNoSignal() {
+  return (
+    <NoSignal>
+      <KeepsOnPhone>
+        <NewJob />
+      </KeepsOnPhone>
+    </NoSignal>
+  )
+}
+
+/** The same with PestM8 not answering. */
+function NewJobKeptUnreachable() {
+  return (
+    <Unreachable>
+      <KeepsOnPhone>
+        <NewJob />
+      </KeepsOnPhone>
+    </Unreachable>
+  )
+}
+
+/** New Job with the line down and nothing of it on the phone. */
+function NewJobNotOnPhoneSheet() {
+  return (
+    <Phone>
+      <Header title="Schedule" />
+      <SheetShell open onClose={() => {}}>
+        <NewJobNotOnPhone />
+      </SheetShell>
+    </Phone>
   )
 }
 
@@ -1244,6 +1322,171 @@ function ScheduleNotKeptPage() {
         </AccessProvider>
       </SidebarProvider>
     </Phone>
+  )
+}
+
+/**
+ * Today with no signal, two bookings on the phone under the day's cards:
+ * one not sent yet, one sent as the signal went and not answered.
+ */
+function ScheduleOutboxDay() {
+  const today = perthTodayKey()
+  return (
+    <OutboxSchedule
+      heading={formatDayLabel(today)}
+      day={outboxDayOf([{ items: [WAITING, SENDING] }])}
+      jobs={JOBS.filter((job) => job.status !== 'recurring').slice(0, 2)}
+    />
+  )
+}
+
+/**
+ * Back with signal: one booking sent, its slot now the real job, #1046,
+ * Pending, kept where it was until the day is drawn afresh; the other
+ * still not sent yet.
+ */
+function ScheduleOutboxLatched() {
+  const today = perthTodayKey()
+  return (
+    <OutboxSchedule
+      heading={formatDayLabel(today)}
+      note="hidden"
+      day={outboxDayOf(
+        [
+          { items: [TO_SEND, WAITING] },
+          { items: [SENT, WAITING], rows: [MADE], dayLive: true },
+        ],
+        today,
+        true,
+      )}
+      jobs={JOBS.filter((job) => job.status !== 'recurring').slice(0, 2)}
+    />
+  )
+}
+
+/** A day with bookings on the phone and no jobs: no "This day is clear.". */
+function ScheduleOutboxOnly() {
+  const day = addDays(perthTodayKey(), 2)
+  const later = {
+    ...WAITING,
+    booking: { ...WAITING.booking, scheduledAt: laterAt(2) },
+  }
+  return (
+    <OutboxSchedule
+      heading={formatDayLabel(day)}
+      day={outboxDayOf([{ items: [later] }], day)}
+      dayShown={day}
+      jobs={[]}
+    />
+  )
+}
+
+/** The Schedule's day on a phone with its "Not sent yet" group, as the page
+ * draws it (the route's own markup; `KeptSchedule` above it). */
+function OutboxSchedule({
+  heading,
+  day,
+  jobs,
+  dayShown = perthTodayKey(),
+  note = 'shown',
+}: {
+  heading: string
+  day: OutboxDay
+  jobs: Array<(typeof JOBS)[number]>
+  dayShown?: string
+  note?: 'shown' | 'hidden'
+}) {
+  const grid = 'flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch'
+  return (
+    <KeptSchedule
+      note={{
+        phase: note,
+        tone: 'no-signal',
+        asOf: perthAt(perthTodayKey(), '07:42'),
+      }}
+      view="job"
+      heading={heading}
+    >
+      {jobs.length > 0 && (
+        <div className={grid}>
+          {jobs.map((job) => (
+            <JobCard
+              key={job._id}
+              job={job as never}
+              timezone={TZ}
+              onOpen={() => {}}
+              hideTechnician
+              dayShown={dayShown}
+            />
+          ))}
+        </div>
+      )}
+      <OutboxGroup
+        day={day}
+        timezone={TZ}
+        dayShown={dayShown}
+        onOpenItem={() => {}}
+        onOpenJob={() => {}}
+        weatherOf={() => ({ status: 'outOfWindow' })}
+        grid={grid}
+        className={jobs.length > 0 ? 'mt-6' : ''}
+      />
+    </KeptSchedule>
+  )
+}
+
+/**
+ * Bookings kept in this browser's outbox for a shot, as New Job keeps them,
+ * and the outbox read: so the real screens find them there. Fixed keys, so a
+ * shot taken again keeps the same ones.
+ */
+function WithBookings({
+  items,
+  children,
+}: {
+  items: Array<OutboxItem>
+  children: ReactNode
+}) {
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    seedRootState({ token: HARNESS_TOKEN, theme: 'system' })
+    void (async () => {
+      for (const item of items) await keepOutboxItem(item)
+      outbox.start(() => null)
+      await outbox.refresh()
+      setReady(true)
+    })()
+  }, [items])
+  return ready ? children : null
+}
+
+const AGENDA_BOOKINGS = [WAITING, SENDING]
+
+/** A desktop's day agenda with the two bookings on the phone under its
+ * cards, drawn by the panel itself from the outbox. */
+function AgendaOutbox() {
+  const today = perthTodayKey()
+  return (
+    <div className="min-h-screen bg-canvas p-4">
+      <AccessProvider businessId={bizId}>
+        <WithBookings items={AGENDA_BOOKINGS}>
+          <DayAgendaPanel
+            businessId={bizId}
+            businessSlug="demo"
+            state="WA"
+            timezone={TZ}
+            selectedKey={today}
+            todayKey={today}
+            jobs={JOBS.filter((job) => job.status !== 'recurring') as never}
+            members={MEMBERS}
+            view="job"
+            onViewChange={() => {}}
+            onOpenJob={() => {}}
+            onOpenItem={() => {}}
+          />
+        </WithBookings>
+      </AccessProvider>
+    </div>
   )
 }
 
@@ -2726,6 +2969,13 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   jobdetail: JobDetail,
   newjob: NewJob,
   'newjob-no-signal': NewJobNoSignal,
+  'newjob-kept-no-signal': NewJobKeptNoSignal,
+  'newjob-kept-unreachable': NewJobKeptUnreachable,
+  'newjob-not-on-phone': NewJobNotOnPhoneSheet,
+  'schedule-outbox-day': ScheduleOutboxDay,
+  'schedule-outbox-latched': ScheduleOutboxLatched,
+  'schedule-outbox-only': ScheduleOutboxOnly,
+  'agenda-outbox': AgendaOutbox,
   // Search first (the matching plan's M2, 28 Oct 2026).
   'newjob-picker-email-match': NewJobPickerMatch,
   'newjob-picker-no-match-add': NewJobPickerMatch,

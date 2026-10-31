@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react'
@@ -24,8 +25,9 @@ import type { ReactNode, Ref, RefObject } from 'react'
  */
 const InSheet = createContext(false)
 
-/** A form in the sheet, and whether anything in it has changed. */
-type Lock = { changed: boolean }
+/** A form in the sheet: whether anything in it has changed, and what it
+ * does as "Discard" is confirmed (`useSheetLock`'s `onDiscard`). */
+type Lock = { changed: boolean; discarded: () => void }
 
 /**
  * `useSheetLock` as an element, for a sheet whose form state lives in the
@@ -62,18 +64,39 @@ const LockRegistry = createContext<
  *
  * A sheet can hold several at once — a client's details and a contact being
  * added — and is locked while any is.
+ *
+ * In layout effects, so the sheet is locked or not, and asks or not, in the
+ * same commit as the form that says so, before a tap can land: New Job's
+ * Book decides a close on what the screen showed (lib/outbox/book.ts), and
+ * a frame with the form drawn one way and the lock the other was a tap
+ * decided against what the screen no longer showed.
  */
 export function useSheetLock(
   changed: boolean,
-  { whileUnchanged = true }: { whileUnchanged?: boolean } = {},
+  {
+    whileUnchanged = true,
+    onDiscard,
+  }: {
+    whileUnchanged?: boolean
+    /** "Discard your changes?" confirmed, as it is: before the sheet
+     * closes, which after a Back is only once the move has landed. */
+    onDiscard?: () => void
+  } = {},
 ) {
   const register = useContext(LockRegistry)
   const id = useId()
   const active = whileUnchanged || changed
-  useEffect(() => {
-    register?.(id, active ? { changed } : null)
+  const discard = useRef(onDiscard)
+  useLayoutEffect(() => {
+    discard.current = onDiscard
+  })
+  useLayoutEffect(() => {
+    register?.(
+      id,
+      active ? { changed, discarded: () => discard.current?.() } : null,
+    )
   }, [register, id, active, changed])
-  useEffect(() => () => register?.(id, null), [register, id])
+  useLayoutEffect(() => () => register?.(id, null), [register, id])
 }
 
 /**
@@ -141,6 +164,11 @@ export function SheetShell({
   function requestClose() {
     if (changed) setAsking(true)
     else onClose()
+  }
+
+  /** "Discard" confirmed: each form in the sheet hears it before it goes. */
+  function discarding() {
+    for (const lock of locks.values()) lock.discarded()
   }
 
   return (
@@ -230,9 +258,11 @@ export function SheetShell({
           asking={asking}
           onKeep={() => setAsking(false)}
           onDiscard={() => {
+            discarding()
             setAsking(false)
             onClose()
           }}
+          onLeaving={discarding}
           onLeft={() => {
             setAsking(false)
             if (openRef.current) onClose()
@@ -251,12 +281,15 @@ export function SheetShell({
  * address), and those must go through.
  */
 function DiscardGuard({
+  onLeaving,
   onLeft,
   ...props
 }: {
   asking: boolean
   onKeep: () => void
   onDiscard: () => void
+  /** Discard confirmed over a Back, which goes on now. */
+  onLeaving: () => void
   /** Back went through: close the sheet too if it is still open. */
   onLeft: () => void
 }) {
@@ -264,7 +297,7 @@ function DiscardGuard({
   // specimens, and component tests.
   const router = useRouter({ warn: false }) as unknown
   return router ? (
-    <BackGuard {...props} onLeft={onLeft} />
+    <BackGuard {...props} onLeaving={onLeaving} onLeft={onLeft} />
   ) : (
     <DiscardDialog {...props} />
   )
@@ -278,11 +311,13 @@ function BackGuard({
   asking,
   onKeep,
   onDiscard,
+  onLeaving,
   onLeft,
 }: {
   asking: boolean
   onKeep: () => void
   onDiscard: () => void
+  onLeaving: () => void
   onLeft: () => void
 }) {
   const router = useRouter()
@@ -294,6 +329,25 @@ function BackGuard({
     enableBeforeUnload: false,
   })
   const blocked = blocker.status === 'blocked'
+  // A Back still waiting on the dialog when the guard goes, because nothing
+  // in the sheet is left to lose (New Job's booking kept on the phone
+  // meanwhile, or the sheet closed on its job), goes on: the person asked
+  // for it, and the browser has moved already. Left waiting, the router
+  // never heard of it, and the next Back skipped a page. One already
+  // answered (Keep editing, Discard) is settled, and this changes nothing.
+  // Only as the guard goes: a second Back over the first leaves the first
+  // as the router has it, or the router and the browser part ways.
+  const last = useRef(blocker)
+  useLayoutEffect(() => {
+    last.current = blocker
+  })
+  useLayoutEffect(
+    () => () => {
+      const now = last.current
+      if (now.status === 'blocked') now.proceed()
+    },
+    [],
+  )
   return (
     <DiscardDialog
       asking={asking || blocked}
@@ -308,7 +362,9 @@ function BackGuard({
         }
         // Back goes on — and a sheet opened from state rather than the
         // address (New Job) is still open on the page Back lands on, with
-        // the change in it, so it is closed once the move has landed.
+        // the change in it, so it is closed once the move has landed. The
+        // forms in it hear of the discard now, not then.
+        onLeaving()
         const stop = router.subscribe('onResolved', () => {
           stop()
           onLeft()

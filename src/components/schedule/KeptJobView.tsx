@@ -195,6 +195,7 @@ export function KeptJobView({
   timezone,
   roster,
   head = NO_HEAD,
+  outbox,
 }: {
   job: DayRow
   /** When the day was last known right (`keeper.findDayRow`). */
@@ -206,8 +207,16 @@ export function KeptJobView({
   /** What the live sheet's head would show that the day doesn't say
    * (`useKeptJob`). */
   head?: KeptJobHead
+  /**
+   * A booking on this phone, not sent yet (lib/outbox/), drawn from its own
+   * row (`outboxRow`): its chip in the status pill's place, and what it
+   * says of itself (where it is, why it hasn't gone, or why it needs a
+   * look) in the kept copy's line's. That line says nothing of the line,
+   * so the sheet's can't-reach notice stays.
+   */
+  outbox?: { chip: ReactNode; inset: ReactNode }
 }) {
-  useShowsKept(true)
+  useShowsKept(outbox === undefined)
   const { readOnly, clientNumber } = head
   // Drawn only in the browser, after a wait or with the line down, so the
   // phone's clock gives today here.
@@ -276,7 +285,9 @@ export function KeptJobView({
       <div className="mt-2 flex items-center gap-2">
         {/* As wide as the live sheet's status menu where it has one, so the
             date beside it wraps where the live one does. */}
-        {readOnly ? (
+        {outbox ? (
+          <UnseenMenu>{outbox.chip}</UnseenMenu>
+        ) : readOnly ? (
           <StatusPill status={job.status} />
         ) : (
           <UnseenMenu>
@@ -426,15 +437,19 @@ export function KeptJobView({
 
       {/* Why it can't be changed, under who to call: everything above it
           stays where the live sheet has it. */}
-      <p className="mt-3 flex items-start gap-2 rounded-xl bg-surface-2 px-3 py-2 text-caption text-ink-2">
-        <WifiOff
-          aria-hidden
-          size={14}
-          strokeWidth={2}
-          className="mt-0.5 shrink-0"
-        />
-        {keptJobInset(down, formatUpdated(asOf, timezone, todayKey))}
-      </p>
+      {outbox ? (
+        outbox.inset
+      ) : (
+        <p className="mt-3 flex items-start gap-2 rounded-xl bg-surface-2 px-3 py-2 text-caption text-ink-2">
+          <WifiOff
+            aria-hidden
+            size={14}
+            strokeWidth={2}
+            className="mt-0.5 shrink-0"
+          />
+          {keptJobInset(down, formatUpdated(asOf, timezone, todayKey))}
+        </p>
+      )}
 
       {job.notePreview && (
         <Section label="Note">

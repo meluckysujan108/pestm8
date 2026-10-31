@@ -11,7 +11,6 @@ import {
   isStale,
 } from './outboxSet'
 import {
-  adoptChange,
   answeredChange,
   beginEditChange,
   beginSendChange,
@@ -21,9 +20,12 @@ import {
   confirmStaleChange,
   discardChange,
   endEditChange,
+  forgetGivenUp,
   forgetSentChange,
+  giveUpKeep,
   idbOutboxBackend,
   keepOutboxItem,
+  localNotesWork,
   markSessionEnded,
   newRequestIdChange,
   onOutboxChanged,
@@ -540,6 +542,116 @@ describe('keeping a booking', () => {
     expect(outboxEpoch()).toBe(backend.owner?.epoch)
     expect(await keepOutboxItem(itemFor('u1'))).toBe('kept')
   })
+
+  test('a keep given up on is refused in its own transaction, however late it gets there, and says so when it does', async () => {
+    const backend = await outboxOf('u1')
+    await pageFor(backend, 'u1')
+    const item = itemFor('u1')
+    const real = backend.keep.bind(backend)
+    let go: () => void = () => {}
+    const reached = new Promise<void>((resolve) => {
+      go = resolve
+    })
+    backend.keep = (epoch, kept, wanted) =>
+      reached.then(() => real(epoch, kept, wanted))
+    const landed: Array<string> = []
+    const keeping = keepOutboxItem(item, (result) => landed.push(result))
+    // New Job's straight call answered: the keep still on its way.
+    giveUpKeep(item.localId)
+    go()
+    expect(await keeping).toBe('refused')
+    expect(landed).toEqual(['refused'])
+    expect(backend.items.has(item.localId)).toBe(false)
+    // Another booking's keep is no business of it.
+    expect(await keepOutboxItem(itemFor('u1'))).toBe('kept')
+  })
+
+  test('a booking given up is noted in localStorage too, at once: nothing shows or sends it until New Job has taken it off, and a keep of it is still refused after', async () => {
+    const backend = await outboxOf('u1')
+    await pageFor(backend, 'u1')
+    const given = itemFor('u1')
+    const other = itemFor('u1')
+    // Its keep had passed its check before New Job gave it up.
+    expect(await keepOutboxItem(given)).toBe('kept')
+    expect(await keepOutboxItem(other)).toBe('kept')
+    giveUpKeep(given.localId)
+    expect(
+      JSON.parse(storage.getItem('pestm8-outbox-given-up') ?? '[]'),
+    ).toEqual([given.localId])
+    expect(stillKept(given)).toBe(false)
+    expect(stillKept(other)).toBe(true)
+    const read = await readOutboxNow()
+    expect(read !== 'error' && read.items.map((i) => i.localId)).toEqual([
+      other.localId,
+    ])
+    // Taken off, or left needing a look where it shows: no longer noted.
+    forgetGivenUp(given.localId)
+    expect(storage.getItem('pestm8-outbox-given-up')).toBeNull()
+    expect(stillKept(given)).toBe(true)
+    expect(await keepOutboxItem(given)).toBe('refused')
+  })
+
+  test('the next page load deletes a booking given up that the last one never took off, and forgets it; nothing else', async () => {
+    const backend = await outboxOf('u1')
+    await pageFor(backend, 'u1')
+    const given = itemFor('u1')
+    const other = itemFor('u1')
+    expect(await keepOutboxItem(given)).toBe('kept')
+    expect(await keepOutboxItem(other)).toBe('kept')
+    giveUpKeep(given.localId)
+    // The page closed before its sheet took it off.
+    await pageFor(backend, 'u1')
+    expect(backend.items.has(given.localId)).toBe(false)
+    expect(backend.items.has(other.localId)).toBe(true)
+    expect(storage.getItem('pestm8-outbox-given-up')).toBeNull()
+  })
+
+  test('whether localStorage takes the page’s notes now: tried with one of its own, never left behind', () => {
+    expect(localNotesWork()).toBe(true)
+    expect(storage.length).toBe(0)
+    const setItem = vi.spyOn(storage, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError')
+    })
+    expect(localNotesWork()).toBe(false)
+    setItem.mockRestore()
+    vi.stubGlobal('localStorage', undefined)
+    expect(localNotesWork()).toBe(false)
+  })
+
+  test('IndexedDB asks the same in the transaction, just before it writes', async () => {
+    vi.stubGlobal('indexedDB', new FakeIndexedDb())
+    const claimed = await idbOutboxBackend.claim(personOf('u1'), NOW)
+    if (claimed === 'error') throw new Error('claim failed')
+    const item = itemFor('u1')
+    expect(
+      await idbOutboxBackend.keep(claimed.owner.epoch, item, () => false),
+    ).toBe('refused')
+    expect(await idbOutboxBackend.peek()).toMatchObject({ items: [] })
+    expect(
+      await idbOutboxBackend.keep(claimed.owner.epoch, item, () => true),
+    ).toBe('kept')
+  })
+
+  test('a keep that answers after STORE_OP_MS is an error then, and what it came to once it lands', async () => {
+    const backend = await outboxOf('u1')
+    await pageFor(backend, 'u1')
+    vi.useFakeTimers()
+    const real = backend.keep.bind(backend)
+    backend.keep = (epoch, kept, wanted) =>
+      new Promise((resolve) => setTimeout(resolve, STORE_OP_MS + 1_000)).then(
+        () => real(epoch, kept, wanted),
+      )
+    const landed: Array<string> = []
+    let result: unknown = 'pending'
+    void keepOutboxItem(itemFor('u1'), (r) => landed.push(r)).then((r) => {
+      result = r
+    })
+    await vi.advanceTimersByTimeAsync(STORE_OP_MS)
+    expect(result).toBe('error')
+    expect(landed).toEqual([])
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(landed).toEqual(['kept'])
+  })
 })
 
 describe('a change to an item', () => {
@@ -693,28 +805,6 @@ describe('a change to an item', () => {
         state: 'sending',
       })
     })
-  })
-
-  test('adopt: only a waiting item never tried, which New Job’s own late call becomes', async () => {
-    const phone = await phoneWith(itemFor('u1'))
-    expect(await phone.change(adoptChange(NOW - 500, NOW))).toMatchObject({
-      state: 'sending',
-      attempts: 1,
-      lastAttemptAt: NOW - 500,
-      sentKinds: ['job'],
-    })
-    const tried = await phoneWith(itemFor('u1', { attempts: 1 }))
-    expect(await tried.change(adoptChange(NOW, NOW))).toBe('refused')
-    // Marked as needing a look before any try (its first visit gone by).
-    const looked = await phoneWith(
-      itemFor('u1', {
-        state: 'needsLook',
-        problem: { code: 'FIRST_VISIT_PAST' },
-      }),
-    )
-    expect(await looked.change(adoptChange(NOW, NOW))).toBe('refused')
-    const foreign = await phoneWith(itemFor('u1', { v: OUTBOX_V + 1 }))
-    expect(await foreign.change(adoptChange(NOW, NOW))).toBe('refused')
   })
 
   test('answered, unlock and a new request id: only on a locked item', async () => {

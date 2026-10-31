@@ -27,6 +27,18 @@ import type { Id } from '../convex/_generated/dataModel'
 
 const TZ = 'Australia/Perth'
 
+/**
+ * What Book job says with no signal (NewJobSheet.tsx `bookingCaption`): kept
+ * on the phone in a build with the outbox switched on
+ * (`VITE_PESTM8_OUTBOX=on`, served through `E2E_BASE_URL`), and as it always
+ * said in Playwright's own build, which has no flag until the outbox is
+ * switched on for good.
+ */
+const BOOKING_NO_SIGNAL =
+  process.env.VITE_PESTM8_OUTBOX === 'on'
+    ? 'No signal — the booking is kept on this phone and goes when PestM8 is open with signal.'
+    : 'No signal — the booking goes when you have signal. Keep PestM8 open until then.'
+
 /** Further on than KEPT_PAGE_AGE_MS (src/lib/offline/useKept.ts), so the
  * page the service worker serves counts as its own copy (keptCopy.spec.ts). */
 const PAGE_AGE_MS = 3 * 60_000
@@ -254,11 +266,7 @@ test('with no signal, the same search runs over the copy kept on the phone, and 
     await add.click()
     await expect(picker).toBeHidden()
     await expect(sheet.getByLabel('Phone (optional)')).toHaveValue(UNKNOWN)
-    await expect(
-      sheet.getByText(
-        'No signal — the booking goes when you have signal. Keep PestM8 open until then.',
-      ),
-    ).toBeVisible()
+    await expect(sheet.getByText(BOOKING_NO_SIGNAL)).toBeVisible()
   } finally {
     await context.setOffline(false)
   }

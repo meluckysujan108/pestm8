@@ -687,6 +687,24 @@ const PLAN = {
       await p.waitForTimeout(300)
     },
   },
+  // Where the booking would be kept on the phone (lib/outbox/): its own
+  // words above Book job, with no signal and with PestM8 not answering.
+  'newjob-kept-no-signal': {
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Book job' }).scrollIntoViewIfNeeded()
+      await p.waitForTimeout(300)
+    },
+  },
+  'newjob-kept-unreachable': {
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Book job' }).scrollIntoViewIfNeeded()
+      await p.waitForTimeout(300)
+    },
+  },
+  // Nothing of New Job on the phone, with the line down.
+  'newjob-not-on-phone': { before: async (p) => p.waitForTimeout(600) },
   // Search first (the matching plan's M2, 28 Oct 2026): the caller's email
   // finds her site, the list ending with New site for her.
   'newjob-picker-email-match': {
@@ -960,6 +978,18 @@ const PLAN = {
     before: async (p) => p.waitForTimeout(500),
   },
   'schedule-not-kept-day': {},
+  // A day's bookings on the phone, not sent yet: one waiting and one
+  // sending under the cards; one sent and drawn as its job in its slot; a
+  // day with nothing but them; and a desktop's agenda, drawn from the
+  // outbox itself. Check the chips and the heading don't wrap.
+  'schedule-outbox-day': { full: true },
+  'schedule-outbox-latched': { full: true },
+  'schedule-outbox-only': { full: true },
+  'agenda-outbox': {
+    full: true,
+    viewport: { width: 760, height: 900 },
+    before: async (p) => p.waitForTimeout(900),
+  },
   'schedule-not-kept-page': { before: async (p) => p.waitForTimeout(300) },
   // A job opened with no signal, from its day, and one no day lists; the
   // Clients page from the copy, with the note under the search box; and a

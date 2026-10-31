@@ -2,10 +2,12 @@
  * The Web Locks the outbox holds, so no two tabs of PestM8 act on one
  * booking at once, and no booking goes while an account switch is starting.
  *
- * - **One per booking**, `pestm8-outbox:item:{localId}`: taken before a send,
- *   a settle or an adoption, and held for as long as the call it covers is
- *   out. Taken only if it is free (`ifAvailable`), never waited for: a
- *   frozen tab holding one blocks that booking alone, and every other goes.
+ * - **One per booking**, `pestm8-outbox:item:{localId}`: taken before a send
+ *   or a settle, and held for as long as the call it covers is out; and by
+ *   New Job before it keeps one, until it is sent or taken off the phone
+ *   again (book.ts). Taken only if it is free (`ifAvailable`), never waited
+ *   for: a frozen tab holding one blocks that booking alone, and every other
+ *   goes.
  * - **The send lock**, `pestm8-outbox:send`: every send holds it shared, and
  *   an account switch starting takes it exclusively (switchGate.ts). While
  *   that is asked for, no tab can start a send, and a send already out

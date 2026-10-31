@@ -25,6 +25,10 @@ export default defineConfig({
     'import.meta.env.VITE_CONVEX_SITE_URL': JSON.stringify(
       'https://harness.invalid',
     ),
+    // Keeping bookings on the phone (lib/outbox/) switched on, so New Job's
+    // words for a booking kept are seen. Nothing is kept by a specimen with
+    // nobody signed in, which is every one but those that sign someone in.
+    'import.meta.env.VITE_PESTM8_OUTBOX': JSON.stringify('on'),
   },
   resolve: {
     alias: [
