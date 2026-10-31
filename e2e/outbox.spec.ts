@@ -12,6 +12,7 @@ import {
 import {
   addDaysToKey,
   startOfDayInZone,
+  startOfWeekKey,
   todayKeyInZone,
 } from '../convex/lib/dates'
 import type { Locator, Page, WebSocketRoute } from '@playwright/test'
@@ -64,6 +65,17 @@ function perthDay(offset: number): string {
 
 function perthAt(dayKey: string, hour: number): number {
   return startOfDayInZone(dayKey, TZ) + hour * HOUR
+}
+
+/** The day list's heading, "Sunday 1 November", as keptCopy.spec.ts. */
+function dayHeading(page: Page, dayKey: string) {
+  const label = new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'UTC',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(new Date(`${dayKey}T00:00:00Z`))
+  return page.getByRole('heading', { name: label, level: 2 })
 }
 
 /** An owner with a business, a subcontractor on it, and Arthur Wellard's
@@ -197,6 +209,8 @@ type StoredBooking = {
   state: string
   requestId: string
   attempts: number
+  result: { id: string } | null
+  sentAt: number | null
 }
 
 /** The bookings on the phone, read from IndexedDB. Never throws. */
@@ -253,6 +267,20 @@ const groupHeading = (page: Page, name: string | RegExp) =>
 /** A card, by its client: the open button, which names everything on it. */
 const card = (page: Page, clientName: string) =>
   page.getByRole('button', { name: new RegExp(clientName) })
+
+/** How far below its group's heading `clientName`'s slot starts, or null
+ * while either isn't there. Never throws, for `expect.poll`. */
+async function offsetInGroup(
+  page: Page,
+  heading: string,
+  clientName: string,
+): Promise<number | null> {
+  const box = (locator: Locator) =>
+    locator.boundingBox({ timeout: 1_000 }).catch(() => null)
+  const top = await box(groupHeading(page, heading))
+  const slot = await box(card(page, clientName))
+  return top && slot ? slot.y - top.y : null
+}
 
 /**
  * The page's Convex sockets, its first `jobs:create` sent once with another
@@ -342,7 +370,7 @@ test('booked with no signal: kept on the phone, shown, and once back, the same s
   await waitForKeptCopy(page)
 
   await context.setOffline(true)
-  let before: { y: number; height: number } | null = null
+  let before: number | null = null
   try {
     const sheet = await openNewJob(page)
     // Its own words above Book job: kept on the phone, nothing to keep open.
@@ -369,7 +397,8 @@ test('booked with no signal: kept on the phone, shown, and once back, the same s
     await page.reload()
     await expect(groupHeading(page, '1 job not sent yet')).toBeVisible()
     await expect(card(page, 'Arthur Wellard')).toContainText('Not sent yet')
-    before = await card(page, 'Arthur Wellard').boundingBox()
+    before = await offsetInGroup(page, '1 job not sent yet', 'Arthur Wellard')
+    expect(before).not.toBeNull()
   } finally {
     await context.setOffline(false)
   }
@@ -382,15 +411,29 @@ test('booked with no signal: kept on the phone, shown, and once back, the same s
   await expect(
     page.getByRole('button', { name: /Arthur Wellard/ }),
   ).toHaveCount(1)
-  const after = await arthur.boundingBox()
-  expect(after?.y).toBe(before?.y)
-  expect(after?.height).toBe(before?.height)
   await expect(groupHeading(page, 'Sent')).toBeVisible()
+  // Where it was in its own group: as far below the group's heading, which
+  // now reads Sent. Measured from the heading, not the page: offline every
+  // card's forecast is a placeholder, and back online the forecasts land and
+  // the day's cards above the group (Beatrice, Cedric) grow, moving the whole
+  // group down. Not its height either: Arthur's own forecast lands too, so
+  // its card legitimately grows like theirs.
+  await expect
+    .poll(() => offsetInGroup(page, 'Sent', 'Arthur Wellard'))
+    .toBeCloseTo(before!, 1)
   expect(await jobsFor(s, 'Arthur Wellard')).toHaveLength(1)
 
   // A day tapped and back: the day drawn afresh, the job in its time order.
-  await page.getByRole('button', { name: perthDay(1), exact: true }).click()
-  await page.getByRole('button', { name: perthDay(0), exact: true }).click()
+  // Tomorrow, or yesterday on a Sunday: the strip shows Monday to Sunday.
+  const today = perthDay(0)
+  const otherDay =
+    today === addDaysToKey(startOfWeekKey(today), 6)
+      ? perthDay(-1)
+      : perthDay(1)
+  await page.getByRole('button', { name: otherDay, exact: true }).click()
+  await expect(dayHeading(page, otherDay)).toBeVisible()
+  await page.getByRole('button', { name: today, exact: true }).click()
+  await expect(dayHeading(page, today)).toBeVisible()
   await expect(groupHeading(page, /not sent yet|Sent/)).toHaveCount(0)
   const names = await page
     .getByRole('button', {
@@ -461,7 +504,19 @@ test('a new client booked with no signal: once back, one client, one site, one j
   expect(
     directory.sites.filter((site) => site.clientId === clients[0]._id),
   ).toHaveLength(1)
-  await expect.poll(() => bookingsOnPhone(page)).toEqual([])
+  // Sent by the sender, not the sheet (it closed as kept): the booking stays
+  // on the phone as sent, with its job, for SENT_KEEP_MS (10 minutes,
+  // src/lib/outbox/outboxSet.ts) so its card has time to land, and the
+  // sender's tidy deletes it after that.
+  await expect
+    .poll(() => bookingsOnPhone(page))
+    .toEqual([
+      expect.objectContaining({
+        state: 'sent',
+        result: expect.objectContaining({ id: jobs[0]._id }),
+        sentAt: expect.any(Number),
+      }),
+    ])
 })
 
 test('booked with signal: closed inside the wait as before, keyed, and gone from the phone once sent', async ({
@@ -536,14 +591,23 @@ test('nothing can be kept (the phone’s storage never answers): no signal says 
   page,
   context,
 }) => {
+  // Only the outbox's own database: the kept copy (`pestm8-offline`) is
+  // IndexedDB too, and New Job with no signal is made from it.
   await page.addInitScript(() => {
-    IDBFactory.prototype.open = function () {
+    const realOpen = IDBFactory.prototype.open
+    IDBFactory.prototype.open = function (
+      this: IDBFactory,
+      name: string,
+      version?: number,
+    ) {
+      if (name !== 'pestm8-outbox') return realOpen.call(this, name, version)
       return {} as IDBOpenDBRequest
     }
   })
   const s = await business('outbox-no-storage')
   await signInViaUi(page, s.owner.email)
   await openSchedule(page, s.slug)
+  await waitForKeptCopy(page)
 
   await context.setOffline(true)
   let sheet: Locator
