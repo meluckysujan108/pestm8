@@ -135,3 +135,21 @@ export const REPORT_PILL = {
 
 /** Overdue: ink, no hue (see `--overdue` in styles.css). */
 export const OVERDUE_CHIP = 'bg-overdue text-overdue-ink'
+
+/**
+ * A booking on the phone, not sent yet, in the job number's and the status
+ * pill's place on its card (lib/outbox/): "Not sent yet", "Sending…",
+ * "Sent". A quiet grey chip, so it reads as none of a card's other signals:
+ * no border (a bordered tint is a status), no ink fill (Overdue), no amber
+ * (a warning), no dashes (a projection). It is not a status: the booking
+ * has none until the server makes it.
+ */
+export const OUTBOX_CHIP = 'bg-surface-2 text-ink-2'
+
+/**
+ * The same chip when the booking needs a look ("Needs a look"): amber,
+ * bordered, as a row's badge for something that needs doing is
+ * (`RowBadge`), since it can't go until the person changes it.
+ */
+export const OUTBOX_LOOK_CHIP =
+  'border border-amber-line bg-amber-bg text-amber-ink'

@@ -16,10 +16,15 @@ import { isOverdueProjection } from '#/lib/jobCardActions'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { RecurringDueNote } from './RecurringDueNote'
 import { WeatherCredit } from './WeatherCredit'
+import { OutboxGroup } from './OutboxGroup'
+import { useOutboxDay, useOutboxPlaces } from '#/lib/outbox/useOutbox'
 import { SCHEDULE_VIEW_OPTIONS } from '#/lib/scheduleViews'
 import type { ScheduleView } from '#/lib/scheduleViews'
 import type { JobRow } from './JobCard'
 import type { Id } from '../../../convex/_generated/dataModel'
+
+/** The agenda's cards: one column, two from xl. */
+const AGENDA_GRID = 'grid grid-cols-1 items-stretch gap-3 xl:grid-cols-2'
 
 /**
  * Desktop-only (§2.4) right pane beside MonthCalendarCard. Status and staff
@@ -39,6 +44,7 @@ export function DayAgendaPanel({
   view,
   onViewChange,
   onOpenJob,
+  onOpenItem,
   onNewJob,
   businessSlug,
   recurringDue = 0,
@@ -57,6 +63,8 @@ export function DayAgendaPanel({
   view: ScheduleView
   onViewChange: (view: ScheduleView) => void
   onOpenJob: (jobId: string) => void
+  /** Opens a booking on this phone, not sent yet (`?outboxId=`). */
+  onOpenItem: (localId: string) => void
   /** New Job, offered on an empty day. */
   onNewJob?: () => void
   businessSlug: string
@@ -76,11 +84,30 @@ export function DayAgendaPanel({
     `${mode ?? ''}:${acting.membershipId}`,
   )
 
+  // The day's bookings on this phone, not sent yet, as the phone's list has
+  // them: a group under the cards, each keeping its slot until the day is
+  // drawn afresh. Drawn on the panel's first draw: it mounts after an effect
+  // and never hydrates. The header's counts stay the server's.
+  const outboxDay = useOutboxDay({
+    businessId,
+    dayShown: selectedKey,
+    timezone,
+    rows: jobs,
+    drawsCards: filteredJobs.length > 0,
+    redrawKey: `${selectedKey}|${status}|${staffId}|${mode ?? ''}|${acting.membershipId}`,
+    allStatuses: status === 'all',
+    staffId,
+    mineOnly: mode === 'mine' ? acting.membershipId : null,
+  })
+  const outboxPlaces = useOutboxPlaces(businessId, selectedKey, timezone)
+  const listedJobs = filteredJobs.filter(
+    (job) => !outboxDay.hidden.has(job._id),
+  )
   const weather = useWeather(
     businessId,
     state,
     todayKey,
-    jobs.map((j) => ({
+    [...jobs, ...outboxPlaces].map((j) => ({
       dayKey: selectedKey,
       suburb: j.suburb,
       postcode: j.postcode ?? '',
@@ -90,8 +117,10 @@ export function DayAgendaPanel({
   // Travel hints read lat/lng out of the RAW entries, not the rendered cell —
   // the coordinates are geography, unrelated to whether a forecast resolved.
   // Measured over the work still ahead only — see `jobsAhead`.
-  const travel = travelHintsFor(jobsAhead(filteredJobs), (job) =>
-    weather.byKey[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)],
+  const travel = travelHintsFor(
+    jobsAhead(listedJobs),
+    (job) =>
+      weather.byKey[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)],
   )
 
   // Three numbers, never one: booked work, projected visits due today, and
@@ -163,7 +192,7 @@ export function DayAgendaPanel({
         />
       )}
 
-      {jobs.length === 0 ? (
+      {jobs.length === 0 && outboxDay.slots.length === 0 ? (
         <EmptyState
           title={mode === 'mine' ? 'Nothing booked for you' : 'Nothing booked'}
           body="This day is clear."
@@ -173,7 +202,7 @@ export function DayAgendaPanel({
             )
           }
         />
-      ) : filteredJobs.length === 0 ? (
+      ) : filteredJobs.length === 0 && outboxDay.slots.length === 0 ? (
         <NoMatches
           hint="No jobs on this day match these filters."
           clearLabel="Clear filters"
@@ -183,22 +212,48 @@ export function DayAgendaPanel({
           }}
         />
       ) : (
-        <div className="grid grid-cols-1 items-stretch gap-3 xl:grid-cols-2">
-          {filteredJobs.map((job) => (
-            <JobCard
-              key={job._id}
-              job={job}
-              travel={travel[job._id]}
-              weather={weather.cell(job.suburb, job.postcode ?? '', selectedKey)}
-              timezone={timezone}
-              onOpen={onOpenJob}
-              hideTechnician
-              dayShown={selectedKey}
-            />
-          ))}
-          {Object.keys(weather.byKey).length > 0 && (
-            <WeatherCredit className="xl:col-span-2" />
+        <div>
+          {listedJobs.length > 0 && (
+            <div className={AGENDA_GRID}>
+              {listedJobs.map((job) => (
+                <JobCard
+                  key={job._id}
+                  job={job}
+                  travel={travel[job._id]}
+                  weather={weather.cell(
+                    job.suburb,
+                    job.postcode ?? '',
+                    selectedKey,
+                  )}
+                  timezone={timezone}
+                  onOpen={onOpenJob}
+                  hideTechnician
+                  dayShown={selectedKey}
+                />
+              ))}
+              {outboxDay.slots.length === 0 &&
+                Object.keys(weather.byKey).length > 0 && (
+                  <WeatherCredit className="xl:col-span-2" />
+                )}
+            </div>
           )}
+          {/* After the grid, never in it (the phone's list has why). */}
+          <OutboxGroup
+            day={outboxDay}
+            timezone={timezone}
+            dayShown={selectedKey}
+            onOpenItem={onOpenItem}
+            onOpenJob={onOpenJob}
+            weatherOf={(row) =>
+              weather.cell(row.suburb, row.postcode ?? '', selectedKey)
+            }
+            grid={AGENDA_GRID}
+            className={listedJobs.length > 0 ? 'mt-6' : ''}
+          />
+          {(outboxDay.slots.length > 0 || listedJobs.length === 0) &&
+            Object.keys(weather.byKey).length > 0 && (
+              <WeatherCredit className="mt-3" />
+            )}
         </div>
       )}
     </div>

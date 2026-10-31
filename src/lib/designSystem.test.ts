@@ -195,6 +195,8 @@ describe('the guide names every shared utility and component', () => {
     'shell/Pending.tsx',
     'schedule/KeptJobView.tsx',
     'schedule/NotKeptDay.tsx',
+    'schedule/OutboxChip.tsx',
+    'schedule/OutboxGroup.tsx',
     'schedule/ScheduleNotKept.tsx',
     'clients/KeptClientView.tsx',
     'settings/ConfirmDialog.tsx',

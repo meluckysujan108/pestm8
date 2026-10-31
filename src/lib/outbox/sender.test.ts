@@ -626,7 +626,7 @@ describe('from the sheet', () => {
     expect(stored(p, item)?.state).toBe('sent')
   })
 
-  test('a refusal that made nothing, with the sheet still open: gone from the phone, and the sheet’s to show', async () => {
+  test('a refusal that made nothing, with the sheet still open: the sheet’s to show, the booking needing a look until the sheet takes it off the phone', async () => {
     const item = waiting()
     const p = await phone()
     const lock = await takeLock(p.locks.forTab('tab-a'), itemLock(item.localId))
@@ -637,8 +637,14 @@ describe('from the sheet', () => {
     await flush()
     const refusal = new ConvexError('INVALID_ASSIGNEE')
     p.convex.calls[0].reject(refusal)
-    expect(await outcome).toEqual({ outcome: 'refused', error: refusal })
-    expect(stored(p, item)).toBeUndefined()
+    const heard = await outcome
+    // Never deleted here: safe whatever the sheet does next (book.ts).
+    const left = stored(p, item)
+    expect(left).toMatchObject({
+      state: 'needsLook',
+      problem: { code: 'INVALID_ASSIGNEE' },
+    })
+    expect(heard).toEqual({ outcome: 'refused', error: refusal, left })
     handle.release()
   })
 
@@ -660,7 +666,7 @@ describe('from the sheet', () => {
     })
   })
 
-  test('OUTBOX_PAUSED with the sheet open: gone from the phone, for the sheet to send straight', async () => {
+  test('OUTBOX_PAUSED with the sheet open: held on the phone, for the sheet to take off it and send straight', async () => {
     const item = waiting()
     const p = await phone()
     const lock = await takeLock(p.locks.forTab('tab-a'), itemLock(item.localId))
@@ -669,9 +675,15 @@ describe('from the sheet', () => {
     const handle = p.sender.watchAnswer(item.localId)
     const outcome = p.sender.sendHeld(item.localId, lock!)
     await flush()
-    p.convex.calls[0].reject(new ConvexError('OUTBOX_PAUSED'))
-    expect(await outcome).toEqual({ outcome: 'paused' })
-    expect(stored(p, item)).toBeUndefined()
+    const paused = new ConvexError('OUTBOX_PAUSED')
+    p.convex.calls[0].reject(paused)
+    const heard = await outcome
+    const left = stored(p, item)
+    expect(left).toMatchObject({
+      state: 'waiting',
+      holdUntil: NOW + PAUSED_HOLD_MS,
+    })
+    expect(heard).toEqual({ outcome: 'paused', error: paused, left })
     handle.release()
   })
 
@@ -734,7 +746,7 @@ describe('from the sheet', () => {
     handle.release()
   })
 
-  test('a refusal in time is waited for until it is gone from the phone, however close to the end it came', async () => {
+  test('a refusal in time is waited for until the phone has it as needing a look, however close to the end it came', async () => {
     const item = waiting()
     const p = await phone()
     const lock = await takeLock(p.locks.forTab('tab-a'), itemLock(item.localId))
@@ -748,7 +760,7 @@ describe('from the sheet', () => {
     })
     await flush()
     await vi.advanceTimersByTimeAsync(ANSWER_WAIT_MS - 100)
-    // Storage slow to delete it.
+    // Storage slow to write it.
     const realUpdate = p.backend.update.bind(p.backend)
     p.backend.update = (epoch, localId, change) =>
       new Promise((resolve) => setTimeout(resolve, 2_000)).then(() =>
@@ -760,8 +772,9 @@ describe('from the sheet', () => {
     expect(answered).toBeNull()
     await vi.advanceTimersByTimeAsync(1_000)
     await flush()
-    expect(answered).toEqual({ outcome: 'refused', error: refusal })
-    expect(stored(p, item)).toBeUndefined()
+    const left = stored(p, item)
+    expect(left).toMatchObject({ state: 'needsLook' })
+    expect(answered).toEqual({ outcome: 'refused', error: refusal, left })
     handle.release()
   })
 })

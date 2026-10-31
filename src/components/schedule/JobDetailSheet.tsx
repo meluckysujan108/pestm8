@@ -41,6 +41,8 @@ import { prepareUpload } from '#/lib/images/prepareUpload'
 import { personLabel, roleLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
 import { KeptJobView, NotKeptJob, useKeptJob } from './KeptJobView'
+import { OutboxItemBody } from './OutboxItemSheet'
+import { useOutboxReadable } from '#/lib/outbox/useOutbox'
 import { INVOICED_LOCKED, SOMEONE_ELSES_JOB } from '#/lib/offline/keptJob'
 import { useHandOverBody } from '#/lib/offline/useKept'
 import { JobTimeFields, useJobTimes } from './JobTimeFields'
@@ -155,6 +157,7 @@ export function JobDetailSheet({
   businessSlug,
   timezone,
   jobId,
+  outboxId = null,
   canReassign,
   canDelete,
   onClose,
@@ -163,14 +166,23 @@ export function JobDetailSheet({
   businessSlug: string
   timezone: string
   jobId: string | null
+  /**
+   * A booking on this phone, not sent yet (`?outboxId=`, its `localId`),
+   * when no job is open: opened only once the page has hydrated and the
+   * phone's bookings have been read, so the server and a hydrating render
+   * draw the sheet closed.
+   */
+  outboxId?: string | null
   canReassign: boolean
   /** `clients.manage`: the owner and contractors. Offers Delete on a job
    * they may edit (the server's `canEdit`). */
   canDelete: boolean
   onClose: () => void
 }) {
+  const outboxReadable = useOutboxReadable()
+  const itemOpen = jobId === null && outboxId !== null && outboxReadable
   return (
-    <SheetShell open={jobId !== null} onClose={onClose}>
+    <SheetShell open={jobId !== null || itemOpen} onClose={onClose}>
 
       {/* Mounted only with a real id, so the query never needs a skip
           sentinel and its key is always well-formed. `key` forces a
@@ -186,6 +198,14 @@ export function JobDetailSheet({
           canReassign={canReassign}
           canDelete={canDelete}
           onClose={onClose}
+        />
+      )}
+      {itemOpen && (
+        <OutboxItemBody
+          key={`outbox:${outboxId}`}
+          businessId={businessId}
+          localId={outboxId}
+          timezone={timezone}
         />
       )}
     </SheetShell>

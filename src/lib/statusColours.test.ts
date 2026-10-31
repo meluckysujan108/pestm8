@@ -5,6 +5,8 @@ import { jobStatus } from '../../convex/schema'
 import { contrastRatio } from './contrast'
 import {
   JOB_STATUS,
+  OUTBOX_CHIP,
+  OUTBOX_LOOK_CHIP,
   OVERDUE_CHIP,
   REPORT_PILL,
   TONE_CHART,
@@ -128,6 +130,31 @@ describe('status colours in the stylesheet', () => {
   test('amber keeps meaning "warning" and is none of the status hues', () => {
     expect(Object.values(TONE_PILL).join(' ')).not.toContain('amber')
     expect(OVERDUE_CHIP).not.toContain('amber')
+  })
+})
+
+describe('a booking on the phone, not sent yet', () => {
+  for (const [theme, vars] of Object.entries(THEMES)) {
+    // 12px semibold: under "large", so 4.5:1.
+    test(`${theme}: its chip’s word clears 4.5:1 on its fill`, () => {
+      expect(
+        contrastRatio(vars['ink-2'], vars['surface-2']),
+      ).toBeGreaterThanOrEqual(4.5)
+    })
+  }
+
+  test('reads as none of a card’s other signals: no border, no hue, no ink fill, no dashes', () => {
+    expect(OUTBOX_CHIP).toBe('bg-surface-2 text-ink-2')
+    expect(OUTBOX_CHIP).not.toMatch(/border|amber|dashed|overdue|bg-ink/)
+    for (const pill of Object.values(TONE_PILL)) {
+      expect(OUTBOX_CHIP).not.toBe(pill)
+    }
+  })
+
+  test('“Needs a look” is the warning’s amber, bordered, as a row’s badge for something to do', () => {
+    expect(OUTBOX_LOOK_CHIP).toBe(
+      'border border-amber-line bg-amber-bg text-amber-ink',
+    )
   })
 })
 

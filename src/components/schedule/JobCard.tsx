@@ -17,7 +17,9 @@ import { dayKeyOf } from '../../../convex/lib/dates'
 import { contactToCall } from '../../../convex/lib/siteContact'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { WeatherStrip } from './WeatherStrip'
+import { OutboxChip } from './OutboxChip'
 import type { JobStatus } from '#/components/primitives/StatusPill'
+import type { OutboxChip as OutboxChipKind } from '#/lib/outbox/outboxRules'
 import type { WeatherCell } from '#/lib/weather'
 import type { Interval } from '../../../convex/lib/recurrence'
 import { everyoneOnJob, firstName, namesOf } from '#/lib/jobPeople'
@@ -104,6 +106,7 @@ export function JobCard({
   hideTechnician = false,
   hideActions = false,
   dayShown,
+  outbox,
 }: {
   job: JobRow
   /** The forecast for the job's suburb, where there is one — within the
@@ -134,6 +137,13 @@ export function JobCard({
    * that span weeks) the card always says its date.
    */
   dayShown?: string
+  /**
+   * A booking on the phone, not sent yet (lib/outbox/), drawn as the card
+   * its job will be (`outboxRow`): the chip where the job number and the
+   * status pill are, in the same row, and its own way open. Everything else
+   * is the card's, the series' interval on the right included.
+   */
+  outbox?: { chip: OutboxChipKind; lineLive: boolean; onOpen: () => void }
 }) {
   /**
    * The card is a frame, not a button. Opening the job is one button inside
@@ -220,7 +230,7 @@ export function JobCard({
       <div className="flex min-w-0 flex-1 flex-col">
         <button
           type="button"
-          onClick={() => onOpen(job._id)}
+          onClick={() => (outbox ? outbox.onOpen() : onOpen(job._id))}
           className="job-card-open flex min-w-0 flex-1 flex-col gap-3 rounded-2xl p-4 pl-6 text-left"
         >
           {/* A fixed height, so the corner Map below lines up with the suburb
@@ -229,12 +239,18 @@ export function JobCard({
             {/* Keeps its width: on a narrow card the indicator gives way, and
                 truncates, rather than the status pill running over it. */}
             <span className="flex shrink-0 items-center gap-2">
-              {job.jobNumber !== undefined && (
-                <span className="shrink-0 font-mono text-caption font-bold tabular-nums text-muted">
-                  #{job.jobNumber}
-                </span>
+              {outbox ? (
+                <OutboxChip chip={outbox.chip} lineLive={outbox.lineLive} />
+              ) : (
+                <>
+                  {job.jobNumber !== undefined && (
+                    <span className="shrink-0 font-mono text-caption font-bold tabular-nums text-muted">
+                      #{job.jobNumber}
+                    </span>
+                  )}
+                  <StatusPill status={job.status} />
+                </>
               )}
-              <StatusPill status={job.status} />
             </span>
             {/* Where the start time was: the time is in the Time row below,
                 and the corner says instead whether this comes round again.

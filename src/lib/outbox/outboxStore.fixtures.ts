@@ -87,14 +87,12 @@ export class MemoryOutboxBackend implements OutboxBackend {
   keep(
     epoch: string,
     item: OutboxItem,
+    wanted: () => boolean = () => true,
   ): Promise<'kept' | 'exists' | 'refused' | 'error'> {
     return this.run('keep', () => {
-      const decided = keepDecision(
-        this.owner,
-        epoch,
-        item,
-        this.items.get(item.localId),
-      )
+      const decided = !wanted()
+        ? 'refused'
+        : keepDecision(this.owner, epoch, item, this.items.get(item.localId))
       if (decided === 'kept')
         this.items.set(item.localId, structuredClone(item))
       return decided
