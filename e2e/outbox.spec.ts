@@ -519,7 +519,7 @@ test('a new client booked with no signal: once back, one client, one site, one j
     ])
 })
 
-test('booked with signal: closed inside the wait as before, keyed, and gone from the phone once sent', async ({
+test('booked with signal: closed inside the wait as before, keyed, and on the phone as sent until SENT_KEEP_MS', async ({
   page,
 }) => {
   const s = await business('outbox-online')
@@ -551,6 +551,19 @@ test('booked with signal: closed inside the wait as before, keyed, and gone from
   expect(jobs[0].clientRequestId).toMatch(
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
   )
+  // Sent by the sheet's own send, which deletes nothing either: the booking
+  // stays on the phone as sent, with its job, for SENT_KEEP_MS (10 minutes,
+  // src/lib/outbox/outboxSet.ts), and the sender's tidy deletes it after
+  // that.
+  await expect
+    .poll(() => bookingsOnPhone(page))
+    .toEqual([
+      expect.objectContaining({
+        state: 'sent',
+        result: expect.objectContaining({ id: jobs[0]._id }),
+        sentAt: expect.any(Number),
+      }),
+    ])
 })
 
 test('refused inside the wait with signal: FormAlert as before, nothing left on the phone, and a retry books once', async ({
