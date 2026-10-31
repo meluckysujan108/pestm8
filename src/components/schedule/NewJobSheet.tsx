@@ -504,6 +504,7 @@ function NewJobForm({
   const hydrated = useHydrated()
   const lineDown = useLineDown()
   const lineDownId = useId()
+  const clientChoiceId = useId()
   // Whether a booking made now would be kept on the phone: which words go
   // above Book job with the line down, until a press is under way, when
   // they follow where that press's booking is (`saysKept`).
@@ -833,12 +834,16 @@ function NewJobForm({
           New job
         </Drawer.Title>
 
-        {/* A client with no site yet is still a client to add one for. */}
+        {/* A client with no site yet is still a client to add one for. Not a
+            Field: its <label> would name only the first segment. */}
         {directory.clients.length > 0 && (
-          <Field label="Client">
+          <div className="mt-4 flex flex-col gap-1.5">
+            <span id={clientChoiceId} className="section-label">
+              Client
+            </span>
             <Segmented
               kind="choice"
-              label="Client"
+              labelledBy={clientChoiceId}
               // A new site is still an existing client's, so that tab stays
               // chosen; tapping it again leaves the site being added alone.
               // With no site to choose yet, an existing client's job is at a
@@ -857,7 +862,7 @@ function NewJobForm({
                 { value: 'new', label: 'New client' },
               ]}
             />
-          </Field>
+          </div>
         )}
 
         {mode === 'existing' ? (

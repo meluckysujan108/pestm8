@@ -384,13 +384,10 @@ test('with no site in the book, an existing client’s job is at a new site', as
   await expect(
     sheet.getByRole('radio', { name: 'New client', checked: true }),
   ).toBeVisible()
-  // Named "Client Client" by its Field label, so it is found by its text.
-  await sheet.getByRole('radio').filter({ hasText: 'Existing client' }).click()
+  await sheet.getByRole('radio', { name: 'Existing client' }).click()
   // No empty Property picker: New site for, and no way back to a site.
   await expect(
-    sheet
-      .getByRole('radio', { checked: true })
-      .filter({ hasText: 'Existing client' }),
+    sheet.getByRole('radio', { name: 'Existing client', checked: true }),
   ).toBeVisible()
   await expect(sheet.getByLabel('New site for')).toBeVisible()
   await expect(sheet.getByRole('button', { name: 'Property' })).toHaveCount(0)

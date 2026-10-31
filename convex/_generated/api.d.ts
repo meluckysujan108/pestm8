@@ -112,6 +112,7 @@ import type * as lib_richText from "../lib/richText.js";
 import type * as lib_sendLimit from "../lib/sendLimit.js";
 import type * as lib_signatures from "../lib/signatures.js";
 import type * as lib_siteContact from "../lib/siteContact.js";
+import type * as lib_siteWork from "../lib/siteWork.js";
 import type * as lib_svix from "../lib/svix.js";
 import type * as lib_teamRelease from "../lib/teamRelease.js";
 import type * as lib_templateSnapshot from "../lib/templateSnapshot.js";
@@ -274,6 +275,7 @@ declare const fullApi: ApiFromModules<{
   "lib/sendLimit": typeof lib_sendLimit;
   "lib/signatures": typeof lib_signatures;
   "lib/siteContact": typeof lib_siteContact;
+  "lib/siteWork": typeof lib_siteWork;
   "lib/svix": typeof lib_svix;
   "lib/teamRelease": typeof lib_teamRelease;
   "lib/templateSnapshot": typeof lib_templateSnapshot;

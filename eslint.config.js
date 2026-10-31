@@ -82,6 +82,18 @@ const OWNED_PRIMITIVES = [
   },
 ]
 
+/** A <label> names exactly one control, its first: around a group it gives
+ * the first option the caption's name, and a tap on the caption chooses it.
+ * `Field` and `WrappedField` are the sheets' own helpers that render one. */
+const ONE_CONTROL_PER_LABEL = [
+  {
+    selector:
+      'JSXElement[openingElement.name.name=/^(label|Field|WrappedField)$/] JSXElement[openingElement.name.name="Segmented"]',
+    message:
+      'A Segmented inside a <label> takes the label as its first option’s name. Put the caption in a <span id> beside it and pass that id as labelledBy. See docs/design-system.md §4.2.',
+  },
+]
+
 export default [
   ...tanstackConfig,
   {
@@ -106,6 +118,7 @@ export default [
         ...TOKEN_RULES,
         ...NO_DARK_VARIANT,
         ...OWNED_PRIMITIVES,
+        ...ONE_CONTROL_PER_LABEL,
       ],
       // An installed iPhone app draws these as a bare system box titled with
       // the page's address. Asking is ConfirmDialog's job.

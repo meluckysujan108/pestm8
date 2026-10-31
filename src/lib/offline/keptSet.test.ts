@@ -69,7 +69,11 @@ describe('keptQueries', () => {
     const names = keptQueries(B, w).map(({ queryKey }) => queryKey[1])
     expect(names.filter((n) => n === 'jobs:listWeek')).toHaveLength(2)
     expect(names.filter((n) => n === 'jobs:listDay')).toHaveLength(14)
-    expect(new Set(names)).toEqual(new Set(KEPT_FNS))
+    // Not yet what is booked at each site: nothing reads it until New
+    // Job's double-booking check does.
+    expect(new Set(names)).toEqual(
+      new Set(KEPT_FNS.filter((fn) => fn !== 'jobs:openWork')),
+    )
   })
 
   test('hashes to the very entries the loaders and pages use', () => {
@@ -211,6 +215,16 @@ describe('shapeOk', () => {
     expect(shapeOk('clients:directory', { clients: [] })).toBe(false)
     expect(shapeOk('clients:directory', [])).toBe(false)
     expect(shapeOk('memberships:listForBusiness', null)).toBe(false)
+  })
+
+  test('rows and Recurring Jobs for what is booked at each site', () => {
+    expect(shapeOk('jobs:openWork', { rows: [], series: [] })).toBe(true)
+    expect(
+      shapeOk('jobs:openWork', { rows: [], series: [], capped: true }),
+    ).toBe(true)
+    expect(shapeOk('jobs:openWork', { rows: [] })).toBe(false)
+    expect(shapeOk('jobs:openWork', [])).toBe(false)
+    expect(shapeOk('jobs:openWork', null)).toBe(false)
   })
 })
 
