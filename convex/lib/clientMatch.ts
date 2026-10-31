@@ -100,7 +100,7 @@ export type MatchDirectory = {
  * Recurring Job visit and numbered report patches the business row (its job
  * and report numbers), so reading it would re-run every member's whole
  * directory on each. The phone already holds what it needs (`oursFor`); the
- * server's check reads them for itself (lib/ours.ts).
+ * server's check reads the same for the person saving (lib/ours.ts).
  */
 export type OursSource = {
   phones: ReadonlyArray<string>
@@ -150,7 +150,9 @@ export type OursReader = {
  * since any member may save a client with any number, it would let them
  * test a number or an email against the team's. So on their phone another
  * member's number on a client counts as the client's. The server's own
- * check, when a booking saves, leaves out every member's (lib/ours.ts).
+ * check, when a booking saves, works it out for the person saving in just
+ * this way (lib/ours.ts `oursOfCaller`), or whether it refused, or moved a
+ * booking onto a client, would say what the phone keeps quiet.
  */
 export function oursFor(reader: OursReader): OursSource {
   const phones: Array<string> = []
@@ -366,7 +368,7 @@ export type MatchIndexOptions = {
    * as it would dial. */
   areaCode: string
   /** The business's and the team's own numbers and emails to leave out
-   * (`oursFor`, or the server's `oursOf`). `NO_OURS` for none. */
+   * (`oursFor`, or the server's `oursOfCaller`). `NO_OURS` for none. */
   ours: OursSource
 }
 
@@ -877,14 +879,18 @@ export function matchNewSite(
  *     dropped (`nameWords`: "Mrs Smith" is one), not a placeholder, and no
  *     other client's.
  *  3. a client still served: not inactive, not archived. A lead is fine.
- *  4. not one the person already booked past (`dismissed`), nor the one
- *     this resend was already moved onto (`applied`).
+ *  4. not one the person already booked past (`dismissed`), nor, for a new
+ *     client, the one this resend was already moved onto (`applied`).
  *
  * And never from a copy missing emails and contact people (`complete`):
  * who else holds a number can't be judged from it.
  *
  * In New site for {client} (`mode: 'site'`), only the chosen client's own
  * site at the exact address: booking there instead of adding it again.
+ * That holds for the client a resend was moved onto as well: the resend is
+ * a new site for them only because they had none there, so if they have
+ * one by now, another phone's booking of the same caller made it, and a
+ * second would be the same address twice.
  */
 export function autoRule(
   index: MatchIndex,
@@ -897,9 +903,9 @@ export function autoRule(
   } = {},
 ): boolean {
   if (opts.dismissed?.includes(candidate.clientId)) return false
-  if (opts.applied === candidate.clientId) return false
   const evidence = new Set(candidate.evidence)
   if (opts.mode === 'site') return evidence.has('site')
+  if (opts.applied === candidate.clientId) return false
   if (!index.complete) return false
   if (
     !evidence.has('site') &&

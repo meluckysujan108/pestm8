@@ -18,7 +18,7 @@ import {
   sharedJobIds,
   sharedJobsInRange,
 } from './lib/jobPeople'
-import type { Role, RowScope } from './lib/capabilities'
+import type { RowScope } from './lib/capabilities'
 import { clientKind, clientStatus } from './schema'
 import {
   claimClientNumber,
@@ -31,7 +31,12 @@ import type { QueryCtx } from './_generated/server'
 import { requireActor, requireCapability } from './lib/actor'
 import type { ActorEnvelope } from './lib/actor'
 import { intervalOf } from './lib/recurrence'
-import { inClientScope, visibleClientIds } from './lib/clientScope'
+import {
+  contactDetailsFor,
+  inClientScope,
+  matchBookComplete,
+  visibleClientIds,
+} from './lib/clientScope'
 import { redactJobs } from './lib/prices'
 import { unbinned } from './lib/bin'
 import { clientFacets } from './lib/clientFacets'
@@ -82,26 +87,6 @@ export const list = query({
 const DIRECTORY_LIMIT = 8000
 
 /**
- * Who is sent clients' emails and business clients' contact people: every
- * role, subcontractors included (the owner's answer, 27 Oct 2026). Any
- * member may be the one a caller rings, and they already hold names, phones
- * and addresses. The account being read decides (`readScope`), so an owner
- * looking through a subcontractor's eyes sees what they would.
- *
- * Without them, a directory carries no `email` and no `contacts`, and the
- * phone's matcher reads the copy as incomplete (lib/clientMatch.ts).
- */
-const CONTACT_DETAILS_ROLES: ReadonlySet<Role> = new Set([
-  'owner',
-  'contractor',
-  'subcontractor',
-])
-
-function contactDetailsFor(env: ActorEnvelope): boolean {
-  return CONTACT_DETAILS_ROLES.has(env.readScope.role)
-}
-
-/**
  * Every client and every site of the business, in slim rows — the one list
  * behind the booking pickers (New Job, the job's edit form, New report), the
  * client import's "already here", the Clients page's search, A–Z and
@@ -118,7 +103,7 @@ function contactDetailsFor(env: ActorEnvelope): boolean {
  * For matching, each client's email, and each business client's contact
  * people (`contacts`): an agency's property manager rings from her own
  * mobile. Not a person client's, which the app hides. Who gets them is
- * `contactDetailsFor`.
+ * `contactDetailsFor` (lib/clientScope.ts).
  *
  * Every field it sends is the client sheet's to show anyone the book is
  * open to (`clients.get`, `clientContacts.list`): the directory sends them
@@ -154,8 +139,9 @@ export const directory = query({
     // them as complete, and counts who holds a number from it. A copy of
     // some clients only (lib/clientScope.ts) would count a family's or an
     // agency's number held outside it as one person's, so it goes without,
-    // and is matched as a copy that can't say who else holds a number.
-    const withContacts = details && visible === 'all'
+    // and is matched as a copy that can't say who else holds a number. The
+    // server's own check asks the same (lib/findSame.ts).
+    const withContacts = matchBookComplete(env, visible)
 
     // Read newest first, so a book past the limit loses its OLDEST rows:
     // the newest are the ones about to be booked, and an import's duplicate

@@ -5,7 +5,9 @@ import {
   assertInterval,
   describeInterval,
   describeRepeat,
+  firstVisitAt,
   intervalOf,
+  isBackfill,
   occurrencesFrom,
 } from './recurrence'
 import type { Doc } from '../_generated/dataModel'
@@ -333,6 +335,60 @@ describe('finds the window however old the series is', () => {
         { timezone: PERTH, from: now, until: now - DAY },
       ),
     ).toEqual([])
+  })
+})
+
+/**
+ * The date a series being booked is checked by for other work at the site
+ * that week: one rule, here, for the server's check (recurrences.create)
+ * and the phone's before Book (M5), so the two never check different weeks.
+ */
+describe('a series’ first visit, as the double-booking check goes by it', () => {
+  const now = local(PERTH, '2026-06-10', 12)
+  const monthly = { count: 1, unit: 'month' } as const
+
+  test('a missed visit is more than a day gone; anything later is booked', () => {
+    expect(isBackfill(now - DAY - 1, now)).toBe(true)
+    expect(isBackfill(now - DAY, now)).toBe(false)
+    expect(isBackfill(now + DAY, now)).toBe(false)
+  })
+
+  test('from today or within the last day: its anchor, the visit booked by hand', () => {
+    for (const anchorDate of [now + 10 * DAY, now - 2 * 3_600_000]) {
+      expect(firstVisitAt({ anchorDate, ...monthly }, PERTH, now)).toBe(
+        anchorDate,
+      )
+    }
+  })
+
+  test('started weeks ago: the first visit projected from a day back, not the anchor', () => {
+    const anchorDate = local(PERTH, '2026-05-16', 9)
+    expect(
+      reads(PERTH, firstVisitAt({ anchorDate, ...monthly }, PERTH, now)),
+    ).toBe('2026-06-16 09:00')
+    // The one a day back still counts: it is the engine's first.
+    expect(
+      reads(
+        PERTH,
+        firstVisitAt(
+          { anchorDate: local(PERTH, '2026-05-09', 13), ...monthly },
+          PERTH,
+          now,
+        ),
+      ),
+    ).toBe('2026-06-09 13:00')
+  })
+
+  test('however far ahead that first visit is, past the horizon too', () => {
+    // Every two years from New Year's Day 2025: the next is past the
+    // engine's 180 days, and is still the date it is checked by.
+    const anchorDate = local(PERTH, '2025-01-01', 9)
+    expect(
+      reads(
+        PERTH,
+        firstVisitAt({ anchorDate, count: 2, unit: 'year' }, PERTH, now),
+      ),
+    ).toBe('2027-01-01 09:00')
   })
 })
 

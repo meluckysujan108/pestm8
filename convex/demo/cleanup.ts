@@ -504,6 +504,16 @@ const clearClients: Step = async (run) => {
             .take(n),
         )
         if (!contacts || run.left <= 0) return false
+        // "May be the same customer" rows (clientMatchHints.ts), by the
+        // side they were made for: both sides are this demo's clients, and
+        // every one of them goes, so that finds them all.
+        const hints = await sweep(run, 'clientMatchHints', (n) =>
+          ctx.db
+            .query('clientMatchHints')
+            .withIndex('by_clientId', (q) => q.eq('clientId', client._id))
+            .take(n),
+        )
+        if (!hints || run.left <= 0) return false
         return dropRow(run, 'clients', client._id)
       },
     },

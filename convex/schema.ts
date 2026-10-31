@@ -394,6 +394,24 @@ export { clientStatus }
 export const addressCheck = v.union(v.literal('picked'), v.literal('typed'))
 
 /**
+ * What ties a new client, as typed, to one already in the book, in the
+ * words of the server's check when a booking saves (convex/lib/findSame.ts):
+ * the evidence of lib/clientMatch.ts that says who someone is or where, and
+ * none of the suggestions (a street in another suburb, an address only like
+ * one of theirs, a site contact, a shared number). Sent back by a phone that
+ * moved a booking onto a client (`matchCheck.applied`), and kept on a
+ * possible duplicate (`clientMatchHints`).
+ */
+export const matchEvidence = v.union(
+  v.literal('name'),
+  v.literal('nameNear'),
+  v.literal('site'),
+  v.literal('mobile'),
+  v.literal('email'),
+  v.literal('landline'),
+)
+
+/**
  * A logo's copy for email (convex/lib/businessLogo.ts): the file, and the
  * size the email gives it, in CSS pixels. The file is drawn at three times
  * that, so it is sharp on a phone.
@@ -932,6 +950,51 @@ export default defineSchema({
     // per client.
     .index('by_business', ['businessId'])
     .index('by_binEntryId', ['binEntryId']),
+
+  /**
+   * "May be the same customer": a client a booking made although the
+   * server's check found someone already in the book who may be them
+   * (convex/lib/findSame.ts). Written in the transaction that made the
+   * client, one row per such client (at most three), only when the evidence
+   * says who someone is (`hintsOf`), whatever the match's tier and whether
+   * or not anything was refused: that client's own mobile, email or
+   * landline, under their name or another; or their name, exact or similar,
+   * with their address, so a book the check can't see whole (past 8,000
+   * clients, or narrowed), where that is only Likely, is noted too. Never
+   * for an address under another name (a sold house, an agency's site), a
+   * number others share, or a name alone.
+   *
+   * For the office to merge or set aside (convex/clientMatchHints.ts), so a
+   * duplicate a technician couldn't stop, or couldn't merge, isn't seen only
+   * by them. Ids and evidence only, never a number, email or address; read
+   * on the live client sheet by the owner and contractors, scope-filtered,
+   * and never sent to phones.
+   * Deleted with either client when it is wiped from the Recycle bin or
+   * taken back by an import's Undo; a merge answers the pair's row and
+   * hands the merged-away client's others to the client it was merged into.
+   * New table, so nothing to migrate.
+   */
+  clientMatchHints: defineTable({
+    businessId: v.id('businesses'),
+    /** The client the booking made (or, once merged, the one it was
+     * merged into). */
+    clientId: v.id('clients'),
+    /** The client already in the book it may be. */
+    otherClientId: v.id('clients'),
+    evidence: v.array(matchEvidence),
+    madeAt: v.number(),
+    /** Who booked it, as themselves. */
+    madeBy: v.id('memberships'),
+    /** Absent while nobody has answered: Not the same, or merged. */
+    answer: v.optional(v.union(v.literal('different'), v.literal('merged'))),
+    answeredAt: v.optional(v.number()),
+    answeredBy: v.optional(v.id('memberships')),
+  })
+    .index('by_clientId', ['clientId'])
+    .index('by_otherClientId', ['otherClientId'])
+    // The open ones of a business (`answer` absent): the possible-duplicate
+    // list the owner's C9 may want.
+    .index('by_businessId_and_answer', ['businessId', 'answer']),
 
   jobs: defineTable({
     businessId: v.id('businesses'),

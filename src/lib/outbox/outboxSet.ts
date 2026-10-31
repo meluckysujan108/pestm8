@@ -139,7 +139,7 @@ export function isStale(
 export const FIRST_VISIT_MEANT_MS = 24 * 3_600_000
 /**
  * …and has gone by once its start is this far back: an hour inside the
- * server's own day (convex/recurrences.ts `isBackfill`), so the phone says
+ * server's own day (convex/lib/recurrence.ts `isBackfill`), so the phone says
  * so before the server would refuse it.
  */
 export const FIRST_VISIT_GONE_MS = 23 * 3_600_000
