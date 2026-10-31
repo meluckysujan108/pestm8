@@ -552,6 +552,8 @@ const PLAN = {
     },
   },
   jobcards: { full: true },
+  // A card's forecast on its way and landed: each the same height.
+  'jobcard-weather': { full: true },
   jobdetail: { before: async (p) => p.waitForTimeout(900) },
   // Three services and a note: the title, the Notes section, and a report
   // shortcut for each form the job produces.
