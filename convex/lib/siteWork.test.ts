@@ -10,6 +10,7 @@ import {
   openWorkCovers,
   openWorkDays,
   openWorkSpan,
+  openWorkWeeks,
   slotOf,
 } from './siteWork'
 
@@ -88,6 +89,49 @@ describe('the days an answer covers', () => {
 
   test('last week’s answer still covers this Monday, opened with no signal', () => {
     expect(openWorkCovers('2026-10-19', '2026-10-26')).toBe(true)
+  })
+})
+
+describe('the weeks `jobs.openWork` answers for', () => {
+  const sorted = (weeks: Set<string>) => [...weeks].sort()
+
+  test('midweek: this week’s Monday and last week’s, and no other', () => {
+    // Wednesday 4 Nov 2026, UTC: Tuesday to Friday somewhere.
+    expect(sorted(openWorkWeeks('2026-11-04'))).toEqual([
+      '2026-10-26',
+      '2026-11-02',
+    ])
+  })
+
+  test('on a UTC Sunday, next week’s too: it is already Monday east of UTC', () => {
+    expect(sorted(openWorkWeeks('2026-11-08'))).toEqual([
+      '2026-10-26',
+      '2026-11-02',
+      '2026-11-09',
+    ])
+  })
+
+  test('on a UTC Saturday, next week’s too: the server’s day may be an hour behind', () => {
+    expect(sorted(openWorkWeeks('2026-11-07'))).toEqual([
+      '2026-10-26',
+      '2026-11-02',
+      '2026-11-09',
+    ])
+  })
+
+  test('on a UTC Monday, the week before last’s too: it is still Sunday west of UTC', () => {
+    expect(sorted(openWorkWeeks('2026-11-09'))).toEqual([
+      '2026-10-26',
+      '2026-11-02',
+      '2026-11-09',
+    ])
+  })
+
+  test('never a day that isn’t a Monday, nor a week a year away', () => {
+    const weeks = openWorkWeeks('2026-11-04')
+    expect(weeks.has('2026-11-04')).toBe(false)
+    expect(weeks.has('2027-11-01')).toBe(false)
+    expect(weeks.has('2025-11-03')).toBe(false)
   })
 })
 

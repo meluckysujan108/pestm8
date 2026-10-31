@@ -2848,4 +2848,15 @@ export default defineSchema({
   })
     // A person's reports, newest first; and the throttle.
     .index('by_userId', ['userId']),
+
+  /**
+   * One row: the server's day, in UTC (convex/serverDay.ts), for a query
+   * that answers only near today, since a query never reads the clock:
+   * `jobs.openWork`, which answers for this week and last. Written by the
+   * hourly cron when the day changes, so what reads it runs again once a
+   * day.
+   */
+  serverDay: defineTable({
+    utcDay: v.string(),
+  }),
 })

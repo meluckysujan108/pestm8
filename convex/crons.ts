@@ -136,4 +136,17 @@ crons.cron(
   {},
 )
 
+/**
+ * Moves the server's day on (convex/serverDay.ts) for the queries that may
+ * answer only near today and never read the clock: `jobs.openWork`. Hourly,
+ * so the day is at most an hour behind; it writes only when the day has
+ * changed.
+ */
+crons.cron(
+  'move the server day on',
+  '2 * * * *',
+  internal.serverDay.advance,
+  {},
+)
+
 export default crons

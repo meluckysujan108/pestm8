@@ -4,7 +4,7 @@
  * when a booking saves or a phone sends one it kept. One rule, so the phone
  * and the server never disagree about what counts. Pure and browser-safe.
  */
-import { addDaysToKey, dayKeyOf } from './dates'
+import { addDaysToKey, dayKeyOf, startOfWeekKey } from './dates'
 
 /** Work still to happen: booked by someone, or projected by the engine. */
 export const OPEN_STATUSES = ['pending', 'booked', 'recurring'] as const
@@ -101,6 +101,29 @@ export function openWorkDays(startKey: string): {
 export function openWorkCovers(startKey: string, dayKey: string): boolean {
   const { firstKey, endKey } = openWorkDays(startKey)
   return dayKey >= firstKey && dayKey < endKey
+}
+
+/**
+ * The weeks `jobs.openWork` answers for while the server's day (UTC, kept by
+ * convex/serverDay.ts) is `utcDay`: this week's Monday, and last week's,
+ * which a phone keeps until this week's answer comes (RK3), in whatever zone
+ * the business is in. A business's day is up to a day behind UTC's or a day
+ * ahead, and the server's day can wait up to an hour past midnight for its
+ * cron, so a day more ahead.
+ *
+ * So nobody is sent anyone's work past the twenty weeks the server's own
+ * check goes by (`inOpenWorkNow` in lib/findSame.ts) by more than a week, and
+ * that only around the turn of a week (the owner's answer to C5, 1 Nov
+ * 2026: twenty weeks); before this, any week could be asked for.
+ */
+export function openWorkWeeks(utcDay: string): Set<string> {
+  const weeks = new Set<string>()
+  for (let offset = -1; offset <= 2; offset++) {
+    const monday = startOfWeekKey(addDaysToKey(utcDay, offset))
+    weeks.add(monday)
+    weeks.add(addDaysToKey(monday, -7))
+  }
+  return weeks
 }
 
 /**

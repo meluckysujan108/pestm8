@@ -713,6 +713,40 @@ describe('what it reads', () => {
     }
   })
 
+  test('answers only for this week or last, by the server’s day (C5, 1 Nov 2026)', async () => {
+    const s = await setup()
+    // Wednesday of START's week, as the hourly cron writes it.
+    await s.t.run((ctx) => ctx.db.insert('serverDay', { utcDay: '2026-11-04' }))
+    const job = await insertJob(s, { scheduledAt: at(START, 9) })
+    expect((await ask(s.owner, s)).rows.map(idOf)).toEqual([job])
+    expect(
+      (await ask(s.owner, s, addDaysToKey(START, -7))).rows.map(idOf),
+    ).toEqual([job])
+    expect((await ask(s.kevin, s)).rows).toHaveLength(1)
+    // Any other week, near or a year away, or a day that isn't a Monday:
+    // no one may ask for anyone's work at whatever date they like.
+    for (const startKey of [
+      addDaysToKey(START, 7),
+      addDaysToKey(START, -14),
+      addDaysToKey(START, 364),
+      addDaysToKey(START, -364),
+      addDaysToKey(START, 1),
+    ]) {
+      for (const actor of [s.kevin, s.owner]) {
+        await expect(ask(actor, s, startKey)).rejects.toThrow('INVALID_WEEK')
+      }
+    }
+  })
+
+  test('with no server’s day yet, before the cron’s first run, any week answers', async () => {
+    const s = await setup()
+    const job = await insertJob(s, { scheduledAt: at(START, 9) })
+    expect(
+      (await ask(s.owner, s, addDaysToKey(START, 364))).rows.map(idOf),
+    ).toEqual([])
+    expect((await ask(s.owner, s)).rows.map(idOf)).toEqual([job])
+  })
+
   test('refuses someone who isn’t in the business', async () => {
     const s = await setup()
     const stranger = await createActor(s.t, { email: 'stranger@else.test' })

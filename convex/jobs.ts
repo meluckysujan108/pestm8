@@ -76,6 +76,7 @@ import {
   isDayKey,
   isOpenStatus,
   openWorkSpan,
+  openWorkWeeks,
   slotOf,
 } from './lib/siteWork'
 import { normaliseJobNotes } from './lib/jobNotes'
@@ -847,8 +848,16 @@ export const listWeek = query({
  * visits from four weeks before the week of `startKey` (a Monday, as
  * `listWeek` takes it) to sixteen weeks after, the visits done in that time
  * that the viewer may see, and every running Recurring Job. Kept on phones
- * (KEPT_FNS), so the check can be made with no signal; the server is to
- * check again, on complete data, when a booking saves.
+ * (KEPT_FNS), so the check can be made with no signal; the server checks
+ * again when a booking saves (lib/findSame.ts), the caller's own work at any
+ * date and anyone else's within these same twenty weeks from this week.
+ *
+ * ONLY FOR THIS WEEK OR LAST (`openWorkWeeks`, by the server's day kept in
+ * `serverDay`, with a day's give for the business's zone): any other
+ * Monday, or a day that isn't one, is INVALID_WEEK. Otherwise anyone could
+ * ask for any twenty weeks, and learn every other member's open work at any
+ * date (the owner's answer to C5, 1 Nov 2026: twenty weeks, as the phone
+ * holds). Reading that row, which changes once a day, runs this again then.
  *
  * WHAT EACH ROW SAYS depends on whose it is (the owner's answer, 27 Oct
  * 2026). A job the viewer may see (`scope`, as a job's own sheet asks: one
@@ -872,10 +881,11 @@ export const listWeek = query({
  * Read in one range, by date, earliest first: past OPEN_WORK_LIMIT jobs the
  * furthest weeks go first, the rows are whole up to the last one sent, and
  * `capped` says so (as it does for that many running Recurring Jobs); it
- * never throws on volume. No time zone, no clock: the window is wide
- * enough for any zone (`openWorkSpan`), and the phone goes by each row's
- * date. So it reads jobs, Recurring Jobs and who is also going, and not the
- * business's row, which every booking, visit and numbered report patches.
+ * never throws on volume. No time zone, and no clock but `serverDay`'s: the
+ * window is wide enough for any zone (`openWorkSpan`), and the phone goes
+ * by each row's date. So it reads jobs, Recurring Jobs, who is also going
+ * and the server's day, and not the business's row, which every booking,
+ * visit and numbered report patches.
  *
  * Kept on phones: a renamed or removed field means bumping KEPT_SHAPE. Its
  * own, never joined into the directory, so a job's status changing doesn't
@@ -886,6 +896,11 @@ export const openWork = query({
   handler: async (ctx, { businessId, startKey }) => {
     const { scope } = await requireActor(ctx, businessId)
     if (!isDayKey(startKey)) throw new ConvexError('INVALID_DAY')
+    // With no row yet, before the cron's first run, any week answers.
+    const today = await ctx.db.query('serverDay').first()
+    if (today !== null && !openWorkWeeks(today.utcDay).has(startKey)) {
+      throw new ConvexError('INVALID_WEEK')
+    }
     const { from, weekFrom, to } = openWorkSpan(startKey)
 
     const [read, running, shared] = await Promise.all([
