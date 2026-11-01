@@ -20,6 +20,7 @@ import {
 import { LoadMore } from '#/components/primitives/LoadMore'
 import { SearchBox } from '#/components/primitives/SearchBox'
 import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
+import type { OpenedFromNewClient } from '#/components/clients/clientSheetOpening'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { ClientCard } from '#/components/clients/ClientCard'
 import {
@@ -191,6 +192,11 @@ function ClientsPage() {
   const queryClient = useQueryClient()
   const [newOpen, setNewOpen] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
+  // Opened from New client, where the caller turned out to be this client:
+  // on Details, with Add property open on the address they gave.
+  const [openedFromNew, setOpenedFromNew] = useState<
+    OpenedFromNewClient | undefined
+  >(undefined)
   const hydrated = useHydrated()
 
   const searchTerm = q ?? ''
@@ -647,6 +653,10 @@ function ClientsPage() {
         businessId={business._id}
         open={newOpen}
         onClose={() => setNewOpen(false)}
+        onOpenClient={(clientId, { addSite }) => {
+          setOpenedFromNew({ addSite })
+          setOpenId(clientId)
+        }}
       />
 
       <ClientSheet
@@ -657,7 +667,11 @@ function ClientsPage() {
         canManageClients={canManageClients}
         canRenumber={canRenumber}
         clientId={openId}
-        onClose={() => setOpenId(null)}
+        fromNewClient={openedFromNew}
+        onClose={() => {
+          setOpenId(null)
+          setOpenedFromNew(undefined)
+        }}
       />
     </>
   )

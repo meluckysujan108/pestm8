@@ -4,8 +4,10 @@ import type { ReactNode } from 'react'
 
 export type FieldMessageTone = 'error' | 'warning' | 'status' | 'ok'
 
-/** A one-tap fix offered beside the message: "Use 0412 345 678". */
-export type FieldFix = { label: string; onApply: () => void }
+/** A one-tap fix offered beside the message: "Use 0412 345 678". `held`
+ * while it takes no tap, for its `aria-disabled`: a line that has only just
+ * come in, where a thumb may still be (NewClientFields' match lines). */
+export type FieldFix = { label: string; onApply: () => void; held?: boolean }
 
 /**
  * Colours are the -ink tokens, not the bright ones: text-red on the canvas
@@ -33,18 +35,25 @@ const TONE: Record<FieldMessageTone, string> = {
  *
  * Renders beside the input, never inside a <label>: there it would become
  * part of the field's name, and the fix button would be inside the label too.
+ *
+ * A `status` line may offer fixes too: who already has the number typed,
+ * with "Book at 12 Wattle St", or "Show them" and "New site for Ray White
+ * Bayswater" side by side (`fix2`).
  */
 export function FieldMessage({
   id,
   tone,
   children,
   fix,
+  fix2,
   className = 'mt-1.5',
 }: {
   id?: string
   tone: FieldMessageTone
   children: ReactNode
   fix?: FieldFix
+  /** A second fix after the first. */
+  fix2?: FieldFix
   className?: string
 }) {
   const [announced, setAnnounced] = useState(false)
@@ -80,6 +89,7 @@ export function FieldMessage({
         <span className="min-w-0">{children}</span>
       </p>
       {fix && <FixButton fix={fix} />}
+      {fix2 && <FixButton fix={fix2} />}
     </div>
   )
 }
@@ -94,6 +104,7 @@ export function FixButton({ fix }: { fix: FieldFix }) {
     <button
       type="button"
       onClick={fix.onApply}
+      aria-disabled={fix.held || undefined}
       className="inline-flex min-h-11 items-center font-semibold text-blue-ink underline underline-offset-2"
     >
       {fix.label}

@@ -44,12 +44,20 @@ import {
   SaveWarningsPanel,
   SaveWarningsProvider,
   useLatest,
+  useSaveCheck,
   useSaveWarnings,
 } from '#/components/forms/SaveWarnings'
 import type {
+  SaveWarning,
+  SaveWarningFix,
+} from '#/components/forms/SaveWarnings'
+import type {
   NewClientFieldsValue,
+  NewClientMatchField,
+  NewClientMatchLine,
   NewSiteValue,
 } from '#/components/clients/NewClientFields'
+import type { FieldFix } from '#/components/forms/FieldMessage'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { SendableBooking } from '#/lib/outbox/outboxItem'
 import { bookingDisplay, contactPersonFor } from '#/lib/outbox/outboxRow'
@@ -75,14 +83,40 @@ import {
 } from '#/lib/directory'
 import {
   holdersFirst,
+  namedClient,
   noMatchRoute,
   propertyListEnd,
   queryHolders,
   siteLessFound,
 } from '#/lib/clientSearch'
 import type { NoMatchRoute, PropertyListEnd } from '#/lib/clientSearch'
-import { useNewerClientsHint, useReadableAll } from '#/lib/offline/useKept'
+import {
+  answerMayBeBehind,
+  useNewerClientsHint,
+  useReadableAll,
+} from '#/lib/offline/useKept'
 import { useMatchIndex } from '#/lib/useMatchIndex'
+import {
+  blurLine,
+  bookingMatchRows,
+  carryAfter,
+  matchFooter,
+  matchNotes,
+  matchShownCounts,
+  planMatchFix,
+  withoutCallerLine,
+} from '#/lib/clientMatchRows'
+import type {
+  AddedAnyway,
+  Carried,
+  FixPlan,
+  FixState,
+  MatchFix,
+  MatchRow,
+  MatchRowsContext,
+} from '#/lib/clientMatchRows'
+import { logConnectionChange } from '#/lib/connectionLog'
+import { todayKey } from '#/lib/format'
 import { rq } from '#/lib/routeQueries'
 import { personLabel, roleLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
@@ -94,7 +128,7 @@ import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
 import { MAX_JOB_NOTES_LENGTH } from '../../../convex/lib/jobNotes'
 import { joinJobTypes } from '../../../convex/lib/jobTypes'
-import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { HELD_BUTTON, PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FIELD, FIELD_SURFACE } from '#/components/forms/FormField'
 import { Plus } from 'lucide-react'
 import { alsoGoingFullLabel } from '#/lib/jobPeople'
@@ -511,8 +545,10 @@ function NewJobForm({
   const canKeep = useCanKeep(draft.keepable)
   // The new client's or new site's address, email and phone, checked at Book:
   // what may be wrong is listed above the button, and a second press books it
-  // as it is. An existing property has nothing to check.
-  const saveWarnings = useSaveWarnings()
+  // as it is; and whether the caller is already a client (below). An
+  // existing property has nothing to check. Book takes no press for half a
+  // second as the list comes in under the thumb that pressed it.
+  const saveWarnings = useSaveWarnings({ arm: true })
 
   // A repeating booking is a recurrence, not a job: creating it materialises
   // the first occurrence and every one after it, so the two paths are distinct
@@ -674,9 +710,24 @@ function NewJobForm({
   const latestReady = useLatest(readyToBook)
 
   /** Another client mode is another set of fields: warnings about the one
-   * left are not about anything on screen. */
-  function switchMode(next: (current: ClientMode) => ClientMode) {
+   * left are not about anything on screen. Back to New client, the booking
+   * is the caller's own again: the caller's line a fix put in Notes goes,
+   * and with it the fix's carry (`carried`, below). Any other change of
+   * mode by hand ends what a Show them was waiting on (`pick`): a client
+   * chosen after it is the person's own choice, not the fix's. Only
+   * `keepPick` carries it on, from the picker Show them opened to the one
+   * it hands over to. */
+  function switchMode(
+    next: (current: ClientMode) => ClientMode,
+    { keepPick = false }: { keepPick?: boolean } = {},
+  ) {
     saveWarnings.reset()
+    const to = next(mode) === 'new' ? 'new' : 'other'
+    if (to === 'new' && carried) {
+      const line = carried.line
+      setNotes((before) => withoutCallerLine(before, line))
+    }
+    setCarried((c) => carryAfter(c, { on: 'mode', to, handOver: keepPick }))
     setMode(next)
   }
 
@@ -706,19 +757,30 @@ function NewJobForm({
    * their new site, with the client chosen and focus on it, as "New site for
    * an existing client" does. */
   function newSiteFor(clientId: string) {
+    let plan: FixPlan | null = null
     flushSync(() => {
+      // From a Show them: the caller's address and what they said go with
+      // it, as New site for {client} does at Book.
+      plan = carryPick({
+        kind: 'use',
+        label: '',
+        clientId: clientId as Id<'clients'>,
+      })
+      if (plan) return
       setSiteClientId(clientId)
       setClientMissing(false)
       switchMode(() => 'site')
     })
-    clientTrigger.current?.focus()
+    const to = (plan as FixPlan | null)?.to
+    if (to === 'existing') propertyTrigger.current?.focus()
+    else clientTrigger.current?.focus()
   }
   /** Several clients with no site yet found: New site for, its list opened
    * with what was typed, so they come first there. */
   function chooseNewSiteFor(query: string) {
     flushSync(() => {
       setClientMissing(false)
-      switchMode(() => 'site')
+      switchMode(() => 'site', { keepPick: true })
     })
     clientPicker.current?.openWith(query)
   }
@@ -747,6 +809,7 @@ function NewJobForm({
       const end = propertyListEnd(
         holders,
         siteLessFound(query, holders, siteLessOptions),
+        namedClient(matchIndex, query),
       )
       if (!holders && !end) return null
       /** The row the list ends with (`propertyListEnd`). */
@@ -802,6 +865,265 @@ function NewJobForm({
     [businessId, matchIndex.areaCode, latestNewClientWith],
   )
 
+  // ── Is the caller already a client? (the matching plan's M3) ──────────
+  // At Book in New client and New site for, from the client list on the
+  // phone, synchronously: who the caller may already be, each with a fix
+  // that keeps what they said (lib/clientMatchRows.ts). And under Name,
+  // Phone or Email as the person moves on to another field.
+  const propertyPicker = useRef<ComboboxHandle>(null)
+  const matchCtx = useMemo<MatchRowsContext>(
+    () => ({ index: matchIndex, contacts: directory.contacts, verb: 'book' }),
+    [matchIndex, directory.contacts],
+  )
+  // "Add 12 Watle St" tapped: that address is the client's to add, and the
+  // next press isn't asked about it again.
+  const [addedAnyway, setAddedAnyway] = useState<AddedAnyway | null>(null)
+  // Where the rows were found, said once as they appear: "From the clients
+  // on this phone, updated 9:42am."; and the rows themselves, by id, for
+  // the foot to name the fix that is there (`matchFooter`).
+  const [matchShown, setMatchShown] = useState<{
+    notes: Array<string>
+    rows: ReadonlyMap<string, MatchRow>
+  }>({ notes: [], rows: new Map() })
+  const directoryKey = rq.directory(businessId).queryKey
+
+  // The booking left New client by a fix: the caller is who was typed
+  // there, `line` is the caller's line that fix put first in Notes (taken
+  // off again by the next fix, or if the booking goes back to New client),
+  // and `pick` says a Show them opened a picker, whose choice carries the
+  // caller too, as a fix would. Null otherwise.
+  const [carried, setCarried] = useState<Carried>(null)
+  /** A Show them's picker shut with nothing chosen: nothing waits on a
+   * choice any more (`carryAfter`). */
+  function endPick() {
+    setCarried((c) => carryAfter(c, { on: 'dismissed' }))
+  }
+  // Where the last fix put the booking, for where focus goes after it.
+  const fixedTo = useRef<FixPlan | null>(null)
+
+  /** Who rang and where, as typed in New client (`planMatchFix`'s state). */
+  function callerState(): FixState {
+    return {
+      mode: 'new',
+      person: { name: newClient.clientName, phone: newClient.phone },
+      site: {
+        addressLine: newClient.addressLine,
+        suburb: newClient.suburb,
+        state: newClient.state,
+        postcode: newClient.postcode,
+        addressCheck: newClient.addressCheck,
+        // A person's site contact is never shown, so never carried.
+        siteContactName:
+          newClient.kind === 'business' ? newClient.siteContactName : '',
+        siteContactPhone:
+          newClient.kind === 'business' ? newClient.siteContactPhone : '',
+      },
+      notes,
+      callerLine: carried?.line ?? null,
+      index: matchIndex,
+      contacts: directory.contacts,
+    }
+  }
+  /** New site for, as the form holds it: the caller still the one typed in
+   * New client if a fix brought the booking here, else nobody. */
+  function siteState(): FixState {
+    return {
+      mode: 'site',
+      person: carried
+        ? { name: newClient.clientName, phone: newClient.phone }
+        : null,
+      site: newSite,
+      notes,
+      callerLine: carried?.line ?? null,
+      index: matchIndex,
+      contacts: directory.contacts,
+    }
+  }
+
+  /** A plan put into the form, through the setters. Another client mode
+   * without a reset: the warnings of fields that stay on screen stay as
+   * shown (the same address in New site for), and those of fields gone go
+   * with them (SaveWarnings). The new client as typed stays, for the New
+   * client tab. */
+  function applyPlan(plan: FixPlan, fromCaller: boolean) {
+    fixedTo.current = plan
+    if (plan.to === 'picker') {
+      setCarried((c) => carryAfter(c, { on: 'show' }))
+      setMode(properties.length > 0 ? 'existing' : 'site')
+      return
+    }
+    if (fromCaller) {
+      setCarried((c) => carryAfter(c, { on: 'fix', line: plan.callerLine }))
+    }
+    setNotes(plan.notes)
+    if (plan.to === 'existing') {
+      setPropertyId(plan.propertyId)
+      setPropertyMissing(false)
+      setMode('existing')
+    } else {
+      setSiteClientId(plan.clientId)
+      setClientMissing(false)
+      setNewSite(plan.site)
+      setAddedAnyway(plan.added)
+      setMode('site')
+    }
+  }
+
+  /** What a fix does to the form (`planMatchFix`), through the latest
+   * setters: tapped from the panel or a field's line, perhaps long after
+   * the check that offered it. */
+  function applyMatchFix(fix: MatchFix) {
+    const state = mode === 'site' ? siteState() : callerState()
+    const plan = planMatchFix(fix, state)
+    fixedTo.current = plan
+    if (plan) applyPlan(plan, state.person !== null)
+  }
+
+  /**
+   * A choice made in a picker a Show them opened: planned as the fix it
+   * stands for (Book at the site chosen; New site for the client chosen),
+   * so what the caller said goes with it as it does with any fix. Null when
+   * no Show them is waiting on a choice.
+   */
+  function carryPick(fix: MatchFix): FixPlan | null {
+    if (!carried?.pick) return null
+    const plan = planMatchFix(fix, callerState())
+    if (plan) applyPlan(plan, true)
+    return plan
+  }
+  function pickedProperty(picked: string) {
+    const site = properties.find((p) => p._id === picked)
+    if (!site) return
+    carryPick({
+      kind: 'bookAt',
+      label: '',
+      clientId: site.clientId,
+      propertyId: site._id,
+    })
+  }
+
+  /** Then focus goes where the fix put things: the site chosen, the client
+   * a new site is for, or into the picker it opened. */
+  function focusAfterMatchFix() {
+    const plan = fixedTo.current
+    if (!plan) return
+    if (plan.to === 'picker') {
+      if (properties.length > 0) propertyPicker.current?.openWith(plan.query)
+      else clientPicker.current?.openWith(plan.query)
+    } else if (plan.to === 'existing') propertyTrigger.current?.focus()
+    else clientTrigger.current?.focus()
+  }
+  const latestApplyMatchFix = useLatest(applyMatchFix)
+  const latestFocusAfterMatchFix = useLatest(focusAfterMatchFix)
+  const panelFix = (fix: MatchFix): SaveWarningFix => ({
+    label: fix.label,
+    apply: () => latestApplyMatchFix.current(fix),
+    focusAfter: () => latestFocusAfterMatchFix.current(),
+  })
+  const lineFix = (fix: MatchFix): FieldFix => ({
+    label: fix.label,
+    onApply: () => {
+      flushSync(() => latestApplyMatchFix.current(fix))
+      latestFocusAfterMatchFix.current()
+    },
+  })
+
+  /** The rows at Book, as warnings of the panel's last kind. */
+  function matchWarnings(): Array<SaveWarning> {
+    const rows: Array<MatchRow> = bookingMatchRows(
+      matchCtx,
+      mode === 'site'
+        ? {
+            mode,
+            clientId: siteClient?._id ?? null,
+            site: newSite,
+            added: addedAnyway,
+          }
+        : mode === 'new'
+          ? {
+              mode,
+              typed: {
+                name: newClient.clientName,
+                phone: newClient.phone,
+                email: newClient.email,
+                site: {
+                  addressLine: newClient.addressLine,
+                  suburb: newClient.suburb,
+                  postcode: newClient.postcode,
+                },
+              },
+            }
+          : { mode },
+    )
+    if (rows.length > 0) {
+      setMatchShown({
+        notes: matchNotes({
+          behind: answerMayBeBehind(directoryKey),
+          asOf: keeper.asOf([directoryKey]),
+          timezone,
+          today: todayKey(timezone),
+          capped: directory.capped,
+          contactsCapped: directory.contactsCapped ?? false,
+        }),
+        rows: new Map(rows.map((row) => [row.id, row])),
+      })
+      logConnectionChange('match-shown', {
+        ...matchShownCounts(rows),
+        live: keeper.isLive(directoryKey),
+      })
+    }
+    return rows.map((row) => ({
+      id: row.id,
+      kind: 'match',
+      label: row.label,
+      message: row.message,
+      ...(row.fix ? { fix: panelFix(row.fix) } : {}),
+      ...(row.fix2 ? { fix2: panelFix(row.fix2) } : {}),
+    }))
+  }
+  useSaveCheck(
+    'new-job-client-match',
+    mode === 'existing' ? null : matchWarnings,
+    [
+      mode,
+      newClient.clientName,
+      newClient.phone,
+      newClient.email,
+      newClient.addressLine,
+      newClient.suburb,
+      newClient.postcode,
+      siteClientId,
+      newSite.addressLine,
+      newSite.suburb,
+      newSite.postcode,
+    ],
+  )
+
+  /** The line under Name, Phone or Email, decided as it is left. */
+  const newClientMatchLine = (
+    field: NewClientMatchField,
+    value: NewClientFieldsValue,
+  ): NewClientMatchLine | null => {
+    const line = blurLine(matchCtx, field, {
+      name: value.clientName,
+      phone: value.phone,
+      email: value.email,
+      site: {
+        addressLine: value.addressLine,
+        suburb: value.suburb,
+        postcode: value.postcode,
+      },
+    })
+    return line
+      ? {
+          text: line.text,
+          ...(line.fix ? { fix: lineFix(line.fix) } : {}),
+          ...(line.fix2 ? { fix2: lineFix(line.fix2) } : {}),
+        }
+      : null
+  }
+  const showsMatch = saveWarnings.warnings.some((w) => w.kind === 'match')
+
   const bookLabel = create.isPending
     ? 'Booking…'
     : saveWarnings.checking
@@ -816,6 +1138,9 @@ function NewJobForm({
         className={`${SHEET_BODY} pt-3`}
         onSubmit={(e) => {
           e.preventDefault()
+          // The list has just come in under the thumb: a second tap of a
+          // double tap books nothing (Book shows aria-disabled meanwhile).
+          if (saveWarnings.isArmed()) return
           if (!readyToBook()) return
           // Only then the warnings: nothing is worth confirming on a booking
           // that is still missing its client. mutateAsync, so a booking that
@@ -873,6 +1198,7 @@ function NewJobForm({
                 onChange={(next) => {
                   setPropertyId(next)
                   setPropertyMissing(false)
+                  pickedProperty(next)
                 }}
                 options={propertyOptionList}
                 lookup={propertyLookup}
@@ -890,6 +1216,8 @@ function NewJobForm({
                 invalid={propertyMissing}
                 errorId={PROPERTY_ERROR_ID}
                 triggerRef={propertyTrigger}
+                handleRef={propertyPicker}
+                onDismiss={endPick}
               />
             </Field>
             {/* Outside the <label>: inside it, this sentence would become part
@@ -929,6 +1257,11 @@ function NewJobForm({
                 onChange={(next) => {
                   setSiteClientId(next)
                   setClientMissing(false)
+                  carryPick({
+                    kind: 'use',
+                    label: '',
+                    clientId: next as Id<'clients'>,
+                  })
                 }}
                 options={clientOptionList}
                 lookup={clientLookup}
@@ -942,6 +1275,7 @@ function NewJobForm({
                 errorId={CLIENT_ERROR_ID}
                 triggerRef={clientTrigger}
                 handleRef={clientPicker}
+                onDismiss={endPick}
               />
             </Field>
             {showClientMissing && (
@@ -953,10 +1287,14 @@ function NewJobForm({
                 Choose the client this site belongs to.
               </p>
             )}
+            {/* The same ids as New client's address: after a fix brings the
+                address here, what was shown about it there and confirmed
+                stays confirmed (SaveWarnings), as it is the same address. */}
             <SiteAddressFields
               value={newSite}
               onChange={(patch) => setNewSite((v) => ({ ...v, ...patch }))}
               businessState={businessState}
+              idPrefix={newClientIdPrefix}
             />
             {siteClient?.kind === 'business' && (
               <SiteContactFields
@@ -988,6 +1326,7 @@ function NewJobForm({
             onChange={(patch) => setNewClient((v) => ({ ...v, ...patch }))}
             businessState={businessState}
             idPrefix={newClientIdPrefix}
+            matchLine={newClientMatchLine}
           />
         )}
 
@@ -1213,7 +1552,24 @@ function NewJobForm({
           copy={BOOKING_ERROR_COPY}
           className="mt-3"
         />
-        <SaveWarningsPanel className="mt-3" anywayLabel="Book anyway" />
+        <SaveWarningsPanel
+          className="mt-3"
+          anywayLabel="Book anyway"
+          matchFooter={(shown) =>
+            matchFooter(
+              shown.map((w) => matchShown.rows.get(w.id) ?? {}),
+              {
+                anyway: 'Book anyway',
+                adds: mode === 'site' ? 'site' : 'client',
+              },
+            )
+          }
+          note={
+            showsMatch && matchShown.notes.length > 0
+              ? matchShown.notes.join(' ')
+              : undefined
+          }
+        />
 
         <div className="mt-5">
           {lineDown && (
@@ -1231,11 +1587,16 @@ function NewJobForm({
           <button
             type="submit"
             onClick={(e) => {
+              if (saveWarnings.isArmed()) {
+                e.preventDefault()
+                return
+              }
               if (clientNeeded()) e.preventDefault()
             }}
             disabled={create.isPending || !hydrated || intervalIncomplete}
+            aria-disabled={saveWarnings.armed || undefined}
             aria-describedby={lineDown ? lineDownId : undefined}
-            className={`${PRIMARY_BUTTON} w-full`}
+            className={`${PRIMARY_BUTTON} ${HELD_BUTTON} w-full`}
           >
             {bookLabel}
           </button>

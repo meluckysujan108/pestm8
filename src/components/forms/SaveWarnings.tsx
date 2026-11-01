@@ -10,8 +10,14 @@ import {
 } from 'react'
 import { flushSync } from 'react-dom'
 import {
+  FIX_ARM_MS,
   IDLE_SAVE_GUARD,
+  SUBMIT_ARM_MS,
   createSaveGuard,
+  panelFooter,
+  panelOrder,
+  startsHold,
+  stillArmed,
   warningsSignature,
 } from './saveWarningRules'
 import type { ReactNode } from 'react'
@@ -23,7 +29,7 @@ import type {
   SourcedWarning,
 } from './saveWarningRules'
 
-export type { SaveCheck, SaveWarning } from './saveWarningRules'
+export type { SaveCheck, SaveWarning, SaveWarningFix } from './saveWarningRules'
 
 /**
  * "2 things to check before saving": the warnings a form collects from its
@@ -48,10 +54,20 @@ export type { SaveCheck, SaveWarning } from './saveWarningRules'
  * Deliberately not a dialog. The office person reads an address back to a
  * caller while fixing it, so the form stays usable with the list showing, and
  * each row puts the cursor in its field.
+ *
+ * The panel comes in above the button, under the thumb that pressed it. In a
+ * form that asks for it (`useSaveWarnings({ arm: true })`: New Job, New
+ * client, Add property, where the list can say the caller is already a
+ * client), a fix takes no tap for FIX_ARM_MS, and the button no press for
+ * SUBMIT_ARM_MS, after the list comes in or changes under a press, or after
+ * a fix: `armed` and `fixArmed` meanwhile, for their `aria-disabled`, and
+ * the button held pressed in (`HELD_BUTTON`). A double tap then saves
+ * nothing and applies nothing. A list that only shrinks as a field is
+ * edited holds nothing. Every other form is as it always was.
  */
 
 type Fields = Pick<SaveGuard, 'register' | 'edited' | 'removed'> & {
-  fix: (warning: SourcedWarning) => void
+  fix: (warning: SourcedWarning, which?: 'fix' | 'fix2') => void
 }
 
 export type SaveWarningsController = {
@@ -84,6 +100,21 @@ export type SaveWarningsController = {
    * for another record or another client mode, and cancel a press still
    * waiting on its checks. */
   reset: () => void
+  /**
+   * The button takes no press now: the list came in or changed, or a fix
+   * was taken, less than SUBMIT_ARM_MS ago, in a form made with `arm`. For
+   * its `aria-disabled` (and `HELD_BUTTON`); `guard` ignores the press
+   * itself.
+   */
+  armed: boolean
+  /** `armed`, as it is at this moment: for a form that does something of
+   * its own on a press before `guard` (New Job's missing client). */
+  isArmed: () => boolean
+  /** A fix in the list takes no tap now (FIX_ARM_MS, in a form made with
+   * `arm`), for its `aria-disabled`. */
+  fixArmed: boolean
+  /** @internal `fixArmed` at this moment, for the panel's tap. */
+  fixIgnored: () => boolean
   /** @internal The registry the fields reach through the provider. */
   fields: Fields
 }
@@ -91,12 +122,74 @@ export type SaveWarningsController = {
 const FieldsContext = createContext<Fields | null>(null)
 const ControllerContext = createContext<SaveWarningsController | null>(null)
 
-export function useSaveWarnings(): SaveWarningsController {
+export function useSaveWarnings({
+  arm = false,
+}: {
+  /** The button takes no press for SUBMIT_ARM_MS (`armed`), and a fix no
+   * tap for FIX_ARM_MS (`fixArmed`), after the list comes in or changes
+   * under a press, or after a fix (`startsHold`). */
+  arm?: boolean
+} = {}): SaveWarningsController {
   const [state, setState] = useState<SaveGuardState>(IDLE_SAVE_GUARD)
+  // What the list showed last, and when the hold last started, told as the
+  // rules decide it, so a second tap arriving before React has drawn the
+  // list is held too.
+  const changed = useRef<{
+    shown: ReadonlyArray<SaveWarning>
+    at: number | null
+  }>({ shown: [], at: null })
+  // A fix being applied: whatever it changes starts the hold.
+  const fixingNow = useRef(false)
+  const [changedAt, setChangedAt] = useState<number | null>(null)
+  const [fixArmed, setFixArmed] = useState(false)
+  const [submitArmed, setSubmitArmed] = useState(false)
   // The rules and their state live outside React (saveWarningRules.ts),
   // made once per form; React only renders what they say.
-  const [core] = useState(() => createSaveGuard(setState))
+  const [core] = useState(() =>
+    createSaveGuard((next) => {
+      const shown = next.open ? next.shown : []
+      if (arm && startsHold(changed.current.shown, shown, fixingNow.current)) {
+        const at = Date.now()
+        changed.current = { shown, at }
+        setChangedAt(at)
+        setFixArmed(true)
+        setSubmitArmed(true)
+      } else {
+        changed.current = { ...changed.current, shown }
+      }
+      setState(next)
+    }),
+  )
   useEffect(() => core.attach(), [core])
+  useEffect(() => {
+    if (changedAt === null) return
+    const left = (ms: number) => Math.max(0, ms - (Date.now() - changedAt))
+    const fix = setTimeout(() => setFixArmed(false), left(FIX_ARM_MS))
+    const submit = setTimeout(() => setSubmitArmed(false), left(SUBMIT_ARM_MS))
+    return () => {
+      clearTimeout(fix)
+      clearTimeout(submit)
+    }
+  }, [changedAt])
+
+  const isArmed = useCallback(
+    () => arm && stillArmed(changed.current.at, Date.now(), SUBMIT_ARM_MS),
+    [arm],
+  )
+  const fixIgnored = useCallback(
+    () => arm && stillArmed(changed.current.at, Date.now(), FIX_ARM_MS),
+    [arm],
+  )
+  const guard = useCallback<SaveGuard['guard']>(
+    (event, save) => {
+      if (isArmed()) {
+        event?.preventDefault()
+        return
+      }
+      core.guard(event, save)
+    },
+    [core, isArmed],
+  )
 
   const fields = useMemo<Fields>(
     () => ({
@@ -105,7 +198,14 @@ export function useSaveWarnings(): SaveWarningsController {
       removed: core.removed,
       // Applied and rendered at once, so the row is gone and the count
       // right before focus moves.
-      fix: (warning) => core.fix(warning, flushSync),
+      fix: (warning, which) => {
+        fixingNow.current = true
+        try {
+          core.fix(warning, flushSync, which)
+        } finally {
+          fixingNow.current = false
+        }
+      },
     }),
     [core],
   )
@@ -119,16 +219,33 @@ export function useSaveWarnings(): SaveWarningsController {
     [checking, visible],
   )
 
+  const armed = arm && submitArmed
   return useMemo(
     () => ({
-      guard: core.guard,
+      guard,
       saveLabel,
       checking,
       warnings: visible ? shown : [],
       reset: core.reset,
+      armed,
+      isArmed,
+      fixArmed: arm && fixArmed,
+      fixIgnored,
       fields,
     }),
-    [core, saveLabel, checking, visible, shown, fields],
+    [
+      core,
+      guard,
+      saveLabel,
+      checking,
+      visible,
+      shown,
+      armed,
+      isArmed,
+      fixArmed,
+      fixIgnored,
+      fields,
+    ],
   )
 }
 
@@ -216,21 +333,37 @@ export function useLatest<T>(value: T): { readonly current: T } {
  * When it appears, focus moves to its heading, so a screen reader reads out
  * what was found and the next Tab reaches the first fix. A row's tap puts
  * the cursor in its field, inside the tap so iOS brings the keyboard up; its
- * fix applies the fix and takes the row away.
+ * fix applies the fix and takes the row away, then puts focus where the fix
+ * says (`focusAfter`), or on what is left to read.
+ *
+ * Rows for clients the caller may already be (`kind: 'match'`) come after
+ * the fields' own: when the panel pushes the button down, its top lands
+ * under the thumb, so the rows nearest that spot are the ones whose tap only
+ * puts the cursor in a field.
  */
 export function SaveWarningsPanel({
   className,
   anywayLabel = 'Save anyway',
+  matchFooter,
+  note,
 }: {
   className?: string
   /** What the form's own button reads while warnings show, so the line at
    * the foot names the button that is actually there ("Book anyway"). */
   anywayLabel?: string
+  /** The foot's line when every row is a match row ("Use it, or press Book
+   * anyway to add a new client."), given those rows, so it can name the
+   * fix that is there. */
+  matchFooter?: (rows: ReadonlyArray<SaveWarning>) => string
+  /** A last line, after the foot's: where what the match rows were found in
+   * may be behind ("From the clients on this phone, updated 9:42am."). The
+   * form decides it once, as the rows appear. */
+  note?: ReactNode
 }) {
   const controller = useContext(ControllerContext)
   const headingId = useId()
   const heading = useRef<HTMLHeadingElement>(null)
-  const warnings = controller?.warnings ?? []
+  const warnings = panelOrder(controller?.warnings ?? [])
   const signature = warnings.length > 0 ? warningsSignature(warnings) : null
 
   // A new set of warnings is a new thing to read. One that only shrank, a fix
@@ -249,6 +382,38 @@ export function SaveWarningsPanel({
   }, [signature])
 
   if (!controller || warnings.length === 0) return null
+
+  const applyFix = (
+    w: SaveWarning,
+    which: 'fix' | 'fix2',
+    pressed: HTMLButtonElement,
+  ) => {
+    // Just appeared, or just changed, under the thumb: a second tap of a
+    // double tap is not a choice.
+    if (controller.fixIgnored()) return
+    const form = pressed.closest('form')
+    const focusAfter = w[which]?.focusAfter
+    // Takes this row off, only: the field's other warnings were not what
+    // this fixed.
+    controller.fields.fix(w as SourcedWarning, which)
+    if (focusAfter) {
+      focusAfter()
+      return
+    }
+    // The button just pressed is gone. Focus goes to what is left to read,
+    // or to Save when nothing is: the panel is rendered by now, so its
+    // heading is there only if rows are.
+    if (heading.current) heading.current.focus()
+    else
+      // `elements` holds a Save pinned outside the form too (a sheet's
+      // footer, joined by `form=`).
+      Array.from(form?.elements ?? [])
+        .find(
+          (el): el is HTMLButtonElement =>
+            el instanceof HTMLButtonElement && el.type === 'submit',
+        )
+        ?.focus()
+  }
 
   return (
     <section
@@ -285,43 +450,27 @@ export function SaveWarningsPanel({
                 </span>
               </p>
             )}
-            {w.fix && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  const form = e.currentTarget.closest('form')
-                  // Takes this row off, only: the field's other warnings
-                  // were not what this fixed.
-                  controller.fields.fix(w as SourcedWarning)
-                  // The button just pressed is gone. Focus goes to what is
-                  // left to read, or to Save when nothing is: the panel is
-                  // rendered by now, so its heading is there only if rows
-                  // are.
-                  if (heading.current) heading.current.focus()
-                  else
-                    // `elements` holds a Save pinned outside the form too
-                    // (a sheet's footer, joined by `form=`).
-                    Array.from(form?.elements ?? [])
-                      .find(
-                        (el): el is HTMLButtonElement =>
-                          el instanceof HTMLButtonElement &&
-                          el.type === 'submit',
-                      )
-                      ?.focus()
-                }}
-                className="inline-flex min-h-11 items-center font-semibold text-blue-ink underline underline-offset-2"
-              >
-                {w.fix.label}
-              </button>
-            )}
+            {(['fix', 'fix2'] as const).map((which) => {
+              const fix = w[which]
+              return fix ? (
+                <button
+                  key={which}
+                  type="button"
+                  aria-disabled={controller.fixArmed || undefined}
+                  onClick={(e) => applyFix(w, which, e.currentTarget)}
+                  className="inline-flex min-h-11 items-center font-semibold text-blue-ink underline underline-offset-2"
+                >
+                  {fix.label}
+                </button>
+              ) : null
+            })}
           </li>
         ))}
       </ul>
       <p className="pb-1 text-grey-ink">
-        {warnings.length === 1
-          ? `Fix it, or press ${anywayLabel} to keep it as it is.`
-          : `Fix them, or press ${anywayLabel} to keep them as they are.`}
+        {panelFooter(warnings, anywayLabel, matchFooter)}
       </p>
+      {note && <p className="pb-1 text-grey-ink">{note}</p>}
     </section>
   )
 }

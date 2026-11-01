@@ -252,9 +252,12 @@ const EVIDENCE_ORDER: ReadonlyArray<Evidence> = [
 
 /**
  * - `same`: the name agrees, and so does a place or a person (site, mobile,
- *   email or landline).
+ *   email or landline). A landline is a household's or an office's: a
+ *   person's name agreeing only as similar ("T Lee" for Tom Lee, maybe his
+ *   wife Tina) leaves it Likely.
  * - `likely`: a place or a person without the name; or the name with a
- *   suggestion or a shared key; or a site contact.
+ *   suggestion, a shared key or a landline it is only similar to; or a site
+ *   contact.
  * - `maybe`: the name alone, and only when nothing stronger turned up.
  */
 export type Tier = 'same' | 'likely' | 'maybe'
@@ -480,6 +483,9 @@ export function matchIndexFor(
 /** What has been found for one client so far. */
 type Found = {
   evidence: Set<Evidence>
+  /** `nameNear` came from a person's name (the client's, or a contact
+   * person's): initials or a household, not a business's shorter name. */
+  nearPerson?: boolean
   siteIds: Array<Id<'properties'>>
   streetSiteIds: Array<Id<'properties'>>
   nearSiteIds: Array<Id<'properties'>>
@@ -622,6 +628,9 @@ export function matchNewClient(
     )
     if (agreed) {
       f.evidence.add(agreed)
+      if (agreed === 'nameNear' && (via || client.kind === 'person')) {
+        f.nearPerson = true
+      }
       if (via && !f.contactId) f.contactId = via
     } else if (kind !== 'mobile' && kind !== 'email') {
       rows.push({ field, key, reason: 'landline', clientIds: holders })
@@ -668,6 +677,7 @@ export function matchNewClient(
     const client = index.clients.get(clientId)
     if (client && agreement(client.name, client.kind) === 'nameNear') {
       f.evidence.add('nameNear')
+      if (client.kind === 'person') f.nearPerson = true
     }
   }
 
@@ -703,7 +713,7 @@ export function matchNewClient(
 
   const all: Array<Candidate> = []
   for (const [clientId, f] of found) {
-    const tier = tierOf(f.evidence, index.complete)
+    const tier = tierOf(f.evidence, index.complete, f.nearPerson ?? false)
     if (tier) all.push(candidateOf(clientId, tier, f))
   }
   const candidates = all.some((c) => c.tier !== 'maybe')
@@ -726,21 +736,35 @@ export function matchNewClient(
   }
 }
 
+/**
+ * A candidate's tier (`Tier`). The server's sheet refusal reads it
+ * (`candidate.tier === 'same'`, lib/findSame.ts), so a change here is a
+ * change to what the backstop refuses once Convex is deployed with it, not
+ * only to what the phone shows: deploy the backend with the frontend that
+ * shows it. The landline rule (a person's initial and surname is Likely)
+ * came with the matching plan's M3, 1 Nov 2026.
+ */
 function tierOf(
   evidence: ReadonlySet<Evidence>,
   complete: boolean,
+  nearPerson: boolean,
 ): Tier | null {
   const agrees = evidence.has('name') || evidence.has('nameNear')
   const strong =
     evidence.has('site') || evidence.has('mobile') || evidence.has('email')
+  // A landline needs the name itself, or a business's shorter name: a
+  // person's initial and surname may be anyone in the house.
+  const landlineAgrees =
+    evidence.has('landline') && (evidence.has('name') || !nearPerson)
   let tier: Tier
-  if (agrees && (strong || evidence.has('landline'))) tier = 'same'
+  if (agrees && (strong || landlineAgrees)) tier = 'same'
   else if (strong) tier = 'likely'
   else if (
     agrees &&
     (evidence.has('street') ||
       evidence.has('addressNear') ||
-      evidence.has('shared'))
+      evidence.has('shared') ||
+      evidence.has('landline'))
   ) {
     tier = 'likely'
   } else if (evidence.has('siteContact')) tier = 'likely'

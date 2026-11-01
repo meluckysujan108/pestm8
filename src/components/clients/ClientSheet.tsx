@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useId, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
@@ -33,8 +34,20 @@ import {
   SaveWarningsPanel,
   SaveWarningsProvider,
   useLatest,
+  useSaveCheck,
   useSaveWarnings,
 } from '#/components/forms/SaveWarnings'
+import { matchFooter, ownSiteRows } from '#/lib/clientMatchRows'
+import type { OwnSite } from '#/lib/clientMatchRows'
+import type { SiteAddressDraft } from '#/components/clients/NewClientFields'
+import {
+  firstTab,
+  useAddSiteOnce,
+} from '#/components/clients/clientSheetOpening'
+import type {
+  ClientTab,
+  OpenedFromNewClient,
+} from '#/components/clients/clientSheetOpening'
 import {
   VerifiedAddressFields,
   addressCheckToSend,
@@ -58,7 +71,11 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { AddressCheck } from '#/components/forms/VerifiedAddressFields'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import type { AddressValue } from '#/lib/addressVerify'
-import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import {
+  HELD_BUTTON,
+  PRIMARY_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 import { DeleteButton } from '#/components/primitives/DeleteButton'
 import {
@@ -84,7 +101,6 @@ import {
 
 type ClientKind = 'person' | 'business'
 
-type ClientTab = 'jobs' | 'notes' | 'details'
 
 const TAB_LABELS: Record<ClientTab, string> = {
   jobs: 'Jobs',
@@ -130,6 +146,7 @@ export function ClientSheet({
   canManageClients,
   canRenumber = false,
   clientId,
+  fromNewClient,
   onClose,
 }: {
   businessId: Id<'businesses'>
@@ -143,6 +160,10 @@ export function ClientSheet({
    * only the owner changes one, to match an old system. */
   canRenumber?: boolean
   clientId: string | null
+  /** Opened from Clients → New client, where the caller turned out to be
+   * this client: on Details, with Add property open on the address they
+   * gave when it isn't theirs (the matching plan's §2.10). */
+  fromNewClient?: OpenedFromNewClient
   onClose: () => void
 }) {
   return (
@@ -157,6 +178,7 @@ export function ClientSheet({
           canManageClients={canManageClients}
           canRenumber={canRenumber}
           clientId={clientId as Id<'clients'>}
+          fromNewClient={fromNewClient}
           onClose={onClose}
         />
       )}
@@ -172,6 +194,7 @@ function ClientBody({
   canManageClients,
   canRenumber,
   clientId,
+  fromNewClient,
   onClose,
 }: {
   businessId: Id<'businesses'>
@@ -182,6 +205,7 @@ function ClientBody({
   canManageClients: boolean
   canRenumber: boolean
   clientId: Id<'clients'>
+  fromNewClient?: OpenedFromNewClient
   onClose: () => void
 }) {
   const clientQuery = useQuery(
@@ -223,7 +247,10 @@ function ClientBody({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   // Which part of the client is shown. Kept here, above the edit form, so
   // Edit → Save comes back to the same tab.
-  const [tab, setTab] = useState<ClientTab>('jobs')
+  const [tab, setTab] = useState<ClientTab>(() => firstTab(fromNewClient))
+  // The address New client opened the sheet with: Add property opens on it
+  // the first time Details is drawn, and only then.
+  const addSiteOnce = useAddSiteOnce(fromNewClient?.addSite)
   // The Jobs tab's site, kept across tabs, and where "Book a job" starts.
   const [site, setSite] = useState<string>(ALL_SITES)
   const [bookOpen, setBookOpen] = useState(false)
@@ -535,8 +562,11 @@ function ClientBody({
               businessId={businessId}
               businessState={businessState}
               clientId={clientId}
+              clientName={client.name}
               clientKind={client.kind}
               canDelete={canManageClients}
+              addSite={addSiteOnce.addSite}
+              onAddSiteTaken={addSiteOnce.taken}
               onFormOpenChange={setPropertyFormOpen}
             />
 
@@ -1558,15 +1588,23 @@ function ClientProperties({
   businessId,
   businessState,
   clientId,
+  clientName,
   clientKind,
   canDelete,
+  addSite,
+  onAddSiteTaken,
   onFormOpenChange,
 }: {
   businessId: Id<'businesses'>
   businessState: string
   clientId: Id<'clients'>
+  clientName: string
   clientKind: ClientKind
   canDelete: boolean
+  /** Add property opened as this mounts, on this address. */
+  addSite?: SiteAddressDraft
+  /** `addSite` is open in Add property now: not to be opened again. */
+  onAddSiteTaken?: () => void
   /** Told when a site is being added or edited, and when not. */
   onFormOpenChange: (open: boolean) => void
 }) {
@@ -1574,7 +1612,25 @@ function ClientProperties({
     convexQuery(api.properties.listByClient, { businessId, clientId }),
   )
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [adding, setAdding] = useState(false)
+  const [adding, setAdding] = useState(addSite !== undefined)
+  // What Add property first opens on, kept here once taken from the sheet;
+  // once that form is done with, Add another property opens blank.
+  const [initialSite, setInitialSite] = useState(addSite)
+  const closeAdding = () => {
+    setAdding(false)
+    setInitialSite(undefined)
+  }
+  useEffect(() => {
+    if (addSite) onAddSiteTaken?.()
+  }, [addSite, onAddSiteTaken])
+  const editIds = useId()
+  const editId = (propertyId: string) => `${editIds}-${propertyId}`
+  /** "Use 12 Wattle St": the address is theirs already, so nothing is
+   * added; Add property closes, and focus goes to that site. */
+  const useSite = (propertyId: string) => {
+    flushSync(closeAdding)
+    document.getElementById(editId(propertyId))?.focus()
+  }
   const formOpen = adding || editingId !== null
   useEffect(() => {
     onFormOpenChange(formOpen)
@@ -1609,6 +1665,7 @@ function ClientProperties({
                     </p>
                   </div>
                   <button
+                    id={editId(property._id)}
                     type="button"
                     aria-label={`Edit ${property.addressLine}`}
                     onClick={() => setEditingId(property._id)}
@@ -1632,8 +1689,12 @@ function ClientProperties({
           businessId={businessId}
           businessState={businessState}
           clientId={clientId}
+          clientName={clientName}
           clientKind={clientKind}
-          onDone={() => setAdding(false)}
+          sites={properties ?? []}
+          initial={initialSite}
+          onUseSite={useSite}
+          onDone={closeAdding}
         />
       ) : (
         <button
@@ -1950,35 +2011,79 @@ const PROPERTY_SAVE_WAITS: Record<LineDown, string> = {
     'Could not reach PestM8 — it’s saved once it can. Keep PestM8 open until then.',
 }
 
+/**
+ * Add property on a client's sheet. An address that is one of theirs, or
+ * like one ("12 Watle St"), is said at Add (`ownSiteRows`): "Already has
+ * this site", with Use 12 Wattle St, which adds nothing and goes to that
+ * site. Opened from Clients → New client (`initial`), it holds the address
+ * the caller gave.
+ */
 function NewPropertyForClientForm({
   businessId,
   businessState,
   clientId,
+  clientName,
   clientKind,
+  sites,
+  initial,
+  onUseSite,
   onDone,
 }: {
   businessId: Id<'businesses'>
   businessState: string
   clientId: Id<'clients'>
+  clientName: string
   clientKind: ClientKind
+  sites: ReadonlyArray<OwnSite>
+  initial?: SiteAddressDraft
+  onUseSite: (propertyId: Id<'properties'>) => void
   onDone: () => void
 }) {
   const [value, setValue] = useState<PropertyFieldsValue>({
-    addressLine: '',
-    suburb: '',
+    addressLine: initial?.addressLine ?? '',
+    suburb: initial?.suburb ?? '',
     // The business's own, not always WA: most of a Darwin business's
     // clients are in the NT.
-    state: businessState,
-    postcode: '',
-    siteContactName: '',
-    siteContactPhone: '',
+    state: initial?.state || businessState,
+    postcode: initial?.postcode ?? '',
+    // A business's: the caller, brought from Clients → New client.
+    siteContactName: initial?.siteContactName ?? '',
+    siteContactPhone: initial?.siteContactPhone ?? '',
   })
   const [addressCheck, setAddressCheck] = useState<AddressCheck>('typed')
   const hydrated = useHydrated()
   const lineDown = useLineDown()
   const lineDownId = useId()
-  const warnings = useSaveWarnings()
-  const [opened] = useState(value)
+  const warnings = useSaveWarnings({ arm: true })
+  const latestUseSite = useLatest(onUseSite)
+  useSaveCheck(
+    'add-property-own-site',
+    () =>
+      ownSiteRows(clientName, sites, value).map((row) => ({
+        id: row.id,
+        kind: 'match' as const,
+        label: row.label,
+        message: row.message,
+        fix: {
+          label: `Use ${row.site.addressLine}`,
+          apply: () => {},
+          focusAfter: () => latestUseSite.current(row.site._id),
+        },
+      })),
+    [value.addressLine, value.suburb, value.postcode],
+  )
+  // Against a blank form: an address and site contact brought from Clients
+  // → New client are the caller's, and closing on them asks first, as on
+  // ones typed here.
+  const [opened] = useState<PropertyFieldsValue>(() => ({
+    ...value,
+    addressLine: '',
+    suburb: '',
+    state: businessState,
+    postcode: '',
+    siteContactName: '',
+    siteContactPhone: '',
+  }))
   useSheetLock(
     (Object.keys(opened) as Array<keyof PropertyFieldsValue>).some((key) =>
       changed(value[key], opened[key]),
@@ -2032,7 +2137,15 @@ function NewPropertyForClientForm({
           onCheckChange={setAddressCheck}
         />
         <FormAlert error={create.isError ? create.error : null} />
-        <SaveWarningsPanel />
+        <SaveWarningsPanel
+          // Each row's fix is Use 12 Wattle St.
+          matchFooter={(shown) =>
+            matchFooter(
+              shown.map(() => ({ fix: { kind: 'use' as const } })),
+              { anyway: 'Save anyway', adds: 'site' },
+            )
+          }
+        />
         {lineDown && (
           <p id={lineDownId} className="text-caption text-ink-2">
             {PROPERTY_SAVE_WAITS[lineDown]}
@@ -2049,8 +2162,9 @@ function NewPropertyForClientForm({
           <button
             type="submit"
             disabled={create.isPending || !hydrated}
+            aria-disabled={warnings.armed || undefined}
             aria-describedby={lineDown ? lineDownId : undefined}
-            className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
+            className={`${PRIMARY_BUTTON_COMPACT} ${HELD_BUTTON} flex-1`}
           >
             {create.isPending ? 'Adding…' : warnings.saveLabel('Add property')}
           </button>

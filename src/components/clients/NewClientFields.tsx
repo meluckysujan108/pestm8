@@ -1,9 +1,13 @@
 import { useId, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
-import type { Ref } from 'react'
+import type { FocusEvent, Ref } from 'react'
+import { matchKeyOf, useMatchLines } from './useMatchLines'
+import { areaCodeOf } from '../../../convex/lib/contactKeys'
+import type { NewClientMatchField, NewClientMatchLine } from './useMatchLines'
 import type { Infer } from 'convex/values'
 import { Segmented } from '#/components/primitives/Segmented'
 import { EmailInput } from '#/components/forms/EmailInput'
+import { FieldMessage } from '#/components/forms/FieldMessage'
 import { FIELD, FormField } from '#/components/forms/FormField'
 import { PhoneInput } from '#/components/forms/PhoneInput'
 import {
@@ -39,6 +43,15 @@ export type NewSiteValue = {
   siteContactPhone: string
   addressCheck: AddressCheck
 }
+
+/** A site's address, and for a business's the caller as its site contact:
+ * what Clients → New client hands a client's Add property when the caller
+ * turns out to be theirs. */
+export type SiteAddressDraft = Pick<
+  NewSiteValue,
+  'addressLine' | 'suburb' | 'state' | 'postcode'
+> &
+  Partial<Pick<NewSiteValue, 'siteContactName' | 'siteContactPhone'>>
 
 export const EMPTY_NEW_SITE: NewSiteValue = {
   addressLine: '',
@@ -160,22 +173,54 @@ export function newClientFieldId(
     : `${idPrefix}-${field === 'clientName' ? 'name' : field}`
 }
 
+export type { NewClientMatchField, NewClientMatchLine } from './useMatchLines'
+
+const FIELD_TAGS = new Set(['INPUT', 'SELECT', 'TEXTAREA'])
+
+/**
+ * Whether focus leaving `from` is going to another field (`next`, a blur's
+ * `relatedTarget`): an input, a select or a textarea outside it. A button
+ * (Book, a fix) is not: iOS gives buttons no focus, so a tap there moves it
+ * nowhere, `next` is null, and the panel at Book says it instead.
+ */
+export function movesToAnotherField<T extends { tagName?: string }>(
+  next: T | null | undefined,
+  from: { contains: (other: T) => boolean },
+): boolean {
+  if (!next || !FIELD_TAGS.has(next.tagName ?? '')) return false
+  return !from.contains(next)
+}
+
 /**
  * The client + first-property fields, shared between `NewPropertySheet.tsx`
  * (adding a client on its own) and `NewJobSheet.tsx` (adding one inline
  * while booking a job) — extracted so the two stay identical rather than
  * drifting if either is tweaked later.
  *
+ * In the order a caller gives them (C11): who they are, then their phone and
+ * email, then the address. The number is the first thing they give, and
+ * whether they are already a client needs no address.
+ *
  * The address, phone and email are checked as they go in, and again at Save
  * when the form is inside a SaveWarningsProvider (both sheets are): anything
  * that may be wrong but might be right is listed above the button, never
  * refused.
+ *
+ * With `matchLine`, leaving Name, Phone or Email for another field says who
+ * already has what was typed there, under it (lib/clientMatchRows.ts
+ * `blurLine`), until that field is changed. Only on moving to another field:
+ * a tap on Book or a fix moves focus nowhere on iOS, so nothing is put in
+ * above a button being pressed. The field moved to stays where it was on
+ * screen as the line goes in above it, and the line's fixes take no tap for
+ * the moment it comes in (`useMatchLines`). Left before `matchLine` is
+ * given (the client list not read yet), a field's line comes once it is.
  */
 export function NewClientFields({
   value,
   onChange,
   businessState,
   idPrefix,
+  matchLine,
 }: {
   value: NewClientFieldsValue
   onChange: (patch: Partial<NewClientFieldsValue>) => void
@@ -185,6 +230,12 @@ export function NewClientFields({
   businessState: string
   /** Ids for the fields a caller puts focus in (`newClientFieldId`). */
   idPrefix?: string
+  /** Who already has what was typed in a field, decided as it is left.
+   * Left out until there is a client list to decide it from. */
+  matchLine?: (
+    field: NewClientMatchField,
+    value: NewClientFieldsValue,
+  ) => NewClientMatchLine | null
 }) {
   const kindId = useId()
   const abnId = useId()
@@ -194,6 +245,29 @@ export function NewClientFields({
   const phoneId = newClientFieldId(prefix, 'phone')
   const emailId = newClientFieldId(prefix, 'email')
   const business = value.kind === 'business'
+  // Each field's line, shown while the field holds what it was decided
+  // for: the same number, email or name, however it is written.
+  const areaCode = areaCodeOf(businessState)
+  const lines = useMatchLines(
+    value,
+    matchLine && ((field, now) => matchLine(field, { ...value, ...now })),
+    (field, typed) => matchKeyOf(field, typed, areaCode),
+  )
+  const leaving =
+    (field: NewClientMatchField) => (event: FocusEvent<HTMLElement>) => {
+      if (!movesToAnotherField(event.relatedTarget, event.currentTarget)) {
+        return
+      }
+      lines.leaving(field, event.relatedTarget)
+    }
+  const changing = (field: NewClientMatchField, next: string) => {
+    lines.changing(field, next)
+    onChange({ [field]: next })
+  }
+  const nameLine = lines.lineOf('clientName')
+  const phoneLine = lines.lineOf('phone')
+  const emailLine = lines.lineOf('email')
+  const lineId = (id: string) => `${id}-match`
   const [addingSiteContact, setAddingSiteContact] = useState(false)
   const siteContactInput = useRef<HTMLInputElement>(null)
   // Kept open while it holds anything, like the work order on the booking
@@ -223,10 +297,14 @@ export function NewClientFields({
         <Input
           id={nameId}
           value={value.clientName}
-          onChange={(clientName) => onChange({ clientName })}
+          onChange={(clientName) => changing('clientName', clientName)}
+          onBlur={leaving('clientName')}
+          describedBy={nameLine ? lineId(nameId) : undefined}
           required
         />
       </Field>
+      {/* Outside the <label>, which would take it into the field's name. */}
+      {nameLine && <MatchLineMessage id={lineId(nameId)} line={nameLine} />}
       {business && (
         <FormField id={abnId} label="ABN (optional)" className="mt-4">
           <AbnInput
@@ -238,13 +316,6 @@ export function NewClientFields({
         </FormField>
       )}
 
-      <SiteAddressFields
-        value={value}
-        onChange={onChange}
-        businessState={businessState}
-        idPrefix={prefix}
-      />
-
       {/* The same labels as the client sheet's edit form: a business's phone
           and email are head office's, not whoever is on site. FormField, not
           Field: these render their own error and warning lines, which inside
@@ -254,35 +325,57 @@ export function NewClientFields({
         label={business ? 'Main phone (optional)' : 'Phone (optional)'}
         className="mt-4"
       >
-        <PhoneInput
-          id={phoneId}
-          value={value.phone}
-          onChange={(phone) => onChange({ phone })}
-          businessState={businessState}
-          size="lg"
-        />
+        <div onBlur={leaving('phone')}>
+          <PhoneInput
+            id={phoneId}
+            value={value.phone}
+            onChange={(phone) => changing('phone', phone)}
+            businessState={businessState}
+            size="lg"
+            describedBy={phoneLine ? lineId(phoneId) : undefined}
+          />
+        </div>
+        {phoneLine && (
+          <MatchLineMessage id={lineId(phoneId)} line={phoneLine} />
+        )}
       </FormField>
       <FormField
         id={emailId}
         label={business ? 'Main email (optional)' : 'Email (optional)'}
         className="mt-4"
       >
-        <EmailInput
-          id={emailId}
-          value={value.email}
-          onChange={(email) => onChange({ email })}
-          size="lg"
-        />
+        <div onBlur={leaving('email')}>
+          <EmailInput
+            id={emailId}
+            value={value.email}
+            onChange={(email) => changing('email', email)}
+            size="lg"
+            describedBy={emailLine ? lineId(emailId) : undefined}
+          />
+        </div>
+        {emailLine && (
+          <MatchLineMessage id={lineId(emailId)} line={emailLine} />
+        )}
       </FormField>
 
       {business && (
+        <Field label="Contact person (optional)">
+          <Input
+            value={value.contactPerson}
+            onChange={(contactPerson) => onChange({ contactPerson })}
+          />
+        </Field>
+      )}
+
+      <SiteAddressFields
+        value={value}
+        onChange={onChange}
+        businessState={businessState}
+        idPrefix={prefix}
+      />
+
+      {business && (
         <>
-          <Field label="Contact person (optional)">
-            <Input
-              value={value.contactPerson}
-              onChange={(contactPerson) => onChange({ contactPerson })}
-            />
-          </Field>
           {showSiteContact ? (
             <SiteContactFields
               value={value}
@@ -332,7 +425,10 @@ export function SiteAddressFields({
   businessState,
   idPrefix,
 }: {
-  value: Pick<NewSiteValue, 'addressLine' | 'suburb' | 'state' | 'postcode'>
+  value: Pick<
+    NewSiteValue,
+    'addressLine' | 'suburb' | 'state' | 'postcode' | 'addressCheck'
+  >
   onChange: (patch: Partial<NewSiteValue>) => void
   /** The work area: an address in another state is pointed out. */
   businessState: string
@@ -348,6 +444,9 @@ export function SiteAddressFields({
       onChange={onChange}
       workState={businessState}
       onCheckChange={(addressCheck) => onChange({ addressCheck })}
+      // Picked in another client mode's block and carried here (a fix in
+      // New Job): still the suggestion picked, until it is changed.
+      picked={value.addressCheck === 'picked'}
     />
   )
 }
@@ -389,16 +488,35 @@ export function SiteContactFields({
   )
 }
 
+/** Who already has what was typed, under the field it was typed in. */
+function MatchLineMessage({
+  id,
+  line,
+}: {
+  id: string
+  line: NewClientMatchLine
+}) {
+  return (
+    <FieldMessage id={id} tone="status" fix={line.fix} fix2={line.fix2}>
+      {line.text}
+    </FieldMessage>
+  )
+}
+
 function Input({
   id,
   value,
   onChange,
+  onBlur,
+  describedBy,
   required,
   inputRef,
 }: {
   id?: string
   value: string
   onChange: (v: string) => void
+  onBlur?: (event: FocusEvent<HTMLInputElement>) => void
+  describedBy?: string
   required?: boolean
   inputRef?: Ref<HTMLInputElement>
 }) {
@@ -410,6 +528,8 @@ function Input({
       value={value}
       required={required}
       onChange={(e) => onChange(e.target.value)}
+      onBlur={onBlur}
+      aria-describedby={describedBy}
       className={`${FIELD} w-full`}
     />
   )

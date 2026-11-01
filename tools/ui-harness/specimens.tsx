@@ -22,7 +22,8 @@ import type { Directory } from '#/lib/directory'
 import { propertyOptions } from '#/lib/propertyOptions'
 import { Combobox } from '#/components/primitives/Combobox'
 import { useMatchIndex } from '#/lib/useMatchIndex'
-import { MATCH_BIZ, TEN_K_BIZ } from './matchFixtures'
+import { MATCH_BIZ, MATCH_CAPPED_BIZ, TEN_K_BIZ } from './matchFixtures'
+import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
 import { clientCountLabel, directoryCount } from '#/lib/offline/keptClients'
 import { ScheduleNotKept } from '#/components/schedule/ScheduleNotKept'
 import { RecurringDueNote } from '#/components/schedule/RecurringDueNote'
@@ -539,6 +540,120 @@ function ClientsSearchPhone() {
           ))}
         </div>
       </section>
+    </Phone>
+  )
+}
+
+/**
+ * PestM8 heard from lately, as on a phone with signal: the harness has no
+ * socket, so without this the keeper would count every answer as maybe
+ * behind (`mayBeBehind`), and New Job's check at Book would say "From the
+ * clients on this phone…" in every shot. One specimen to a page load.
+ */
+function LineLive({ children }: { children: ReactNode }) {
+  useState(() => {
+    keeper.lineLive = () => true
+    return null
+  })
+  return children
+}
+
+/** The client list as last known right at 9:42am today, for the line the
+ * check at Book ends with when it may be behind. The harness keeps no copy
+ * to take the time from. One specimen to a page load. */
+function ListAsOf942({ children }: { children: ReactNode }) {
+  useState(() => {
+    const at = perthAt(perthTodayKey(), '09:42')
+    keeper.asOf = () => at
+    return null
+  })
+  return children
+}
+
+/**
+ * Is the caller already a client? (the matching plan's M3, 1 Nov 2026). New
+ * Job over the small book, the shoot plan typing a caller into New client:
+ * the line under a field as it is left, and the rows at Book.
+ */
+function NewJobMatch() {
+  return (
+    <LineLive>
+      <NewJobOver businessId={MATCH_BIZ} />
+    </LineLive>
+  )
+}
+
+/** The same with no signal, from the copy on the phone: the rows end with
+ * when it was last known right. */
+function NewJobMatchOffline() {
+  return (
+    <NoSignal>
+      <ListAsOf942>
+        <NewJobOver businessId={MATCH_BIZ} />
+      </ListAsOf942>
+    </NoSignal>
+  )
+}
+
+/** Over a book past the directory's limit: the rows say only the newest
+ * clients are on the phone. */
+function NewJobMatchCapped() {
+  return (
+    <LineLive>
+      <NewJobOver businessId={MATCH_CAPPED_BIZ} />
+    </LineLive>
+  )
+}
+
+/** Clients → New client over the small book: every fix is Open {client}. */
+function NewPropertyMatch() {
+  return (
+    <LineLive>
+      <Phone>
+        <AccessProvider businessId={MATCH_BIZ as never}>
+          <Header title="Clients" />
+          <NewPropertySheet
+            businessId={MATCH_BIZ as never}
+            open
+            onClose={() => {}}
+            onOpenClient={() => {}}
+          />
+        </AccessProvider>
+      </Phone>
+    </LineLive>
+  )
+}
+
+/**
+ * A client's sheet opened from Clients → New client on an address that is
+ * one of theirs already: Add property holds it, and at Add says "Already has
+ * this site", with Use 220 Hay St.
+ */
+function ClientSheetAddSiteOwnDup() {
+  state.technician = false
+  state.actingAs = false
+  return (
+    <Phone>
+      <AccessProvider businessId={bizId}>
+        <Header title="Clients" />
+        <ClientSheet
+          businessId={bizId}
+          timezone={TZ}
+          businessSlug="demo"
+          businessState="WA"
+          canManageClients
+          clientId="c1"
+          fromNewClient={{
+            addSite: {
+              addressLine: '220 Hay Street',
+              suburb: 'Subiaco',
+              state: 'WA',
+              postcode: '6008',
+            },
+          }}
+          onClose={() => {}}
+        />
+      </AccessProvider>
     </Phone>
   )
 }
@@ -2983,6 +3098,26 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'newjob-picker-detail-two': NewJobPickerDetailTwo,
   'newjob-picker-10k': NewJobPicker10k,
   'clients-search-phone': ClientsSearchPhone,
+  // Is the caller already a client? (the matching plan's M3, 1 Nov 2026).
+  'newjob-match-same-site': NewJobMatch,
+  'newjob-match-same-contact': NewJobMatch,
+  'newjob-match-similar-name': NewJobMatch,
+  'newjob-match-other-name': NewJobMatch,
+  'newjob-match-contact-person': NewJobMatch,
+  'newjob-match-shared-blur': NewJobMatch,
+  'newjob-match-landline-blur': NewJobMatch,
+  'newjob-match-name-only': NewJobMatch,
+  'newjob-match-near-address': NewJobMatch,
+  'newjob-match-site-mode-own': NewJobMatch,
+  'newjob-match-offline-asof': NewJobMatchOffline,
+  'newjob-match-capped': NewJobMatchCapped,
+  'newjob-match-mixed': NewJobMatch,
+  'newjob-match-armed': NewJobMatch,
+  'newjob-match-show-only': NewJobMatch,
+  'newjob-match-name-line': NewJobMatch,
+  'newproperty-match-open-client': NewPropertyMatch,
+  'clientsheet-addsite-own-dup': ClientSheetAddSiteOwnDup,
+  'newclient-order': NewPropertyMatch,
   'business-switch-no-signal': BusinessSwitchNoSignal,
   jobtimes: JobTimes,
   'jobdetail-services': JobDetailServices,

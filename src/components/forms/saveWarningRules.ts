@@ -9,19 +9,111 @@
  * not make the person confirm twice.
  */
 
+/**
+ * A one-tap fix. `apply` runs when it is tapped, perhaps long after the
+ * check: make it call the form's latest setter (see useLatest), not one
+ * closed over at check time. `focusAfter`, when given, says where focus
+ * goes once it has been applied and rendered: a fix that changed what the
+ * form shows (another client mode) puts it on the field it filled, rather
+ * than on the panel's heading or Save.
+ */
+export type SaveWarningFix = {
+  label: string
+  apply: () => void
+  focusAfter?: () => void
+}
+
 export type SaveWarning = {
   /** Unique within the form, e.g. `${inputId}:typo`. */
   id: string
   /** The field's name as the person sees it: "Email", "Site contact number". */
   label: string
   message: string
-  /** A one-tap fix, when there is exactly one sensible one. `apply` runs
-   * when the row is tapped, perhaps long after the check: make it call the
-   * form's latest setter (see useLatest), not one closed over at check time. */
-  fix?: { label: string; apply: () => void }
+  /** A one-tap fix, when there is exactly one sensible one. */
+  fix?: SaveWarningFix
+  /** A second fix beside the first, where there are two ("Book at 12
+   * Wattle St" · "Add 12 Watle St"). */
+  fix2?: SaveWarningFix
   /** Puts the cursor in the field. Called inside the tap, so iOS opens the
    * keyboard. */
   focus?: () => void
+  /**
+   * `match`: a client the caller may already be (lib/clientMatchRows.ts),
+   * not something wrong with a field. Listed after the fields' own
+   * warnings, and with a footer of its own when nothing else is listed.
+   */
+  kind?: 'match'
+}
+
+/**
+ * How long a fix in the panel takes no tap once the panel appears, and Book
+ * (or Save) no press once it appears or changes, in a form that asks for it
+ * (`useSaveWarnings({ arm: true })`): the panel comes in above the button,
+ * under the thumb that pressed it, and a second tap of a double tap would
+ * otherwise land on a fix it never saw, or book what it was warned about.
+ * Shown `aria-disabled` meanwhile, the button held pressed in
+ * (`HELD_BUTTON`), never a silent no-op.
+ */
+export const FIX_ARM_MS = 400
+export const SUBMIT_ARM_MS = 500
+
+/**
+ * Whether a change of what the panel shows (`before`, then `after`: the rows
+ * on screen, none while it is closed) starts the hold: rows that appeared,
+ * or changed, as a press's checks answered; or anything a fix did (`byFix`),
+ * since the second tap of a double tap on a fix lands where the fix was, on
+ * whatever has moved up there. A list that only shrank, as a field was
+ * edited or the form reset, holds nothing: nothing came in under a thumb,
+ * and a press then is meant.
+ */
+export function startsHold(
+  before: ReadonlyArray<Pick<SaveWarning, 'id' | 'message'>>,
+  after: ReadonlyArray<Pick<SaveWarning, 'id' | 'message'>>,
+  byFix: boolean,
+): boolean {
+  if (byFix) return true
+  const had = new Set(before.map((w) => JSON.stringify([w.id, w.message])))
+  return after.some((w) => !had.has(JSON.stringify([w.id, w.message])))
+}
+
+/** Whether something armed at `since` (or never, null) still takes no tap
+ * at `now`. */
+export function stillArmed(
+  since: number | null,
+  now: number,
+  ms: number,
+): boolean {
+  return since !== null && now >= since && now - since < ms
+}
+
+/** The panel's order: the fields' own warnings first, as checked; then the
+ * clients the caller may be. The same array back when nothing moves. */
+export function panelOrder<T extends Pick<SaveWarning, 'kind'>>(
+  warnings: ReadonlyArray<T>,
+): ReadonlyArray<T> {
+  const fields = warnings.filter((w) => w.kind !== 'match')
+  if (fields.length === 0 || fields.length === warnings.length) return warnings
+  const matches = warnings.filter((w) => w.kind === 'match')
+  const ordered = [...fields, ...matches]
+  return ordered.every((w, i) => w === warnings[i]) ? warnings : ordered
+}
+
+/**
+ * The line at the foot of the panel. Match rows alone have their own
+ * (`matchFooter`, the form's, given those rows: "Use it, or press Book
+ * anyway to add a new client."); anything else, or a mix, today's.
+ */
+export function panelFooter<T extends Pick<SaveWarning, 'kind'>>(
+  warnings: ReadonlyArray<T>,
+  anywayLabel: string,
+  matchFooter?: (rows: ReadonlyArray<T>) => string,
+): string {
+  if (matchFooter && warnings.every((w) => w.kind === 'match')) {
+    return matchFooter(warnings)
+  }
+  return warnings.length === 1
+    ? `Fix it, or press ${anywayLabel} to keep it as it is.`
+    : `Fix them, or press ${anywayLabel} to keep them as they are.`
 }
 
 /**
@@ -209,6 +301,16 @@ export function createSaveGuard(onChange: (state: SaveGuardState) => void) {
   let generation = 0
   let live = true
   let fixing: { source: string; id: string } | null = null
+  // The fields a fix took off the screen while it was being applied: their
+  // warnings go once it has been, unless the same field is back by then
+  // (`register`ed again: another client mode drawing the same address
+  // block), whose warnings stay as they were shown and confirmed.
+  let leftDuringFix: Set<string> | null = null
+
+  const drop = (source: string) => {
+    if (state.checking) editedWhileChecking = true
+    publish({ shown: afterEdit(state.shown, source, null) })
+  }
 
   const publish = (next: Partial<SaveGuardState>) => {
     const merged = { ...state, ...next }
@@ -341,19 +443,35 @@ export function createSaveGuard(onChange: (state: SaveGuardState) => void) {
     /** The field `source` names has gone from the form (a Business client
      * turned Person): its warnings point at nothing. */
     removed(source: string) {
-      if (state.checking) editedWhileChecking = true
-      publish({ shown: afterEdit(state.shown, source, null) })
+      if (leftDuringFix) leftDuringFix.add(source)
+      else drop(source)
     },
     /**
-     * Applies a warning's one-tap fix and takes that warning, only, off the
-     * list. `commit` runs the change and renders it (flushSync in React):
-     * the field's own edit notice arrives inside it, and must know it is
-     * this fix's.
+     * Applies a warning's one-tap fix (or its second, `fix2`) and takes that
+     * warning, only, off the list. `commit` runs the change and renders it
+     * (flushSync in React): the field's own edit notice arrives inside it,
+     * and must know it is this fix's.
+     *
+     * A match row's fix (`kind: 'match'`) takes every row its check gave:
+     * they were all about the caller as typed, and the booking is now on a
+     * client. A field the fix took off the screen takes its warnings with
+     * it, once the fix is rendered, unless the same field is back by then;
+     * those kept are still the rows the field gone made, so their own fixes
+     * must reach the field on screen when tapped (VerifiedAddressFields'
+     * `useFixOnScreen`), not the one gone.
      */
-    fix(warning: SourcedWarning, commit: (change: () => void) => void) {
-      const apply = warning.fix?.apply
+    fix(
+      warning: SourcedWarning,
+      commit: (change: () => void) => void,
+      which: 'fix' | 'fix2' = 'fix',
+    ) {
+      const apply = warning[which]?.apply
       if (!apply) return
-      fixing = { source: warning.source, id: warning.id }
+      fixing =
+        warning.kind === 'match'
+          ? null
+          : { source: warning.source, id: warning.id }
+      leftDuringFix = new Set()
       try {
         commit(() => {
           apply()
@@ -363,6 +481,9 @@ export function createSaveGuard(onChange: (state: SaveGuardState) => void) {
         })
       } finally {
         fixing = null
+        const left = leftDuringFix
+        leftDuringFix = null
+        for (const source of left) if (!registry.has(source)) drop(source)
       }
     },
     /** The form is on screen; the returned function says it has gone. */
