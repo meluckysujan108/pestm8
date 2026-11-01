@@ -3042,6 +3042,8 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'xero-unconfigured': xeroPage('business', XERO_BIZ.unconfigured),
   'xero-demo': xeroPage('business', XERO_BIZ.demo),
   'xero-two-step': xeroPage('business', XERO_BIZ.twoStepOff),
+  'xero-two-step-suggested': xeroPage('business', XERO_BIZ.twoStepSuggested),
+  'my-xero-two-step-suggested': xeroPage('member', XERO_BIZ.twoStepSuggested),
   'xero-loading': xeroPage('business', XERO_BIZ.loading),
   'xero-finishing': xeroPage('business', XERO_BIZ.none, {
     search: { finish: 'harness' },

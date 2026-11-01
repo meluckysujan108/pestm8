@@ -27,7 +27,7 @@ function PrivacyPage() {
     <LegalPage
       title="Privacy policy"
       lede="What PestM8 keeps about people, why, who it goes to, and how it is protected."
-      changed="6 October 2026"
+      changed="1 November 2026"
       draft
       other={{ href: '/terms', label: 'Terms of use' }}
     >
@@ -72,7 +72,7 @@ function PrivacyPage() {
             'Clients copied into a team member’s own Xero stay in that organisation after the member leaves the business. PestM8 disconnects their Xero when they are removed, but cannot remove what was already copied.',
             'PestM8 never deletes anything in Xero.',
             'What PestM8 reads from Xero is used only to keep those contacts in step. It is never used to train artificial intelligence, and never shared with anyone except as the person who connected Xero has asked.',
-            'Only someone signed in with two-step sign-in can connect Xero.',
+            'When Xero is connected, PestM8 emails the person whose account connected it, and the business’s owner when a team member connects their own organisation.',
             'The keys that let PestM8 reach Xero are encrypted, and are kept apart from what unlocks them. Disconnecting removes PestM8’s access to that organisation.',
           ]}
         />

@@ -2340,13 +2340,21 @@ export default defineSchema({
 
   /**
    * Emails about a person's own account — a password-reset link, "your
-   * password was changed" — sent from `RESEND_ACCOUNT_FROM_EMAIL`
-   * (convex/accountEmails.ts). One row per email asked for: what the send
-   * limits count, and what the provider said. Never the link or its token.
+   * password was changed", a Xero organisation connected — sent from
+   * `RESEND_ACCOUNT_FROM_EMAIL` (convex/accountEmails.ts). One row per email
+   * asked for: what the send limits count, and what the provider said. Never
+   * the link or its token.
    */
   accountEmails: defineTable({
-    kind: v.union(v.literal('passwordReset'), v.literal('passwordChanged')),
-    /** The Better Auth user it is about. */
+    kind: v.union(
+      v.literal('passwordReset'),
+      v.literal('passwordChanged'),
+      /** To whoever's account connected a Xero organisation (1 Nov 2026). */
+      v.literal('xeroConnected'),
+      /** To the owner, when a member connects their own Xero. */
+      v.literal('memberXeroConnected'),
+    ),
+    /** The Better Auth user it is sent to. */
     userId: v.string(),
     /** Lower-cased: the limits count by address. */
     email: v.string(),

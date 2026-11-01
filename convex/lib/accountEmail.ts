@@ -1,3 +1,4 @@
+import { dateTimeFormat } from './dates'
 import {
   EMAIL_COLOURS,
   accentRule,
@@ -7,7 +8,8 @@ import {
 } from './emailTheme'
 
 /**
- * The emails PestM8 sends about someone's own account, as the subject, an
+ * The emails PestM8 sends about someone's own account — a password reset,
+ * a changed password, a Xero organisation connected — as the subject, an
  * HTML body and a plain-text one (a text part keeps them out of spam folders,
  * and is what a watch or a screen reader shows).
  *
@@ -152,5 +154,143 @@ export function passwordChangedEmail({
     text: [hi, '', lines[0], '', signInUrl, '', lines[1], '', FOOTER].join(
       '\n',
     ),
+  }
+}
+
+/**
+ * "Sun 1 Nov, 4:12pm" in the business's time zone: the app's own way of
+ * saying when (src/lib/format.ts `formatWhen`), which an email can't import.
+ * A time zone Intl doesn't know falls back to Perth's rather than throwing:
+ * an email about a connect never stops the connect.
+ */
+export function emailWhen(ts: number, timezone: string): string {
+  const options: Intl.DateTimeFormatOptions = {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }
+  let format: Intl.DateTimeFormat
+  try {
+    format = dateTimeFormat('en-AU', { ...options, timeZone: timezone })
+  } catch {
+    format = dateTimeFormat('en-AU', {
+      ...options,
+      timeZone: 'Australia/Perth',
+    })
+  }
+  const parts = format.formatToParts(new Date(ts))
+  const get = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? ''
+  const period = get('dayPeriod')
+    .toLowerCase()
+    .replace(/[^a-z]/g, '')
+  return `${get('weekday')} ${get('day')} ${get('month')}, ${get('hour')}:${get('minute')}${period}`
+}
+
+/** What a "Xero connected" email says, whoever it goes to. */
+export type XeroConnectedFacts = {
+  /** The organisation, as Xero named it when it was connected. */
+  orgName: string
+  businessName: string
+  /** `emailWhen` of the connect. */
+  when: string
+  /** A member's own organisation (My Xero), not the business's. */
+  mine: boolean
+}
+
+/**
+ * To whoever's account connected a Xero organisation, every time one is
+ * connected (convex/xero.ts `finish`). Connecting needs no two-step sign-in
+ * (lib/xeroConfig.ts `xeroTwoStepRequired`), so this is how someone whose
+ * password was taken learns that it was used to send the client book
+ * somewhere — as "your password was changed" is for the password itself —
+ * and what to do: a new password signs every device out.
+ */
+export function xeroConnectedEmail({
+  name,
+  facts,
+  settingsUrl,
+  markUrl,
+}: {
+  name?: string
+  facts: XeroConnectedFacts
+  /** Settings → Xero, or Settings → My Xero. */
+  settingsUrl: string
+  markUrl?: string
+}): AccountEmail {
+  const hi = greeting(name)
+  const page = facts.mine ? 'My Xero' : 'Xero'
+  const lines = [
+    `Your PestM8 account connected the Xero organisation “${facts.orgName}” to ${facts.businessName} on ${facts.when}.`,
+    `Nothing is sent to it until Start syncing is pressed on Match your clients. From then on, every client in ${facts.businessName} is copied into it, with every change after that${facts.mine ? `, and the copies stay in your Xero if you leave ${facts.businessName}` : ''}.`,
+    `If you didn’t connect it, choose a new password straight away with “Forgot password?” on the sign-in page, then disconnect it in Settings → ${page}.`,
+  ]
+  return {
+    subject: `Xero is connected to ${facts.businessName} in PestM8`,
+    html: layout({
+      heading: 'Xero is connected',
+      paragraphs: [escapeHtml(hi), ...lines.map(escapeHtml)],
+      button: { label: `Open Settings → ${page}`, url: settingsUrl },
+      markUrl,
+    }),
+    text: [
+      hi,
+      '',
+      ...lines.flatMap((line) => [line, '']),
+      settingsUrl,
+      '',
+      FOOTER,
+    ].join('\n'),
+  }
+}
+
+/**
+ * To the owner, when a member connects their own Xero organisation (My
+ * Xero): every client in the business goes there, and stays there if they
+ * leave — the owner should hear of it from PestM8, not find it later on the
+ * Team screen. Not sent for the business's own organisation, which only the
+ * owner connects.
+ */
+export function memberXeroConnectedEmail({
+  name,
+  memberName,
+  facts,
+  teamUrl,
+  markUrl,
+}: {
+  /** The owner's. */
+  name?: string
+  /** Who connected it, as the Team screen names them. */
+  memberName: string
+  facts: XeroConnectedFacts
+  /** Settings → Team. */
+  teamUrl: string
+  markUrl?: string
+}): AccountEmail {
+  const hi = greeting(name)
+  const lines = [
+    `${memberName} connected their own Xero organisation “${facts.orgName}” to ${facts.businessName} on ${facts.when}.`,
+    `Once they press Start syncing, every client in ${facts.businessName} is copied into it, with every change after that, and the copies stay there if they leave.`,
+    `If that isn’t right, remove ${memberName} from the team in Settings → Team — that disconnects their Xero. Anything already copied stays in their Xero.`,
+  ]
+  return {
+    subject: `${memberName} connected their Xero to ${facts.businessName}`,
+    html: layout({
+      heading: `${memberName} connected their Xero`,
+      paragraphs: [escapeHtml(hi), ...lines.map(escapeHtml)],
+      button: { label: 'Open Settings → Team', url: teamUrl },
+      markUrl,
+    }),
+    text: [
+      hi,
+      '',
+      ...lines.flatMap((line) => [line, '']),
+      teamUrl,
+      '',
+      FOOTER,
+    ].join('\n'),
   }
 }

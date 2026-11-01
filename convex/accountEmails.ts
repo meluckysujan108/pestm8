@@ -1,5 +1,6 @@
 import { v } from 'convex/values'
-import { internal } from './_generated/api'
+import type { Infer } from 'convex/values'
+import { components, internal } from './_generated/api'
 import {
   internalAction,
   internalMutation,
@@ -8,14 +9,19 @@ import {
 import { accountEmailFrom } from './lib/emailConfig'
 import {
   APP_MARK_PATH,
+  emailWhen,
+  memberXeroConnectedEmail,
   passwordChangedEmail,
   passwordResetEmail,
+  xeroConnectedEmail,
 } from './lib/accountEmail'
+import type { Doc } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 
 /**
  * Emails about someone's own account, from `RESEND_ACCOUNT_FROM_EMAIL`
- * (noreply@) — a password-reset link, and "your password was changed".
+ * (noreply@) — a password-reset link, "your password was changed", and a
+ * Xero organisation connected (`queueXeroConnected`).
  *
  * Better Auth decides when one is due (`emailAndPassword` in convex/auth.ts);
  * this writes a row and schedules the send, and the send runs on its own.
@@ -105,12 +111,14 @@ async function queue(
     email,
     name,
     url,
+    xero,
   }: {
-    kind: 'passwordReset' | 'passwordChanged'
+    kind: Doc<'accountEmails'>['kind']
     userId: string
     email: string
     name?: string
     url: string
+    xero?: Infer<typeof xeroFacts>
   },
 ) {
   const emailId = await ctx.db.insert('accountEmails', {
@@ -124,6 +132,113 @@ async function queue(
     emailId,
     ...(name ? { name } : {}),
     url,
+    ...(xero ? { xero } : {}),
+  })
+}
+
+/** What a "Xero connected" email says (lib/accountEmail.ts
+ * `XeroConnectedFacts`), and for the owner's, who connected it. Names, not
+ * secrets: they travel in the send's arguments like the reset link, and the
+ * row keeps only who it went to. */
+const xeroFacts = v.object({
+  orgName: v.string(),
+  businessName: v.string(),
+  when: v.string(),
+  mine: v.boolean(),
+  memberName: v.optional(v.string()),
+})
+
+/**
+ * A member's sign-in name and address, or null when the account can't be
+ * read (deleted, or the component down: the connect still stands).
+ *
+ * Read from Better Auth's own table rather than through `authComponent`, so
+ * this module never loads convex/auth.ts: that reads its switches
+ * (`AUTH_BREACH_CHECK` and the rest) once, when it loads.
+ */
+async function accountOf(
+  ctx: MutationCtx,
+  userId: string,
+): Promise<{ email: string; name?: string } | null> {
+  try {
+    const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: 'user',
+      where: [{ field: '_id', value: userId }],
+    })) as { email?: string; name?: string } | null
+    if (!user?.email) return null
+    return { email: user.email, ...(user.name ? { name: user.name } : {}) }
+  } catch (error) {
+    console.error(`account lookup failed for ${userId}`, error)
+    return null
+  }
+}
+
+/**
+ * A Xero organisation was just connected (convex/xero.ts `finish`, a first
+ * connect, not a reconnect of the same one): tell whoever's account did it,
+ * and — when it is a member's own organisation, which gets every client in
+ * the business — the owner too. Connecting needs no two-step sign-in
+ * (lib/xeroConfig.ts `xeroTwoStepRequired`), so these are what make a
+ * connect nobody meant visible within minutes. Queued in the connect's own
+ * transaction; nothing on a deployment that can't send account email.
+ */
+export async function queueXeroConnected(
+  ctx: MutationCtx,
+  {
+    business,
+    connection,
+    member,
+    memberName,
+    at,
+  }: {
+    business: Doc<'businesses'>
+    connection: Doc<'xeroConnections'>
+    /** Whoever connected it. */
+    member: Doc<'memberships'>
+    /** How the Team screen names them. */
+    memberName: string
+    at: number
+  },
+): Promise<void> {
+  if (!accountEmailFrom()) return
+  const mine = connection.kind === 'member'
+  const facts = {
+    orgName: connection.tenantName,
+    businessName: business.name,
+    when: emailWhen(at, business.timezone),
+    mine,
+  }
+  const settings = `${siteUrl()}/${business.slug}/settings`
+
+  const self = await accountOf(ctx, member.userId)
+  if (self) {
+    await queue(ctx, {
+      kind: 'xeroConnected',
+      userId: member.userId,
+      email: self.email.trim().toLowerCase(),
+      name: self.name,
+      url: `${settings}/${mine ? 'my-xero' : 'xero'}`,
+      xero: facts,
+    })
+  }
+  if (!mine) return
+
+  const owner = (
+    await ctx.db
+      .query('memberships')
+      .withIndex('by_business', (q) => q.eq('businessId', business._id))
+      .collect()
+  ).find((row) => row.role === 'owner' && row.status === 'active')
+  if (!owner || owner._id === member._id) return
+  const ownerAccount = await accountOf(ctx, owner.userId)
+  if (!ownerAccount) return
+  await queue(ctx, {
+    kind: 'memberXeroConnected',
+    userId: owner.userId,
+    email: ownerAccount.email.trim().toLowerCase(),
+    name: ownerAccount.name,
+    url: `${settings}/team`,
+    xero: { ...facts, memberName },
   })
 }
 
@@ -155,8 +270,9 @@ export const send = internalAction({
     emailId: v.id('accountEmails'),
     name: v.optional(v.string()),
     url: v.string(),
+    xero: v.optional(xeroFacts),
   },
-  handler: async (ctx, { emailId, name, url }) => {
+  handler: async (ctx, { emailId, name, url, xero }) => {
     const row = await ctx.runQuery(internal.accountEmails.forSending, {
       emailId,
     })
@@ -174,10 +290,15 @@ export const send = internalAction({
     // The app's own address, which serves its icon; none on a deployment
     // without one, and the email goes without the mark.
     const markUrl = siteUrl() ? `${siteUrl()}${APP_MARK_PATH}` : undefined
-    const content =
-      row.kind === 'passwordReset'
-        ? passwordResetEmail({ name, url, markUrl })
-        : passwordChangedEmail({ name, signInUrl: url, markUrl })
+    const content = contentOf(row.kind, { name, url, markUrl, xero })
+    if (!content) {
+      await ctx.runMutation(internal.accountEmails.settle, {
+        emailId,
+        status: 'failed',
+        error: `Nothing to say for a ${row.kind} email`,
+      })
+      return
+    }
     try {
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -218,3 +339,41 @@ export const send = internalAction({
     }
   },
 })
+
+/** The email a row's kind is, from what its send was given; null when a
+ * Xero one was queued without its facts (never, but not sent blank). */
+function contentOf(
+  kind: Doc<'accountEmails'>['kind'],
+  {
+    name,
+    url,
+    markUrl,
+    xero,
+  }: {
+    name?: string
+    url: string
+    markUrl?: string
+    xero?: Infer<typeof xeroFacts>
+  },
+) {
+  switch (kind) {
+    case 'passwordReset':
+      return passwordResetEmail({ name, url, markUrl })
+    case 'passwordChanged':
+      return passwordChangedEmail({ name, signInUrl: url, markUrl })
+    case 'xeroConnected':
+      return xero
+        ? xeroConnectedEmail({ name, facts: xero, settingsUrl: url, markUrl })
+        : null
+    case 'memberXeroConnected':
+      return xero?.memberName
+        ? memberXeroConnectedEmail({
+            name,
+            memberName: xero.memberName,
+            facts: xero,
+            teamUrl: url,
+            markUrl,
+          })
+        : null
+  }
+}

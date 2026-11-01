@@ -96,10 +96,10 @@ senders on prod (`rare-retriever-156`):
   2026); `npx convex run emailCopy:dryRun '{"reportId": "…"}'` shows what a
   report's copy would be without sending anything.
 - `RESEND_ACCOUNT_FROM_EMAIL=noreply@pestm8.com.au` — account email: the
-  "Forgot password?" link and "your password was changed"
-  (`convex/accountEmails.ts`). Replies aren't read, and the email says so.
-  Without it, `/forgot-password` still answers normally but nothing is sent
-  (a warning is logged).
+  "Forgot password?" link, "your password was changed" and "Xero is
+  connected" (`convex/accountEmails.ts`). Replies aren't read, and the email
+  says so. Without it, `/forgot-password` still answers normally but nothing
+  is sent (a warning is logged).
 
 No email asks anyone to reply or write in — not "Reply to this email if…",
 not "Need help? Email…" (removed 29 Sept 2026 at the product owner's
@@ -142,6 +142,10 @@ for the same Xero login. Each deployment takes:
   Xero, and changes wait.
 - optional `XERO_MAX_ORGS` — distinct organisations across every business,
   default 5 (Xero's free Starter tier); 50 once on Core.
+- optional `XERO_TWO_STEP_REQUIRED=on` — connecting needs two-step sign-in
+  on the account. Off by default since 1 Nov 2026: instead, a connect emails
+  whoever's account did it, and the owner when a member connects their own
+  (from `RESEND_ACCOUNT_FROM_EMAIL`).
 
 Without the first three, a deployment is "not set up for Xero": Settings has
 no Xero rows, Connect throws `XERO_NOT_CONFIGURED` and `/xero/callback`

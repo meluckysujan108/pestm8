@@ -139,6 +139,10 @@ const PLAN = {
   'xero-unconfigured': { before: async (p) => p.waitForTimeout(500) },
   'xero-demo': { before: async (p) => p.waitForTimeout(500) },
   'xero-two-step': { before: async (p) => p.waitForTimeout(500) },
+  'xero-two-step-suggested': { before: async (p) => p.waitForTimeout(500) },
+  'my-xero-two-step-suggested': {
+    before: async (p) => p.waitForTimeout(500),
+  },
   'xero-loading': { before: async (p) => p.waitForTimeout(500) },
   'xero-finishing': { before: async (p) => p.waitForTimeout(700) },
   'xero-returned': { full: true, before: async (p) => p.waitForTimeout(500) },

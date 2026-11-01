@@ -31,6 +31,7 @@ import {
   xeroClientId,
   xeroConfigured,
   xeroPaused,
+  xeroTwoStepRequired,
 } from './lib/xeroConfig'
 import {
   XeroError,
@@ -44,6 +45,7 @@ import {
   requireConnectionHolder,
 } from './lib/xeroHooks'
 import { DEMO_PLAN } from './demo/shared'
+import { queueXeroConnected } from './accountEmails'
 import { linkOf, matchAfterConnect, matchStaleAfter } from './xeroMatch'
 import { accessTokenFor, retireGrant } from './xeroTokens'
 import { RECENT_SHOWN, WAITING_CAP } from './xeroSync'
@@ -236,9 +238,11 @@ const statusView = v.object({
   /** The real person is the owner, who has the business's Xero and no
    * "My Xero". */
   isOwner: v.boolean(),
-  /** Whether the signed-in person has two-step sign-in on, which connecting
-   * Xero needs (`requireTwoStep`). */
+  /** Whether the signed-in person has two-step sign-in on. */
   twoStepOn: v.boolean(),
+  /** Connecting is refused until they turn it on: only where the deployment
+   * asks for it (`XERO_TWO_STEP_REQUIRED=on`, `requireTwoStep`). */
+  twoStepNeeded: v.boolean(),
   timezone: v.string(),
   /** The business's Xero — only for whoever may manage the business. */
   business: v.union(xeroView, v.null()),
@@ -277,22 +281,33 @@ const MAX_ATTEMPTS = 5
 // ──────────────────────────────────────────────────────────────── reading
 
 /**
- * Whether the signed-in person has two-step sign-in on.
+ * Whether the signed-in person has two-step sign-in on — which the Xero page
+ * suggests, and connecting needs only where `XERO_TWO_STEP_REQUIRED=on`.
  *
- * Connecting Xero asks for it. Registering PestM8 with Xero meant agreeing to
- * Xero's minimum security requirements, which include strong sign-in for
- * whoever links an organisation — and two-step sign-in is optional in PestM8
- * (lib/mfa.ts). Someone holding only a password should not be able to pour
- * the client book into a Xero organisation, so Connect needs it on, and
- * finishing checks again in case it was switched off in between. Nothing
- * else in the app changes: everyone else keeps their choice.
+ * Until 1 Nov 2026 connecting always needed it, on a reading of Xero's
+ * requirements too wide for an app this size (lib/xeroConfig.ts
+ * `xeroTwoStepRequired`). Now a connect is told rather than refused: the
+ * person whose account it was, and the owner for a member's own
+ * organisation, are emailed (`finish` → accountEmails.ts
+ * `queueXeroConnected`).
  */
 async function twoStepOn(ctx: QueryCtx | MutationCtx): Promise<boolean> {
   const user = await requireAuthUser(ctx)
   return user.twoFactorEnabled === true
 }
 
+/** What the Xero page needs to know of it (`status`). */
+async function twoStepState(
+  ctx: QueryCtx,
+): Promise<{ twoStepOn: boolean; twoStepNeeded: boolean }> {
+  const on = await twoStepOn(ctx)
+  return { twoStepOn: on, twoStepNeeded: !on && xeroTwoStepRequired() }
+}
+
+/** Refused without two-step sign-in, where the deployment asks for it — at
+ * the start, and at finish in case it was switched off in between. */
 async function requireTwoStep(ctx: QueryCtx | MutationCtx): Promise<void> {
+  if (!xeroTwoStepRequired()) return
   if (!(await twoStepOn(ctx))) {
     throw new ConvexError('XERO_TWO_STEP_REQUIRED')
   }
@@ -513,7 +528,7 @@ export const status = query({
       demo: business.plan === DEMO_PLAN,
       switched: isSwitched(env.actor),
       isOwner,
-      twoStepOn: await twoStepOn(ctx),
+      ...(await twoStepState(ctx)),
       timezone: business.timezone,
       business: own ? await viewOf(ctx, own) : null,
       mine: mine ? await viewOf(ctx, mine) : null,
@@ -1137,7 +1152,8 @@ export const finish = internalMutation({
       throw new ConvexError('NO_ACCESS')
     }
     if (state.kind === 'business') requireCapability(env, 'business.manage')
-    // Switched off while they were at Xero: refused like a start would be.
+    // Switched off while they were at Xero, where it is needed: refused like
+    // a start would be.
     await requireTwoStep(ctx)
 
     // Retired in the meantime — a newer Connect, or the sweep.
@@ -1156,7 +1172,11 @@ export const finish = internalMutation({
     )
     if (others.length > 0) throw new ConvexError('TAKEN')
 
-    const reconnect = state.reconnectConnectionId !== undefined
+    // A reconnect only when it finishes the very row it set out to reconnect.
+    // Started as a reconnect but that connection was disconnected meanwhile,
+    // the callback made a new one (`storeCallback`), perhaps to another
+    // organisation: that is a connect, and is told of as one.
+    const reconnect = state.reconnectConnectionId === connection._id
     await ctx.db.patch('xeroConnections', connection._id, {
       status: 'connected',
       connectedAt: now,
@@ -1178,6 +1198,19 @@ export const finish = internalMutation({
       },
       at: now,
     })
+
+    // Told, since a password alone can connect: whoever's account it was,
+    // and the owner for a member's own organisation. A reconnect is the same
+    // organisation, already told of.
+    if (!reconnect) {
+      await queueXeroConnected(ctx, {
+        business: await businessOf(ctx, businessId),
+        connection,
+        member,
+        memberName: await nameOfMember(ctx, member._id),
+        at: now,
+      })
+    }
 
     // Its short code (for "Open in Xero") and the name as Xero now spells it.
     await ctx.scheduler.runAfter(0, internal.xero.fetchOrganisation, {
