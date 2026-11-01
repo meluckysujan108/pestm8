@@ -97,13 +97,19 @@ function pad(n: number): string {
   return String(n).padStart(2, '0')
 }
 
-/** Whether `timezone` is one the calendar knows ("Australia/Perth"). */
-export function isTimeZone(timezone: string): boolean {
+/**
+ * The calendar's own name for `timezone`, which it matches whatever the
+ * case and through an old name ("australia/perth" and "Australia/West" are
+ * "Australia/Perth"), or null for one it doesn't know. Never cached: every
+ * spelling would be kept.
+ */
+export function zoneName(timezone: string): string | null {
   try {
-    dateTimeFormat('en-CA', { timeZone: timezone })
-    return true
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+    }).resolvedOptions().timeZone
   } catch {
-    return false
+    return null
   }
 }
 

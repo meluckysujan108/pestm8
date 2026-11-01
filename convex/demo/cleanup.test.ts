@@ -670,6 +670,12 @@ describe('removing a demo', () => {
   test('leaves the real business, the real logins and the shared snapshots', async () => {
     const { t } = run
     expect(await realSide(t, run.fromBusinessId)).toEqual(real)
+    // The demo's zone's week is the real business's too, and stays.
+    expect(
+      (await t.run((ctx) => ctx.db.query('zoneWeeks').collect())).map(
+        (week) => week.timezone,
+      ),
+    ).toEqual(['Australia/Perth'])
     const versionsLeft = await t.run(async (ctx) =>
       Promise.all(realVersions.map((id) => ctx.db.get(id))),
     )

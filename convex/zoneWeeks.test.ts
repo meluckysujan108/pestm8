@@ -110,7 +110,7 @@ describe('a business’s zone and its week', () => {
     ])
   })
 
-  test('a new zone is followed at once', async () => {
+  test('a new zone is followed at once, and the zone left goes with its last business', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     // Monday 1am in Perth is still Sunday morning in Pago Pago (UTC−11).
     vi.setSystemTime(perth('2026-11-09', 1))
@@ -124,9 +124,85 @@ describe('a business’s zone and its week', () => {
     expect(await zoneOf(t, businessId)).toMatchObject([
       { timezone: 'Pacific/Pago_Pago' },
     ])
+    expect(await weeks(t)).toEqual([
+      { timezone: 'Pacific/Pago_Pago', monday: '2026-11-02' },
+    ])
+  })
+
+  test('a zone another business is still in keeps its week', async () => {
+    const t = testApp()
+    const one = await createActor(t, { email: 'one@pestm8.test' })
+    const two = await createActor(t, { email: 'two@pestm8.test' })
+    await createBusiness(t, one, 'One Pest')
+    const { businessId } = await createBusiness(t, two, 'Two Pest')
+    await two.as.mutation(api.businesses.update, {
+      businessId,
+      timezone: 'Australia/Sydney',
+    })
+    expect((await weeks(t)).map((week) => week.timezone).sort()).toEqual([
+      'Australia/Perth',
+      'Australia/Sydney',
+    ])
+  })
+
+  test('is kept by the calendar’s own name for it, however it was typed, and openWork answers by it', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(perth('2026-11-04', 10))
+    const t = testApp()
+    const one = await createActor(t, { email: 'one@pestm8.test' })
+    const two = await createActor(t, { email: 'two@pestm8.test' })
+    await createBusiness(t, one, 'One Pest')
+    const { businessId } = await createBusiness(t, two, 'Two Pest')
+    for (const timezone of [
+      'australia/perth',
+      'AUSTRALIA/PERTH',
+      'Australia/West',
+    ]) {
+      await two.as.mutation(api.businesses.update, { businessId, timezone })
+      expect(await zoneOf(t, businessId)).toMatchObject([
+        { timezone: 'Australia/Perth' },
+      ])
+    }
+    expect(await weeks(t)).toEqual([
+      { timezone: 'Australia/Perth', monday: '2026-11-02' },
+    ])
+    await expect(
+      two.as.query(api.jobs.openWork, { businessId, startKey: '2026-11-02' }),
+    ).resolves.toMatchObject({ rows: [] })
+  })
+
+  test('no one business can hold more than one zone’s week, so a zone first used later still moves on', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(perth('2026-11-04', 10))
+    const t = testApp()
+    const one = await createActor(t, { email: 'one@pestm8.test' })
+    const two = await createActor(t, { email: 'two@pestm8.test' })
+    await createBusiness(t, one, 'One Pest')
+    const { businessId } = await createBusiness(t, two, 'Two Pest')
+    // Every spelling of every zone the calendar knows, saved in turn.
+    // ES2022's, which the project's TypeScript lib doesn't list yet.
+    const intl = Intl as unknown as {
+      supportedValuesOf: (key: 'timeZone') => Array<string>
+    }
+    const spellings = intl
+      .supportedValuesOf('timeZone')
+      .flatMap((zone) => [zone, zone.toLowerCase(), zone.toUpperCase()])
+    for (const timezone of spellings) {
+      await two.as.mutation(api.businesses.update, { businessId, timezone })
+      expect((await weeks(t)).length).toBeLessThanOrEqual(2)
+    }
+    const three = await createActor(t, { email: 'three@pestm8.test' })
+    const { businessId: third } = await createBusiness(t, three, 'Three Pest')
+    await three.as.mutation(api.businesses.update, {
+      businessId: third,
+      timezone: 'Australia/Darwin',
+    })
+    vi.setSystemTime(perth('2026-11-09', 10))
+    await t.mutation(internal.zoneWeeks.advance, {})
     expect(await weeks(t)).toEqual(
       expect.arrayContaining([
-        { timezone: 'Pacific/Pago_Pago', monday: '2026-11-02' },
+        { timezone: 'Australia/Perth', monday: '2026-11-09' },
+        { timezone: 'Australia/Darwin', monday: '2026-11-09' },
       ]),
     )
   })
@@ -141,9 +217,8 @@ describe('a business’s zone and its week', () => {
       timezone: 'Perth',
     })
     expect(await zoneOf(t, businessId)).toMatchObject([{ timezone: 'Perth' }])
-    expect((await weeks(t)).map((week) => week.timezone)).toEqual([
-      'Australia/Perth',
-    ])
+    // Its last business has left Perth's.
+    expect(await weeks(t)).toEqual([])
     expect(warn).toHaveBeenCalledWith('zoneWeeks: not a time zone', {
       businessId,
     })

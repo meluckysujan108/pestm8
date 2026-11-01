@@ -110,10 +110,11 @@ export function openWorkCovers(startKey: string, dayKey: string): boolean {
  * to 26 hours more at either end, which the phone, going by each row's date
  * in the business's zone, never counts on.
  *
- * That way the query needs no time zone, and so never reads the business's
- * row, which every booking, Recurring Job visit and numbered report patches:
- * a query that read it would run again for every member each time.
- * `weekFrom` is where `startKey` itself can first begin.
+ * That way the read needs no time zone. The query trims someone else's rows
+ * to the business's own days by its zone's row (convex/zoneWeeks.ts), never
+ * the business's row, which every booking, Recurring Job visit and numbered
+ * report patches: a query that read it would run again for every member
+ * each time. `weekFrom` is where `startKey` itself can first begin.
  */
 export function openWorkSpan(startKey: string): {
   from: number
