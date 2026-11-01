@@ -260,5 +260,20 @@ describe('a business’s zone and its week', () => {
     expect(await weeks(t)).toEqual([
       { timezone: 'Australia/Perth', monday: '2026-11-09' },
     ])
+
+    // With every business and business's zone gone, the zone's week still
+    // moves on: the cron goes by the zones alone.
+    await t.run(async (ctx) => {
+      for (const table of ['businesses', 'businessZones'] as const) {
+        for (const row of await ctx.db.query(table).collect()) {
+          await ctx.db.delete(row._id)
+        }
+      }
+    })
+    vi.setSystemTime(perth('2026-11-16', 10))
+    await t.mutation(internal.zoneWeeks.advance, {})
+    expect(await weeks(t)).toEqual([
+      { timezone: 'Australia/Perth', monday: '2026-11-16' },
+    ])
   })
 })

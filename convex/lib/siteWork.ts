@@ -20,7 +20,10 @@ export function isOpenStatus(status: string): status is OpenStatus {
  * engine projected it onto, which stays its own when the visit is moved
  * (schema.ts `occurrenceAt`); otherwise when it is booked. A booking says
  * which slots it was shown by these, so a visit the office moves, or one the
- * engine projects again, is still the one that was seen.
+ * engine projects again, is still the one that was seen. Someone else's
+ * visit whose slot is past the twenty weeks is told, and so seen, by when it
+ * is booked instead (`slotShown`), like a one-off: moved again, it is shown
+ * again.
  */
 export function slotOf(job: {
   scheduledAt: number

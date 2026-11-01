@@ -1939,6 +1939,57 @@ describe('siteCheck: open work at the site within a week', () => {
       })
     })
 
+    test('a visit told by when it is booked is shown again once the office moves it, as a one-off is, then books; and once it is theirs, what they were told still holds', async () => {
+      const s = await setup()
+      await s.owner.as.mutation(
+        api.recurrences.create,
+        series(s, {
+          propertyId: s.jane.siteId,
+          intervalCount: 1,
+          intervalUnit: 'year',
+          anchorDate: on(fromMonday(300)),
+        }),
+      )
+      const moveVisit = (fields: Partial<Doc<'jobs'>>) =>
+        s.t.run(async (ctx) => {
+          const visit = (await ctx.db
+            .query('jobs')
+            .withIndex('by_property', (q) => q.eq('propertyId', s.jane.siteId))
+            .unique())!
+          await ctx.db.patch(visit._id, fields)
+          return visit._id
+        })
+      const told = on(fromMonday(10))
+      await moveVisit({ scheduledAt: told })
+      const kevinBooksBeside = () =>
+        s.kevin.as.mutation(
+          api.jobs.create,
+          job(s, {
+            assignedMembershipId: s.kevinId,
+            propertyId: s.jane.siteId,
+            scheduledAt: on(fromMonday(11)),
+            siteCheck: {
+              seen: [{ propertyId: s.jane.siteId, at: told }],
+              seenSeries: [],
+            },
+          }),
+        )
+      // Moved two hours on: what was told no longer holds it.
+      const later = on(fromMonday(10), 11)
+      const visitId = await moveVisit({ scheduledAt: later })
+      expect(await refusalOf(kevinBooksBeside())).toMatchObject({
+        code: 'SITE_BOOKED',
+        rows: [{ at: later, scheduledAt: later }],
+      })
+      // Back where it was told, and given to Kevin: it is his now, and what
+      // he was told is still the visit he booked past.
+      await moveVisit({ scheduledAt: told, assignedMembershipId: s.kevinId })
+      expect(await s.t.run((ctx) => ctx.db.get(visitId))).toMatchObject({
+        assignedMembershipId: s.kevinId,
+      })
+      await kevinBooksBeside()
+    })
+
     test('a Recurring Job of someone else’s is named without its next visit past them; the owner gets the visit', async () => {
       const s = await setup()
       const existing = await s.owner.as.mutation(

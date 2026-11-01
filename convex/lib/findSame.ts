@@ -104,9 +104,10 @@ import type { ActorEnvelope } from './actor'
  *    weak evidence.
  *  - `SITE_BOOKED`: open work within a week of the booking at the site, or
  *    at any site that is the typed address, whoever's of the clients the
- *    caller may see, that the booking wasn't sent as seen; for a booking
- *    the outbox moved onto a client at a new site for them, at their own
- *    sites only like it too.
+ *    caller may see, that the booking wasn't sent as seen: the caller's own
+ *    at any date, anyone else's only within `jobs.openWork`'s twenty weeks
+ *    from this week. For a booking the outbox moved onto a client at a new
+ *    site for them, at their own sites only like it too.
  *  - `SITE_REPEATS`: a second Recurring Job at the site, when the one there
  *    wasn't seen.
  *
@@ -227,8 +228,9 @@ export const matchCheckArg = v.optional(
 
 /**
  * The work at the site the person was shown, and booked past: each job or
- * visit by its site and slot (`slotOf`), and each Recurring Job, whose
- * visits are then all seen. Optional; never stored.
+ * visit by its site and the slot it was told by (`slotOf`, or `slotShown`
+ * for someone else's), and each Recurring Job, whose visits are then all
+ * seen. Optional; never stored.
  *
  * A one-off has no slot of its own: moved by the office, even on the same
  * day, it is at another. So a job in the person's own scope, whose id their
@@ -932,10 +934,16 @@ async function matchedCandidate(
  * of someone else's in the week that came within them wasn't named the
  * first time. Only that week's, so the next Book anyway gets through; an
  * outbox booking held for a look and sent days later can meet it too
- * (M7's and 2c-J's copy says so as new work, never as a loop). A date
- * tried that finds nothing books a job there, which the office sees: the
- * target's own refusals come first (`backstop`), so a booking can't be
- * made to fail after the check instead.
+ * (M7's and 2c-J's copy says so as new work, never as a loop). So can one
+ * after the office moves someone else's visit whose slot is past the
+ * twenty weeks: it was told by when it was booked (`slotShown`), since its
+ * slot is a date past them, so once moved it is new to them, as a one-off
+ * is. A visit told as someone else's that has become the caller's since is
+ * still seen by what it was told.
+ *
+ * A date tried that finds nothing books a job there, which the office
+ * sees: the target's own refusals come first (`backstop`), so a booking
+ * can't be made to fail after the check instead.
  *
  * Every site at the address up to TARGETS_MAX, past it the newest, and the
  * cut logged; their jobs read newest made first, JOBS_PER_SITE each up to
@@ -1143,7 +1151,11 @@ async function checkSiteWork(
   for (const job of unseen) {
     if (!(await nameable(job))) continue
     const at = await slotTold(job)
-    if (!seen.has(`${job.propertyId}|${at}`)) near.push({ job, at })
+    if (seen.has(`${job.propertyId}|${at}`)) continue
+    // The caller's own, told as someone else's before it became theirs.
+    const shown = slotShown(job, monday, business.timezone)
+    if (shown !== at && seen.has(`${job.propertyId}|${shown}`)) continue
+    near.push({ job, at })
   }
   if (near.length === 0) return
 
