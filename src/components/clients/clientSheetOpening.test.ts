@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { hookHarness } from '#/lib/offline/hooks.fixtures'
-import { firstTab, useAddSiteOnce } from './clientSheetOpening'
+import {
+  SHEET_RISE_MS,
+  firstTab,
+  useAddSiteOnce,
+  useIntoViewOnOpen,
+} from './clientSheetOpening'
 import type * as React from 'react'
 
 // React's hooks run here by the harness: there is no document to render
@@ -18,6 +23,7 @@ vi.mock('react', async (importOriginal) => ({
 
 afterEach(() => {
   hookHarness.mount(() => null)
+  vi.useRealTimers()
 })
 
 const NEW_ADDRESS = {
@@ -54,5 +60,45 @@ describe('Add property on the address New client gave', () => {
     given = undefined
     hook.rerender()
     expect(hook.current().addSite).toBeUndefined()
+  })
+})
+
+describe('Add property on the address New client gave, at the foot of Details', () => {
+  /** The form, as far as bringing it into view goes. */
+  const formAt = () => ({ current: { scrollIntoView: vi.fn() } })
+
+  test('is brought into view once the sheet has slid up, and not focused', () => {
+    vi.useFakeTimers()
+    const form = formAt()
+    hookHarness.mount(() => useIntoViewOnOpen(form, true))
+    // Still sliding up: where the form is now isn't where it stops.
+    vi.advanceTimersByTime(SHEET_RISE_MS - 1)
+    expect(form.current.scrollIntoView).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    // Nearest: the whole form, its Add property too, where it fits.
+    expect(form.current.scrollIntoView).toHaveBeenCalledExactlyOnceWith({
+      block: 'nearest',
+      behavior: 'smooth',
+    })
+    // Once: typing in it brings nothing back into view.
+    vi.advanceTimersByTime(SHEET_RISE_MS * 4)
+    expect(form.current.scrollIntoView).toHaveBeenCalledOnce()
+  })
+
+  test('not for Add another property, which opens where it was tapped', () => {
+    vi.useFakeTimers()
+    const form = formAt()
+    hookHarness.mount(() => useIntoViewOnOpen(form, false))
+    vi.advanceTimersByTime(SHEET_RISE_MS * 4)
+    expect(form.current.scrollIntoView).not.toHaveBeenCalled()
+  })
+
+  test('nor once the form has gone, Cancelled before the sheet stopped', () => {
+    vi.useFakeTimers()
+    const form = formAt()
+    const hook = hookHarness.mount(() => useIntoViewOnOpen(form, true))
+    hook.unmount()
+    vi.advanceTimersByTime(SHEET_RISE_MS * 4)
+    expect(form.current.scrollIntoView).not.toHaveBeenCalled()
   })
 })

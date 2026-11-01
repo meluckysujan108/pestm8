@@ -54,6 +54,10 @@ export type MatchClient = {
   email?: string
   status?: 'active' | 'lead' | 'inactive'
   archivedAt?: number
+  /** Its eleven digits. Never evidence: only read by Clients → New
+   * client's Open, to know whether an ABN typed is theirs already
+   * (src/lib/clientMatchRows.ts `openFromNewClient`). */
+  abn?: string
 }
 
 export type MatchSite = {

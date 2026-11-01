@@ -3,7 +3,12 @@ import { hookHarness } from '#/lib/offline/hooks.fixtures'
 import { FIX_ARM_MS } from '#/components/forms/saveWarningRules'
 import { blurLine } from '#/lib/clientMatchRows'
 import { NO_OURS, buildMatchIndex } from '../../../convex/lib/clientMatch'
-import { keepInPlace, matchKeyOf, useMatchLines } from './useMatchLines'
+import {
+  keepInPlace,
+  matchKeyOf,
+  useLineFixHold,
+  useMatchLines,
+} from './useMatchLines'
 import type {
   MatchLineValues,
   NewClientMatchField,
@@ -11,6 +16,7 @@ import type {
   Placed,
 } from './useMatchLines'
 import type { MatchDirectory } from '../../../convex/lib/clientMatch'
+import type { MatchFix } from '#/lib/clientMatchRows'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type * as React from 'react'
 
@@ -114,6 +120,34 @@ describe('a line’s fixes, as it comes in', () => {
     expect(lines.current().lineOf('phone')?.fix?.held).toBe(false)
     lines.current().lineOf('phone')?.fix?.onApply()
     expect(book).toHaveBeenCalledTimes(1)
+  })
+
+  test('each drawn held for its own 400 ms, though another line came in since', () => {
+    const hook = hookHarness.mount(() => {
+      const api = useMatchLines(
+        values,
+        (field) => ({
+          text: `The line under ${field}.`,
+          fix: { label: `Fix ${field}`, onApply: () => {} },
+        }),
+        byKeys,
+      )
+      // As drawn: aria-disabled is decided as the render runs.
+      return {
+        api,
+        name: api.lineOf('clientName')?.fix?.held,
+        phone: api.lineOf('phone')?.fix?.held,
+      }
+    })
+    hook.current().api.leaving('clientName', null)
+    vi.advanceTimersByTime(300)
+    hook.current().api.leaving('phone', null)
+    expect(hook.current()).toMatchObject({ name: true, phone: true })
+    // The Name line's 400 ms are over, and it takes a tap: drawn so.
+    vi.advanceTimersByTime(FIX_ARM_MS - 300)
+    expect(hook.current()).toMatchObject({ name: false, phone: true })
+    vi.advanceTimersByTime(300)
+    expect(hook.current()).toMatchObject({ name: false, phone: false })
   })
 })
 
@@ -402,6 +436,81 @@ describe('a Phone or Email line, as the Name is changed after it was left', () =
     expect(body.scrollTop).toBe(135)
   })
 
+  test('Clients → New client: the fixes decided with the name as it is, though their words are the same', () => {
+    // Open Jane Nguyen under her mobile: with her name, Add property for
+    // the address typed; with Tom's, the same words open her Details.
+    const opening = { ...ctx, verb: 'open' as const }
+    const opened: Array<MatchFix> = []
+    const decidedOpen: LineFor = (field, now) => {
+      const line = blurLine(opening, field, {
+        name: now.clientName,
+        phone: now.phone,
+        email: now.email,
+      })
+      const fix = line?.fix
+      if (!line) return null
+      return {
+        text: line.text,
+        ...(fix
+          ? { fix: { label: fix.label, onApply: () => opened.push(fix) } }
+          : {}),
+      }
+    }
+    const typed = {
+      clientName: 'Jane Nguyen',
+      phone: '0491 570 161',
+      email: '',
+    }
+    const lines = mount(decidedOpen, typed)
+    lines.current().leaving('phone', null)
+    // The caller is her husband.
+    lines.current().changing('clientName', 'Tom Nguyen')
+    lines.with({ typed: { ...typed, clientName: 'Tom Nguyen' } })
+    vi.advanceTimersByTime(FIX_ARM_MS)
+    const line = lines.current().lineOf('phone')
+    expect(line?.text).toBe('Jane Nguyen, of Bayswater, has this mobile.')
+    expect(line?.fix).toMatchObject({ label: 'Open Jane Nguyen', held: false })
+    line?.fix?.onApply()
+    expect(opened).toEqual([
+      {
+        kind: 'open',
+        label: 'Open Jane Nguyen',
+        clientId: 'c_jane',
+        onDetails: true,
+      },
+    ])
+    // Her name again: Add property, as before.
+    lines.current().changing('clientName', 'Jane Nguyen')
+    lines.with({ typed })
+    lines.current().lineOf('phone')?.fix?.onApply()
+    expect(opened[1]).toEqual({
+      kind: 'open',
+      label: 'Open Jane Nguyen',
+      clientId: 'c_jane',
+    })
+  })
+
+  test('a line decided by its number alone is not decided again as the Name is typed', () => {
+    // An office line on a thousand owners' records says the same whoever
+    // rings (`nameFree`), and is the slowest to decide.
+    const shared = {
+      text: '08 9272 1234 is on 1000 clients — Ray White Bayswater and 999 others.',
+      fix: { label: 'Show them', onApply: () => {} },
+      nameFree: true as const,
+    }
+    const decide = vi.fn<LineFor>(() => shared)
+    const typed = { clientName: '', phone: '08 9272 1234', email: '' }
+    const lines = mount(decide, typed)
+    lines.current().leaving('phone', null)
+    const calls = decide.mock.calls.length
+    for (const name of ['K', 'Ki', 'Kim', 'Kim P', 'Kim Pham']) {
+      lines.current().changing('clientName', name)
+      lines.with({ typed: { ...typed, clientName: name } })
+    }
+    expect(decide.mock.calls.length).toBe(calls)
+    expect(lines.current().lineOf('phone')?.text).toBe(shared.text)
+  })
+
   test('the same name written another way decides nothing again', () => {
     const typed = {
       clientName: 'Jane Nguyen',
@@ -420,5 +529,82 @@ describe('a Phone or Email line, as the Name is changed after it was left', () =
       label: 'Book at 12 Wattle St',
       held: false,
     })
+  })
+})
+
+describe('the form, once a line’s fix is taken', () => {
+  /** Something in the form, as a tap's target: inside Book, or not. */
+  const tapped = (inBook: boolean) =>
+    ({
+      closest: (selector: string) =>
+        inBook && selector === 'button[type="submit"]' ? {} : null,
+    }) as unknown as EventTarget
+  /** A tap reaching the form's capture phase: on Job type, say. */
+  const tap = (target: EventTarget | null = tapped(false)) => ({
+    target,
+    preventDefault: vi.fn(),
+    stopPropagation: vi.fn(),
+  })
+  const stopped = (t: ReturnType<typeof tap>) =>
+    t.preventDefault.mock.calls.length > 0 &&
+    t.stopPropagation.mock.calls.length > 0
+
+  test('takes no tap for a moment: what the fix moved up under the thumb isn’t pressed', () => {
+    const hook = hookHarness.mount(() => useLineFixHold())
+    // Before any fix: every tap goes through.
+    const before = tap()
+    hook.current().onTapCapture(before)
+    expect(before.preventDefault).not.toHaveBeenCalled()
+    expect(before.stopPropagation).not.toHaveBeenCalled()
+
+    hook.current().taken()
+    // The second tap of a double tap, where the line was: Job type, say.
+    vi.advanceTimersByTime(150)
+    const second = tap()
+    hook.current().onTapCapture(second)
+    expect(stopped(second)).toBe(true)
+    vi.advanceTimersByTime(FIX_ARM_MS - 151)
+    const late = tap()
+    hook.current().onTapCapture(late)
+    expect(stopped(late)).toBe(true)
+    // Then a tap is meant.
+    vi.advanceTimersByTime(1)
+    const meant = tap()
+    hook.current().onTapCapture(meant)
+    expect(meant.preventDefault).not.toHaveBeenCalled()
+    expect(meant.stopPropagation).not.toHaveBeenCalled()
+  })
+
+  test('a press of Book goes through: never a silent no-op, Book keeping its own hold', () => {
+    const hook = hookHarness.mount(() => useLineFixHold())
+    hook.current().taken()
+    vi.advanceTimersByTime(150)
+    // Book, or its label inside it: left to Book, which shows when it
+    // takes no press (`aria-disabled`, held pressed in).
+    const book = tap(tapped(true))
+    hook.current().onTapCapture(book)
+    expect(book.preventDefault).not.toHaveBeenCalled()
+    expect(book.stopPropagation).not.toHaveBeenCalled()
+    // Anything else in the form is still held, a target with no element
+    // (the form itself) included.
+    const field = tap()
+    hook.current().onTapCapture(field)
+    expect(stopped(field)).toBe(true)
+    const bare = tap(null)
+    hook.current().onTapCapture(bare)
+    expect(stopped(bare)).toBe(true)
+  })
+
+  test('each fix holds it again, from its own tap', () => {
+    const hook = hookHarness.mount(() => useLineFixHold())
+    hook.current().taken()
+    vi.advanceTimersByTime(FIX_ARM_MS)
+    // Drawn again since: the hold is the form's, not one render's.
+    hook.rerender()
+    hook.current().taken()
+    vi.advanceTimersByTime(FIX_ARM_MS - 1)
+    const t = tap()
+    hook.current().onTapCapture(t)
+    expect(stopped(t)).toBe(true)
   })
 })

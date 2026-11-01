@@ -1081,6 +1081,11 @@ test.describe('part 2: match lines and the check at Book', () => {
     await expect(
       hers.getByRole('button', { name: 'Add property' }),
     ).toBeVisible()
+    // At the foot of Details, under her details and sites: brought into
+    // view as the sheet stops, not left below the fold.
+    await expect(
+      hers.getByLabel('Street address', { exact: true }),
+    ).toBeInViewport()
     // Nothing was made meanwhile.
     const after = await bookOf(s.owner, s.businessId)
     expect(after.clients).toHaveLength(before.clients.length)
@@ -1168,12 +1173,16 @@ test.describe('part 2: match lines and the check at Book', () => {
     await hers.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(hers).toBeHidden()
 
-    // He is someone else: New client again, as he was typed.
+    // He is someone else: New client again, as he was typed, and saying
+    // so.
     await clickUntil(add, () =>
       expect(sheet.getByText('New client').first()).toBeVisible({
         timeout: 2_000,
       }),
     )
+    await expect(
+      sheet.getByText('Still filled in from before you opened Jane Nguyen.'),
+    ).toBeVisible()
     await expect(sheet.getByLabel('Client name', { exact: true })).toHaveValue(
       'Tom Nguyen',
     )

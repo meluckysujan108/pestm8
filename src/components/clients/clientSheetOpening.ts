@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { SiteAddressDraft } from './NewClientFields'
 
 /**
@@ -32,4 +32,30 @@ export function useAddSiteOnce(addSite: SiteAddressDraft | undefined): {
   const [left, setLeft] = useState(addSite)
   const taken = useCallback(() => setLeft(undefined), [])
   return { addSite: left, taken }
+}
+
+/** About as long as a sheet takes to slide up, so what is brought into
+ * view after it is brought to where the sheet stops. */
+export const SHEET_RISE_MS = 350
+
+/**
+ * Add property opened on the address New client gave is at the foot of
+ * Details, under their details and sites, and below the fold on a phone:
+ * brought into view once the sheet has slid up (`opened`, as it mounts), so
+ * the caller's address is what the person sees, as an import's first thing
+ * to put right is. Not focused: on a phone the keyboard would rise over the
+ * sheet before it is read.
+ */
+export function useIntoViewOnOpen(
+  form: { readonly current: Pick<Element, 'scrollIntoView'> | null },
+  opened: boolean,
+): void {
+  const [bring] = useState(opened)
+  useEffect(() => {
+    if (!bring) return
+    const timer = setTimeout(() => {
+      form.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }, SHEET_RISE_MS)
+    return () => clearTimeout(timer)
+  }, [bring, form])
 }

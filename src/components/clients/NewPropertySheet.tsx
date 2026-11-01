@@ -10,6 +10,7 @@ import {
 } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { FieldMessage } from '#/components/forms/FieldMessage'
 import {
   SaveWarningsPanel,
   SaveWarningsProvider,
@@ -38,6 +39,7 @@ import { useMatchIndexWhenRead } from '#/lib/useMatchIndex'
 import {
   blurLine,
   matchFooter,
+  matchName,
   matchNotes,
   matchShownCounts,
   newClientRows,
@@ -68,6 +70,48 @@ const SAVE_WAITS: Record<LineDown, string> = {
     'No signal — the client is saved when you have signal. Keep PestM8 open until then.',
   unreachable:
     'Could not reach PestM8 — it’s saved once it can. Keep PestM8 open until then.',
+}
+
+/**
+ * Above the fields when New client opens on what was kept as an Open
+ * {client} left (`openFromNewClient`'s `keepDraft`): the next caller is
+ * someone else, and is never saved with the last one's details unseen.
+ */
+export function KeptDraftNote({
+  from,
+  onClear,
+}: {
+  /** The client opened then, as a row names them. */
+  from: string
+  onClear: () => void
+}) {
+  return (
+    <FieldMessage
+      tone="status"
+      className="mt-2"
+      fix={{ label: 'Clear', onApply: onClear }}
+    >
+      Still filled in from before you opened {from}.
+    </FieldMessage>
+  )
+}
+
+/**
+ * A check at Save made before the client list is read: waits in `waiting`,
+ * and is answered as the list comes (`answer`, the rows for what is typed
+ * then), unless the press gave up on it first (`signal`: the 3 s any check
+ * at Save is given). Then it finds nothing: those rows were never shown,
+ * and aren't noted as shown either (`match-shown`), as that would cost the
+ * note of the press that does show them.
+ */
+export function answerOnceRead(
+  waiting: Array<() => void>,
+  signal: AbortSignal,
+  answer: () => Array<SaveWarning>,
+): Promise<Array<SaveWarning>> {
+  return new Promise((resolve) => {
+    waiting.push(() => resolve(signal.aborted ? [] : answer()))
+  })
 }
 
 /**
@@ -115,6 +159,9 @@ export function NewPropertySheet({
     state: businessState || EMPTY_NEW_CLIENT.state,
   }
   const [value, setValue] = useState<NewClientFieldsValue>(empty)
+  // Who was opened when what was typed was kept (`KeptDraftNote`), until
+  // it is cleared, saved or discarded.
+  const [keptFrom, setKeptFrom] = useState<string | null>(null)
   // Read when the save runs, which may be after the checks at Save have
   // answered: what was typed while they ran is what gets saved.
   const latestValue = useLatest(value)
@@ -174,9 +221,18 @@ export function NewPropertySheet({
       suburb: typed.suburb,
       state: typed.state,
       postcode: typed.postcode,
+      addressCheck: typed.addressCheck,
+      // A business's, as the form shows them (`newClientArgs`).
+      ...(typed.kind === 'business' && {
+        abn: typed.abn,
+        contactPerson: typed.contactPerson,
+        siteContactName: typed.siteContactName,
+        siteContactPhone: typed.siteContactPhone,
+      }),
     })
     if (opened.keepDraft) {
       saveWarnings.reset()
+      setKeptFrom(matchName(index.clients.get(fix.clientId)))
       onClose()
     } else close()
     onOpenClient(fix.clientId, { addSite: opened.addSite })
@@ -250,12 +306,10 @@ export function NewPropertySheet({
     'new-client-match',
     matchCtx
       ? () => matchWarnings(matchCtx)
-      : () =>
-          new Promise<Array<SaveWarning>>((resolve) => {
-            waitingForList.current.push(() => {
-              const ctx = latestMatchCtx.current
-              resolve(ctx ? latestMatchWarnings.current(ctx) : [])
-            })
+      : (signal) =>
+          answerOnceRead(waitingForList.current, signal, () => {
+            const ctx = latestMatchCtx.current
+            return ctx ? latestMatchWarnings.current(ctx) : []
           }),
     [
       value.clientName,
@@ -288,17 +342,27 @@ export function NewPropertySheet({
       ...(fix
         ? { fix: { label: fix.label, onApply: () => latestOpen.current(fix) } }
         : {}),
+      ...(line.nameFree ? { nameFree: true as const } : {}),
     }
   }
 
   // Closed with nothing typed, or with what was typed discarded (the sheet
   // asks first: SheetLock below). Either way it opens empty next time, and
   // warnings about a draft walked away from are not news then. Only Open
-  // {client} closes it keeping what was typed, when some of it went nowhere.
+  // {client} closes it keeping what was typed, when some of it went nowhere,
+  // and it says so as it opens again (`KeptDraftNote`).
   function close() {
-    saveWarnings.reset()
-    setValue(empty)
+    clear()
     onClose()
+  }
+
+  /** Blank again: what was kept is for no one now, and a press still
+   * waiting for the client list is for nothing. */
+  function clear() {
+    saveWarnings.reset()
+    waitingForList.current = []
+    setValue(empty)
+    setKeptFrom(null)
   }
 
   const convexCreate = useConvexMutation(api.properties.create)
@@ -307,6 +371,7 @@ export function NewPropertySheet({
       convexCreate(args),
     onSuccess: () => {
       setValue(empty)
+      setKeptFrom(null)
       onClose()
     },
   })
@@ -335,6 +400,9 @@ export function NewPropertySheet({
           <Drawer.Title className="text-sheet-title text-ink">
             New client
           </Drawer.Title>
+          {keptFrom !== null && (
+            <KeptDraftNote from={keptFrom} onClear={clear} />
+          )}
 
           <NewClientFields
             value={value}

@@ -14,6 +14,10 @@ export type NewClientMatchLine = {
   text: string
   fix?: FieldFix
   fix2?: FieldFix
+  /** Under Phone or Email, decided by the number or email alone, whatever
+   * the Name (`blurLine`: every key typed held by 2+ clients, a line
+   * number, or nobody): not decided again as the Name is typed. */
+  nameFree?: true
 }
 
 /** What the line is decided from: the three fields as they are now. */
@@ -139,8 +143,9 @@ export function useMatchLines(
   const waiting = useRef<Partial<Record<NewClientMatchField, string>>>({})
   // Where focus was on screen before a line went in above it.
   const anchor = useRef<{ el: Placed; top: number } | null>(null)
-  // A line came in, and its fixes are held: drawn again once they aren't.
-  const [heldSince, setHeldSince] = useState<number | null>(null)
+  // Counts each time the lines are drawn again as a line's fixes stop
+  // being held (`held`).
+  const [released, setReleased] = useState(0)
   const latestValues = useRef(values)
   latestValues.current = values
   const latestMatchLine = useRef(matchLine)
@@ -153,7 +158,6 @@ export function useMatchLines(
   }
 
   const show = (found: Partial<Record<NewClientMatchField, Shown | null>>) => {
-    const at = Date.now()
     setLines((before) => {
       const next = { ...before }
       for (const [field, line] of Object.entries(found)) {
@@ -161,7 +165,6 @@ export function useMatchLines(
       }
       return next
     })
-    if (Object.values(found).some(Boolean)) setHeldSince(at)
   }
 
   const decide = (field: NewClientMatchField, decideWith = matchLine) => {
@@ -191,6 +194,8 @@ export function useMatchLines(
     }
     const now = { ...latestValues.current, [field]: next }
     const found: Partial<Record<NewClientMatchField, Shown | undefined>> = {}
+    // Whether anything is drawn otherwise than it was.
+    let redrawn = false
     const shown = lines[field]
     if (shown && shown.said !== next) {
       // The same number or email, written another way: the line stays,
@@ -199,26 +204,28 @@ export function useMatchLines(
       const line =
         keys === shown.keys ? (matchLine?.(field, now) ?? null) : null
       found[field] = line ? { said: next, keys, line, at: shown.at } : undefined
+      redrawn = true
     }
     // Another name: the lines under Phone and Email were decided with the
     // name as it was, and whether it agrees is what makes a fix one tap (a
     // mobile on one client's record with no name agreeing is only shown:
     // Show them). They are decided again with the name as it is now: kept,
-    // said again, or gone. A fix that changed takes no tap for as long as a
-    // new line's doesn't.
-    let fresh = false
+    // said again, or gone; never one decided by its number alone
+    // (`nameFree`), which no name changes. Kept with the fixes decided now,
+    // though their words be the same: Open Jane Nguyen, once the caller is
+    // Tom, opens her Details, not Add property for his address. A fix whose
+    // words changed takes no tap for as long as a new line's doesn't.
     if (
       field === 'clientName' &&
       keys !== keyOf('clientName', latestValues.current.clientName)
     ) {
       for (const other of ['phone', 'email'] as const) {
         const was = lines[other]
-        if (!was || keyOf(other, now[other]) !== was.keys) continue
+        if (!was || was.line.nameFree) continue
+        if (keyOf(other, now[other]) !== was.keys) continue
         const line = matchLine?.(other, now) ?? null
         const same = line !== null && fixesOf(line) === fixesOf(was.line)
-        // Said as it was: nothing to draw again.
-        if (same && line.text === was.line.text) continue
-        if (line !== null && !same) fresh = true
+        if (!same || line.text !== was.line.text) redrawn = true
         found[other] = line
           ? {
               said: now[other],
@@ -231,9 +238,8 @@ export function useMatchLines(
     }
     if (Object.keys(found).length === 0) return
     // Whatever goes, or is said again, focus stays where it is on screen.
-    hold(focused())
+    if (redrawn) hold(focused())
     setLines((before) => ({ ...before, ...found }))
-    if (fresh) setHeldSince(Date.now())
   }
 
   // The client list has come: the fields left meanwhile get their lines now,
@@ -265,17 +271,28 @@ export function useMatchLines(
     if (at) keepInPlace(at.el, at.top)
   }, [lines])
 
+  // Drawn again as each line's fixes stop being held, the soonest first:
+  // one line's 400 ms can end while another's, come in since, runs on.
   useEffect(() => {
-    if (heldSince === null) return
-    const left = Math.max(0, FIX_ARM_MS - (Date.now() - heldSince))
-    const done = setTimeout(() => setHeldSince(null), left)
+    const now = Date.now()
+    const ends = (['clientName', 'phone', 'email'] as const)
+      .flatMap((field) => {
+        const shown = lines[field]
+        return shown ? [shown.at + FIX_ARM_MS] : []
+      })
+      .filter((end) => end > now)
+    if (ends.length === 0) return
+    const done = setTimeout(
+      () => setReleased((n) => n + 1),
+      Math.min(...ends) - now,
+    )
     return () => clearTimeout(done)
-  }, [heldSince])
+  }, [lines, released])
 
   const held = (fix: FieldFix | undefined, since: number) =>
     fix && {
       label: fix.label,
-      held: heldSince !== null && stillArmed(since, Date.now(), FIX_ARM_MS),
+      held: stillArmed(since, Date.now(), FIX_ARM_MS),
       onApply: () => {
         // Just came in, where a thumb may still be: a tap now is not a
         // choice.
@@ -297,4 +314,51 @@ export function useMatchLines(
   }
 
   return { lineOf, leaving, changing }
+}
+
+/** A tap as the form's capture phase has it: stopped before it reaches
+ * what was tapped. */
+export type HeldTap = {
+  /** What was tapped. */
+  target: EventTarget | null
+  preventDefault: () => void
+  stopPropagation: () => void
+}
+
+/** The form's own button (Book), or something inside it. */
+function onSubmitButton(target: EventTarget | null): boolean {
+  const tapped = target as Partial<Pick<Element, 'closest'>> | null
+  return (tapped?.closest?.('button[type="submit"]') ?? null) !== null
+}
+
+/**
+ * A fix taken from a field's line, or from the panel, changes the form at
+ * once: New client's fields go, and the Property trigger or New site for,
+ * and the job's fields under them, move up into their place, under the
+ * thumb that tapped. So for FIX_ARM_MS after one (`taken`) the form takes
+ * no tap: its mousedown, which would put focus in a field or open a select,
+ * and its click, which would open a picker or choose a segment, go no
+ * further (`onTapCapture`, on the form's capture phase). The second tap of
+ * a double tap then does nothing, as the panel's fixes take none after a
+ * fix there (RK14). Book is left to its own hold, which shows: after a fix
+ * in the panel it takes no press, `aria-disabled` and held pressed in; a
+ * line's fix leaves it far below, where no second tap lands, and a press
+ * there is meant, never a silent no-op.
+ */
+export function useLineFixHold(): {
+  taken: () => void
+  onTapCapture: (tap: HeldTap) => void
+} {
+  const since = useRef<number | null>(null)
+  return {
+    taken: () => {
+      since.current = Date.now()
+    },
+    onTapCapture: (tap) => {
+      if (!stillArmed(since.current, Date.now(), FIX_ARM_MS)) return
+      if (onSubmitButton(tap.target)) return
+      tap.preventDefault()
+      tap.stopPropagation()
+    },
+  }
 }

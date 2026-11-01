@@ -7,6 +7,7 @@ import {
   queryHolders,
   queryShape,
   siteLessFound,
+  siteLessNamed,
 } from './clientSearch'
 import { clientOptions } from './propertyOptions'
 import { NO_OURS, buildMatchIndex } from '../../convex/lib/clientMatch'
@@ -424,12 +425,16 @@ describe('a client named in full, sites or not', () => {
       { _id: 'c-ann', name: 'Ann Smith', sites: [] },
       { _id: 'c-bob', name: 'Bob Smith', sites: [] },
     ])
-    const endOf = (query: string) =>
-      propertyListEnd(
+    // As New Job's Property picker ends its list.
+    const endOf = (query: string) => {
+      const named = namedClient(book, query)
+      const found = siteLessFound(query, queryHolders(book, query), siteLess)
+      return propertyListEnd(
         queryHolders(book, query),
-        siteLessFound(query, queryHolders(book, query), siteLess),
-        namedClient(book, query),
+        named === null ? found : siteLessNamed(book, query, found),
+        named,
       )
+    }
     // "Sam" names Sam in full, whose site is listed above: Sam Wu, whom the
     // list can't show, is the end row, as before there was a Name line.
     expect(namedClient(book, 'Sam')).toBe('c-sam1')
@@ -443,5 +448,60 @@ describe('a client named in full, sites or not', () => {
       kind: 'one',
       clientId: 'c-sam1',
     })
+  })
+
+  test('not a client with no site the words are only inside, or found by a contact: they are someone else', () => {
+    // Choose Tom Lee’s site, from the line under Name: his site, then New
+    // site for Tom Lee, never a row for Lee Tomkins and a strata whose
+    // contact is Tom Leeming.
+    const directory: MatchDirectory = {
+      clients: [
+        { _id: client('c-tom'), name: 'Tom Lee', kind: 'person' },
+        { _id: client('c-lt'), name: 'Lee Tomkins', kind: 'person' },
+        {
+          _id: client('c-strata'),
+          name: 'Harbourside Strata',
+          kind: 'business',
+        },
+      ],
+      sites: [
+        {
+          _id: site('p-tom'),
+          clientId: client('c-tom'),
+          addressLine: '8 Oak St',
+          suburb: 'Morley',
+          postcode: '6062',
+        },
+      ],
+      contacts: [
+        {
+          _id: contact('k-tl'),
+          clientId: client('c-strata'),
+          name: 'Tom Leeming',
+        },
+      ],
+    }
+    const book = buildMatchIndex(directory, { areaCode: '08', ours: NO_OURS })
+    const siteLess = clientOptions([
+      { _id: 'c-lt', name: 'Lee Tomkins', sites: [] },
+      {
+        _id: 'c-strata',
+        name: 'Harbourside Strata',
+        sites: [],
+        kind: 'business',
+        contacts: [{ name: 'Tom Leeming' }],
+      },
+    ])
+    const found = siteLessFound('Tom Lee', null, siteLess)
+    // The words find both.
+    expect([...found].sort()).toEqual(['c-lt', 'c-strata'])
+    expect(siteLessNamed(book, 'Tom Lee', found)).toEqual([])
+    expect(
+      propertyListEnd(
+        null,
+        siteLessNamed(book, 'Tom Lee', found),
+        namedClient(book, 'Tom Lee'),
+      ),
+    ).toEqual({ kind: 'one', clientId: 'c-tom' })
   })
 })

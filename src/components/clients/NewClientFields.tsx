@@ -46,12 +46,15 @@ export type NewSiteValue = {
 
 /** A site's address, and for a business's the caller as its site contact:
  * what Clients → New client hands a client's Add property when the caller
- * turns out to be theirs. */
+ * turns out to be theirs, with whether the address is still the suggestion
+ * picked for it. */
 export type SiteAddressDraft = Pick<
   NewSiteValue,
   'addressLine' | 'suburb' | 'state' | 'postcode'
 > &
-  Partial<Pick<NewSiteValue, 'siteContactName' | 'siteContactPhone'>>
+  Partial<
+    Pick<NewSiteValue, 'siteContactName' | 'siteContactPhone' | 'addressCheck'>
+  >
 
 export const EMPTY_NEW_SITE: NewSiteValue = {
   addressLine: '',

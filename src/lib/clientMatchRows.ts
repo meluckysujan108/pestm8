@@ -14,6 +14,7 @@ import {
   matchNewSite,
 } from '../../convex/lib/clientMatch'
 import { MAX_JOB_NOTES_LENGTH } from '../../convex/lib/jobNotes'
+import { abnDigits } from '../../convex/lib/abn'
 import { formatUpdated } from './format'
 import { pickerName } from './propertyOptions'
 import type {
@@ -40,8 +41,10 @@ import type { Id } from '../../convex/_generated/dataModel'
  *
  * The rules the words keep: names, never pronouns ("Jane Nguyen’s", not
  * "hers"); "mobile" for an 04 number, else "number"; "(archived)" or
- * "(inactive)" after a client's name; "different name" or "different
- * address" only for what was typed; curly apostrophes and spaced em dashes.
+ * "(inactive)" after a client's name, or "Amy Lo is archived." after a
+ * sentence naming them only as a possessive (`tagSentence`); "different
+ * name" or "different address" only for what was typed; curly apostrophes
+ * and spaced em dashes.
  *
  * Nothing here rewrites what was typed: each fix is the person's tap, and
  * what the caller said that the client chosen doesn't already have goes
@@ -93,8 +96,15 @@ export type MatchRow = {
   fix2?: MatchFix
 }
 
-/** The line under Name, Phone or Email once focus has moved on. */
-export type MatchLine = { text: string; fix?: MatchFix; fix2?: MatchFix }
+/** The line under Name, Phone or Email once focus has moved on.
+ * `nameFree`: one under Phone or Email that no Name can change
+ * (`blurLine`). */
+export type MatchLine = {
+  text: string
+  fix?: MatchFix
+  fix2?: MatchFix
+  nameFree?: true
+}
 
 export type MatchRowsContext = {
   index: MatchIndex
@@ -118,22 +128,16 @@ export function matchName(client: MatchClient | undefined): string {
 }
 
 /**
- * What is a client's, with the tag `matchName` gives them after it rather
- * than inside the possessive: "Sam Wu’s (inactive)", "Sam Wu’s line
- * (inactive)", "Choose Sam Wu’s site (archived)"; "Jane Nguyen’s" for a
- * client with none. `tag: false` where the sentence has named them with it
- * already ("Sam Wu (inactive) has the same name. 12 Watle St looks like Sam
- * Wu’s 12 Wattle St, Bayswater.").
+ * What is a client's: "Jane Nguyen’s", "Tom Lee’s line", "Choose Sam Wu’s
+ * site". Never with the tag `matchName` gives them: inside the possessive or
+ * after it, it reads as the thing's ("Amy Lo’s number (archived)"), so a
+ * sentence naming them this way says it in one of its own after
+ * (`tagSentence`), and a fix's label leaves it to the line it is on.
  */
-export function possessive(
-  client: MatchClient | undefined,
-  what = '',
-  { tag = true }: { tag?: boolean } = {},
-): string {
+export function possessive(client: MatchClient | undefined, what = ''): string {
   const thing = what === '' ? '' : ` ${what}`
   if (!client) return `another client’s${thing}`
-  const tagged = tag ? matchName(client).slice(client.name.length) : ''
-  return `${client.name}’s${thing}${tagged}`
+  return `${client.name}’s${thing}`
 }
 
 /** "inactive" or "archived", as `matchName` tags the client, or null. */
@@ -141,6 +145,13 @@ function tagWord(client: MatchClient | undefined): string | null {
   if (!client) return null
   const tagged = matchName(client).slice(client.name.length).trim()
   return tagged === '' ? null : tagged.slice(1, -1)
+}
+
+/** " Amy Lo is archived.", after a sentence that names an archived or
+ * inactive client only as a possessive; '' for anyone else. */
+function tagSentence(client: MatchClient | undefined): string {
+  const tag = tagWord(client)
+  return client && tag ? ` ${client.name} is ${tag}.` : ''
 }
 
 /** "name, address and mobile". */
@@ -294,18 +305,31 @@ export function openAddSite(
       }
 }
 
-/** What Clients → New client holds as Open {client} is tapped. */
+/** What Clients → New client holds as Open {client} is tapped. A business's
+ * ABN, contact person and site contact only as the form shows them: blank
+ * for a person, whose form has none. */
 export type TypedNewClient = SiteAddress & {
   name: string
   phone: string
   email: string
+  abn?: string
+  contactPerson?: string
+  siteContactName?: string
+  siteContactPhone?: string
+  /** 'picked' while the address is still the suggestion picked for it. */
+  addressCheck?: 'picked' | 'typed'
 }
 
 /** What Open {client} does (`openFromNewClient`). */
 export type OpenedClient = {
   /** Add property opened on this, with the caller as a business's site
-   * contact; else their sheet as it is, on Details. */
-  addSite?: SiteAddress & { siteContactName: string; siteContactPhone: string }
+   * contact, and the address still picked if it was; else their sheet as
+   * it is, on Details. */
+  addSite?: SiteAddress & {
+    siteContactName: string
+    siteContactPhone: string
+    addressCheck?: 'picked' | 'typed'
+  }
   /** Something typed went nowhere: New client keeps it all, to be had back
    * by opening it again, rather than throwing it away unasked. */
   keepDraft: boolean
@@ -315,15 +339,19 @@ export type OpenedClient = {
  * Open {client} tapped in Clients → New client (the matching plan's §2.10):
  * their sheet, with Add property open on the address typed, unless none is
  * typed, it is theirs already (`openAddSite`), or the row only shows who
- * the caller may be (`onDetails`). A business's new site has the caller as
- * its site contact (`siteContactCarry`, §2.8), as New site for does in New
- * Job.
+ * the caller may be (`onDetails`). A business's new site has the site
+ * contact typed, as New site for takes it in New Job (`planMatchFix`), or
+ * else the caller (`siteContactCarry`, §2.8).
  *
  * What was typed is thrown away only where all of it went with the open or
  * is the client's already: the caller is them. Anything else (another
- * name, a number or an email not theirs, an address not carried) keeps New
- * client as it was typed, to be opened again: the caller may well be
- * someone else, and typing it all again while they wait is the cost.
+ * name, a number or an email not theirs, an address not carried, a site
+ * contact with no new site of a business's to go on, an ABN or a contact
+ * person not theirs) keeps New client as it was typed, to be opened again:
+ * the caller may well be someone else, and typing it all again while they
+ * wait is the cost. So does a site contact carried onto an address like one
+ * of theirs ("1 King Wiliam St"): Add property says so, and its Use {their
+ * site} adds nothing, the site contact with it (`ownSiteRows`).
  */
 export function openFromNewClient(
   index: MatchIndex,
@@ -336,16 +364,38 @@ export function openFromNewClient(
   const address = fix.onDetails
     ? undefined
     : openAddSite(index, fix.clientId, typed)
-  // A business's new site takes the caller as its site contact.
+  // Only a business's site has a site contact.
   const asContact = address !== undefined && client.kind === 'business'
+  const siteContactName = typed.siteContactName ?? ''
+  const siteContactPhone = typed.siteContactPhone ?? ''
+  const typedContact =
+    siteContactName.trim() !== '' || siteContactPhone.trim() !== ''
+  // The caller as the new site's contact, where none was typed.
+  const callerCarried = asContact && !typedContact
   const own = contactsOfClient(contacts, client._id)
   const name = typed.name.trim()
   const phone = typed.phone.trim()
   const email = typed.email.trim()
+  const abn = typed.abn?.trim() ?? ''
+  // Not eleven digits: no one's ABN, theirs least of all.
+  const abnTyped = abnDigits(abn)
+  const contactPerson = typed.contactPerson?.trim() ?? ''
+  const siteContact = !asContact
+    ? { siteContactName: '', siteContactPhone: '' }
+    : typedContact
+      ? { siteContactName, siteContactPhone }
+      : siteContactCarry({ name, phone }, client, contacts, index.areaCode)
+  // The new site's contact, on an address like one of theirs: Use {their
+  // site} in Add property would leave it nowhere.
+  const contactMayGo =
+    address !== undefined &&
+    (siteContact.siteContactName !== '' ||
+      siteContact.siteContactPhone !== '') &&
+    sitesOf(index, client._id).some((s) => addressNear(address, s))
   const wentNowhere =
-    (name !== '' && !asContact && !nameAgrees(name, client, own)) ||
+    (name !== '' && !callerCarried && !nameAgrees(name, client, own)) ||
     (phone !== '' &&
-      !asContact &&
+      !callerCarried &&
       !phoneHeld(
         phone,
         [client.phone, ...own.map((k) => k.phone)],
@@ -355,24 +405,19 @@ export function openFromNewClient(
       !emailHeld(email, [client.email, ...own.map((k) => k.email)])) ||
     // An address typed, neither carried nor theirs.
     (address === undefined &&
-      openAddSite(index, client._id, typed) !== undefined)
+      openAddSite(index, client._id, typed) !== undefined) ||
+    (typedContact && !asContact) ||
+    // Nothing puts an ABN or a contact person on the client.
+    (abn !== '' && (abnTyped === null || abnTyped !== client.abn)) ||
+    (contactPerson !== '' &&
+      !own.some((k) => nameKey(k.name) === nameKey(contactPerson)))
+  // How the address came to be goes with it, as New site for takes it in
+  // New Job: a suggestion picked is still one, not looked up on the map
+  // again at Add.
+  const check = typed.addressCheck ? { addressCheck: typed.addressCheck } : {}
   return {
-    ...(address
-      ? {
-          addSite: {
-            ...address,
-            ...(asContact
-              ? siteContactCarry(
-                  { name, phone },
-                  client,
-                  contacts,
-                  index.areaCode,
-                )
-              : { siteContactName: '', siteContactPhone: '' }),
-          },
-        }
-      : {}),
-    keepDraft: fix.onDetails === true || wentNowhere,
+    ...(address ? { addSite: { ...address, ...siteContact, ...check } } : {}),
+    keepDraft: fix.onDetails === true || wentNowhere || contactMayGo,
   }
 }
 
@@ -434,14 +479,14 @@ function candidateRow(
           'Already a client',
           `${siteText(atSite)} is ${possessive(them)}${
             contact ? `, and ${contact.name} is a contact there` : ''
-          }. ${sameSentence(ev, true)}`,
+          }. ${sameSentence(ev, true)}${tagSentence(them)}`,
           { fix: bookAt },
         )
       : done(
           'Already a site',
           `${siteText(atSite)} is ${possessive(them)}. Same address${
             typedName ? ', different name' : ''
-          }.`,
+          }.${tagSentence(them)}`,
           { fix: bookAt },
         )
   }
@@ -460,11 +505,12 @@ function candidateRow(
     agrees && keys.length > 0 && (c.tier === 'same' || !nearLandline)
   if (sameKey && contact) {
     const count = sitesOf(index, c.clientId).length
+    // The tag in a sentence of its own, not "(inactive) (1 site)".
     return done(
       'Already a client',
-      `${contact.name} is a contact at ${name}${
+      `${contact.name} is a contact at ${them?.name ?? name}${
         count > 0 ? ` (${plural(count, 'site')})` : ''
-      }. ${sameSentence(ev)}`,
+      }. ${sameSentence(ev)}${tagSentence(them)}`,
       { fix: use },
     )
   }
@@ -489,7 +535,7 @@ function candidateRow(
     if (like && typedAddress) {
       return done(
         'Already a client',
-        `${name} has ${hasClause(ev)}. ${typedAddress} looks like ${possessive(them, siteText(like), { tag: false })}.`,
+        `${name} has ${hasClause(ev)}. ${typedAddress} looks like ${possessive(them, siteText(like))}.`,
         likeFixes(like),
       )
     }
@@ -509,7 +555,7 @@ function candidateRow(
       `Same ${what}`,
       `${shown} is ${possessive(them)}${suburb ? `, of ${suburb}` : ''}. Same ${what}${
         typedName ? ', different name' : ''
-      }.`,
+      }.${tagSentence(them)}`,
       // Agency, strata and family numbers sit on one owner's record too:
       // with no name agreeing, the client is shown, never one tap away.
       { fix: show(shown) },
@@ -551,7 +597,7 @@ function candidateRow(
     if (near && typedAddress) {
       return done(
         'Already a client',
-        `${name} has ${sameName}. ${typedAddress} looks like ${possessive(them, siteText(near), { tag: false })}.`,
+        `${name} has ${sameName}. ${typedAddress} looks like ${possessive(them, siteText(near))}.`,
         likeFixes(near),
       )
     }
@@ -576,9 +622,7 @@ function candidateRow(
   if (contactSite) {
     return done(
       'Already a site',
-      `${contactSite.siteContactName ?? typedName} is the site contact at ${siteText(contactSite)} (${possessive(them, '', { tag: false })}${
-        tagWord(them) ? `, ${tagWord(them)}` : ''
-      }). Same name and ${numberNoun(typed.phone, index.areaCode)}.`,
+      `${contactSite.siteContactName ?? typedName} is the site contact at ${siteText(contactSite)} (${possessive(them)}). Same name and ${numberNoun(typed.phone, index.areaCode)}.${tagSentence(them)}`,
       {
         fix: {
           kind: 'bookAt',
@@ -609,9 +653,11 @@ function sharedText(index: MatchIndex, row: SharedRow, shown: string): string {
     )}.`
   }
   const key = row.keys[0]
-  if (key.reason === 'line') return `${shown} is ${possessive(holder, 'line')}.`
+  if (key.reason === 'line') {
+    return `${shown} is ${possessive(holder, 'line')}.${tagSentence(holder)}`
+  }
   if (key.reason === 'landline') {
-    return `${shown} is ${possessive(holder, 'number')}.`
+    return `${shown} is ${possessive(holder, 'number')}.${tagSentence(holder)}`
   }
   // One business holds it: an agency's office line, rentals@, or a contact
   // person's own number there.
@@ -626,7 +672,7 @@ function sharedText(index: MatchIndex, row: SharedRow, shown: string): string {
       : phoneKind(key.key) === 'mobile'
         ? MOBILE
         : 'number'
-  return `${shown} is ${possessive(holder, noun)}.`
+  return `${shown} is ${possessive(holder, noun)}.${tagSentence(holder)}`
 }
 
 function typedFor(typed: TypedClient, field: 'phone' | 'email'): string {
@@ -749,9 +795,7 @@ export function newSiteRows(
       label: 'Already has this site',
       // The tag in a sentence of its own: after the address, it would read
       // as the site's.
-      message: `${typedAddress} looks like ${possessive(chosen, siteText(near), { tag: false })}.${
-        tagWord(chosen) ? ` ${chosen?.name} is ${tagWord(chosen)}.` : ''
-      }`,
+      message: `${typedAddress} looks like ${possessive(chosen, siteText(near))}.${tagSentence(chosen)}`,
       fix: {
         kind: 'bookAt',
         label: `Book at ${near.addressLine}`,
@@ -981,7 +1025,7 @@ export function blurLine(
     if (held.evidence.includes('landline')) {
       return lineFor(
         ctx,
-        `${shown} is ${possessive(index.clients.get(held.clientId), 'number')}.`,
+        `${shown} is ${possessive(index.clients.get(held.clientId), 'number')}.${tagSentence(index.clients.get(held.clientId))}`,
         { fix: show(shown) },
         held.clientId,
         true,
@@ -998,7 +1042,7 @@ export function blurLine(
   const row = result.shared.find((s) => s.keys.some((k) => k.field === field))
   if (!row) return null
   const business = row.businessClientId
-  return lineFor(
+  const line = lineFor(
     ctx,
     sharedText(index, row, shown),
     {
@@ -1014,6 +1058,30 @@ export function blurLine(
         : {}),
     },
     business,
+  )
+  return nameFree(index, field, shown) ? { ...line, nameFree: true } : line
+}
+
+/**
+ * Whether no Name can change the line under Phone or Email: every key typed
+ * there is a line number, or held by two or more clients, or by nobody, so
+ * no one client's own number or email is in it for a name to agree with,
+ * and the line is the shared one, whoever is named. Typing in Name then
+ * decides it nothing again (`useMatchLines`): a number a thousand clients
+ * hold is the line that takes longest to decide.
+ */
+function nameFree(
+  index: MatchIndex,
+  field: 'phone' | 'email',
+  typed: string,
+): boolean {
+  const keys =
+    field === 'phone' ? phoneKeys(typed, index.areaCode) : emailKeys(typed)
+  const held = field === 'phone' ? index.phones : index.emails
+  return keys.every(
+    (key) =>
+      (field === 'phone' && phoneKind(key) === 'line') ||
+      new Set((held.get(key) ?? []).map((h) => h.clientId)).size !== 1,
   )
 }
 

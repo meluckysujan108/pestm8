@@ -31,6 +31,7 @@ import type {
   MatchRow,
   MatchRowsContext,
   SiteDraft,
+  TypedNewClient,
 } from './clientMatchRows'
 import type {
   MatchClient,
@@ -229,6 +230,31 @@ describe('the rows at Book (§2.7)', () => {
         fix2: undefined,
       },
     ])
+  })
+
+  test('Same, through a contact person at an inactive or archived business: its tag in a sentence of its own, not beside the count', () => {
+    const tagged = (extra: Partial<MatchClient>) => {
+      const directory = book()
+      return ctxOf({
+        ...directory,
+        clients: directory.clients.map((c) =>
+          c._id === cid('c_ray') ? { ...c, ...extra } : c,
+        ),
+      })
+    }
+    const typed = { name: 'Sarah Lee', phone: SARAH, site: at('20 Walter Rd') }
+    expect(rows(typed, tagged({ status: 'inactive' }))).toEqual([
+      {
+        label: 'Already a client',
+        message:
+          'Sarah Lee is a contact at Ray White Bayswater (2 sites). Same name and mobile. Ray White Bayswater is inactive.',
+        fix: 'Use Ray White Bayswater (inactive)',
+        fix2: undefined,
+      },
+    ])
+    expect(rows(typed, tagged({ archivedAt: 5 }))[0].message).toBe(
+      'Sarah Lee is a contact at Ray White Bayswater (2 sites). Same name and mobile. Ray White Bayswater is archived.',
+    )
   })
 
   test('Same, a contact person at the business’s own site: the contact is named, as it is her name that agrees', () => {
@@ -462,7 +488,7 @@ describe('the rows at Book (§2.7)', () => {
     ).toBe('Sam Wu (archived)')
   })
 
-  test('what is an inactive or archived client’s: the tag after it, never inside the possessive', () => {
+  test('what is an inactive or archived client’s: the tag in a sentence of its own, never by the possessive', () => {
     // Sam Wu, inactive, with two sites and his own mobile; Amy Lo, archived,
     // on a landline of her own and a line that is hers alone.
     const ctx = ctxOf({
@@ -497,14 +523,42 @@ describe('the rows at Book (§2.7)', () => {
       ...rows({ name: 'Tom Wu', phone: '0491 570 120' }, ctx),
       ...rows({ name: 'Priya Shah', phone: '0491 570 313' }, ctx),
     ].map((row) => row.message)
+    // After the number, the site or "line", the tag would read as theirs:
+    // "Amy Lo’s number (archived)" is a number that is archived.
     expect(messages).toEqual([
-      '12 Wattle St, Morley is Sam Wu’s (inactive). Same address, different name.',
-      '0491 570 120 is Sam Wu’s (inactive), of Morley. Same mobile, different name.',
-      'Priya Shah is the site contact at 1 King William St, Bayswater (Ray White Bayswater’s, archived). Same name and mobile.',
+      '12 Wattle St, Morley is Sam Wu’s. Same address, different name. Sam Wu is inactive.',
+      '0491 570 120 is Sam Wu’s, of Morley. Same mobile, different name. Sam Wu is inactive.',
+      'Priya Shah is the site contact at 1 King William St, Bayswater (Ray White Bayswater’s). Same name and mobile. Ray White Bayswater is archived.',
     ])
     expect(
       blurLine(ctx, 'phone', { name: 'Kim Pham', phone: '08 9272 7777' })?.text,
-    ).toBe('08 9272 7777 is Amy Lo’s number (archived).')
+    ).toBe('08 9272 7777 is Amy Lo’s number. Amy Lo is archived.')
+    // A line number, and one business's own mobile, likewise.
+    const lines = ctxOf({
+      clients: [
+        client('c_tom', 'Tom Lee', {
+          status: 'inactive',
+          phone: '1300 655 506',
+        }),
+        client('c_agency', 'Harbour Realty', {
+          kind: 'business',
+          archivedAt: 5,
+          phone: '0491 570 400',
+        }),
+      ],
+      sites: [],
+      contacts: [],
+    })
+    expect(
+      blurLine(lines, 'phone', { name: 'Kim Pham', phone: '1300 655 506' })
+        ?.text,
+    ).toBe('1300 655 506 is Tom Lee’s line. Tom Lee is inactive.')
+    expect(
+      blurLine(lines, 'phone', { name: 'Kim Pham', phone: '0491 570 400' })
+        ?.text,
+    ).toBe(
+      '0491 570 400 is Harbour Realty’s mobile. Harbour Realty is archived.',
+    )
     // Named with the tag first, the possessive after it has none.
     expect(
       rows(
@@ -518,13 +572,24 @@ describe('the rows at Book (§2.7)', () => {
     ).toBe(
       'Sam Wu (inactive) has the same name and mobile. 12 Watle St looks like Sam Wu’s 12 Wattle St, Morley.',
     )
-    // The Name line's Choose, and New site for one like theirs.
+    // The Name line's Choose, its line saying the tag already, and New site
+    // for one like theirs.
     expect(blurLine(ctx, 'clientName', { name: 'Sam Wu' })).toEqual({
       text: 'Sam Wu (inactive), of Morley, is already a client.',
       fix: {
         kind: 'show',
-        label: 'Choose Sam Wu’s site (inactive)',
+        label: 'Choose Sam Wu’s site',
         query: 'Sam Wu',
+      },
+    })
+    expect(
+      blurLine(ctx, 'phone', { name: 'Sam Wu', phone: '0491 570 120' }),
+    ).toEqual({
+      text: 'Sam Wu (inactive), of Morley, has this mobile.',
+      fix: {
+        kind: 'show',
+        label: 'Choose Sam Wu’s site',
+        query: '0491 570 120',
       },
     })
     expect(
@@ -871,6 +936,185 @@ describe('Clients → New client: every fix is Open {client}', () => {
         .keepDraft,
     ).toBe(true)
   })
+
+  test('an address picked from the suggestions is still picked in Add property, as New site for keeps it in New Job', () => {
+    const typed = (addressCheck: 'picked' | 'typed'): TypedNewClient => ({
+      ...typedAs('Jane Nguyen', JANE_MOBILE, '40 Coode St'),
+      addressCheck,
+    })
+    const fix = OPEN_JANE as Extract<MatchFix, { kind: 'open' }>
+    expect(
+      openFromNewClient(ctx.index, ctx.contacts, fix, typed('picked')),
+    ).toEqual({
+      addSite: {
+        ...typedAt('40 Coode St'),
+        siteContactName: '',
+        siteContactPhone: '',
+        addressCheck: 'picked',
+      },
+      keepDraft: false,
+    })
+    expect(
+      openFromNewClient(ctx.index, ctx.contacts, fix, typed('typed')).addSite
+        ?.addressCheck,
+    ).toBe('typed')
+  })
+
+  test('a business’s ABN, contact person and site contact go with the open, or New client keeps them', () => {
+    const withAbn = ctxOf(
+      book({
+        clients: book().clients.map((c) =>
+          c._id === cid('c_ray') ? { ...c, abn: '51824753556' } : c,
+        ),
+      }),
+      'open',
+    )
+    const openRay = (typed: TypedNewClient) =>
+      openFromNewClient(
+        withAbn.index,
+        withAbn.contacts,
+        {
+          kind: 'open',
+          label: 'Open Ray White Bayswater',
+          clientId: cid('c_ray'),
+        },
+        typed,
+      )
+    // The agency, its office line, a new site with its own site contact,
+    // and a contact person the agency hasn't got.
+    const agency = {
+      ...typedAs('Ray White Bayswater', OFFICE, '20 Coode St'),
+      contactPerson: 'Mike Jones',
+      siteContactName: 'Tina Tran',
+      siteContactPhone: '0491 570 222',
+    }
+    // The site contact typed is the new site's, as New site for takes it in
+    // New Job; Mike Jones is on no record, so New client keeps it all.
+    expect(openRay(agency)).toEqual({
+      addSite: {
+        ...typedAt('20 Coode St'),
+        siteContactName: 'Tina Tran',
+        siteContactPhone: '0491 570 222',
+      },
+      keepDraft: true,
+    })
+    // Their own contact person and ABN, however written: nothing is lost.
+    expect(
+      openRay({ ...agency, contactPerson: 'sarah lee', abn: '51 824 753 556' })
+        .keepDraft,
+    ).toBe(false)
+    // Another ABN is not theirs.
+    expect(
+      openRay({ ...agency, contactPerson: '', abn: '53 004 085 616' })
+        .keepDraft,
+    ).toBe(true)
+    // Their own address: no new site for the site contact to go on.
+    expect(
+      openRay({
+        ...agency,
+        contactPerson: '',
+        ...typedAt('1 King William St'),
+      }),
+    ).toEqual({ keepDraft: true })
+    // Nor on a person's, which has no site contact.
+    expect(
+      openFromNewClient(
+        ctx.index,
+        ctx.contacts,
+        { kind: 'open', label: 'Open Jane Nguyen', clientId: cid('c_jane') },
+        {
+          ...typedAs('Jane Nguyen', JANE_MOBILE, '40 Coode St'),
+          siteContactName: 'Tina Tran',
+        },
+      ),
+    ).toEqual({
+      addSite: {
+        ...typedAt('40 Coode St'),
+        siteContactName: '',
+        siteContactPhone: '',
+      },
+      keepDraft: true,
+    })
+  })
+
+  test('an ABN short of eleven digits is no one’s: New client keeps it, though the client has none', () => {
+    const openRay = (abn: string) =>
+      openFromNewClient(
+        ctx.index,
+        ctx.contacts,
+        {
+          kind: 'open',
+          label: 'Open Ray White Bayswater',
+          clientId: cid('c_ray'),
+        },
+        { ...typedAs('Ray White Bayswater', OFFICE, ''), abn },
+      ).keepDraft
+    // Ray White Bayswater has no ABN on record.
+    expect(openRay('51 824 753 55')).toBe(true)
+    expect(openRay('51 824 753 556')).toBe(true)
+    // Nothing typed there: nothing lost.
+    expect(openRay('')).toBe(false)
+  })
+
+  test('a site contact on an address like one of theirs: New client keeps it, as Use {their site} in Add property takes none', () => {
+    const OPEN_RAY = {
+      kind: 'open',
+      label: 'Open Ray White Bayswater',
+      clientId: cid('c_ray'),
+    } as const
+    // "1 King Wiliam St" is like their 1 King William St, Bayswater: Add
+    // property says so, with Use 1 King William St.
+    const typo = typedAs('Ray White Bayswater', OFFICE, '1 King Wiliam St')
+    expect(
+      ownSiteRows(
+        'Ray White Bayswater',
+        ctx.index.sitesOf.get(cid('c_ray')) ?? [],
+        typo,
+      ).map((row) => row.site._id),
+    ).toEqual([pid('p_ray1')])
+    // The site contact typed goes into Add property, and New client keeps
+    // it too.
+    expect(
+      openFromNewClient(ctx.index, ctx.contacts, OPEN_RAY, {
+        ...typo,
+        siteContactName: 'Tina Tran',
+        siteContactPhone: '0491 570 222',
+      }),
+    ).toEqual({
+      addSite: {
+        ...typedAt('1 King Wiliam St'),
+        siteContactName: 'Tina Tran',
+        siteContactPhone: '0491 570 222',
+      },
+      keepDraft: true,
+    })
+    // So does the caller carried as the site contact: the tenant on the
+    // agency's office line.
+    expect(
+      openFromNewClient(
+        ctx.index,
+        ctx.contacts,
+        OPEN_RAY,
+        typedAs('Kim Pham', OFFICE, '1 King Wiliam St'),
+      ),
+    ).toEqual({
+      addSite: {
+        ...typedAt('1 King Wiliam St'),
+        siteContactName: 'Kim Pham',
+        siteContactPhone: '',
+      },
+      keepDraft: true,
+    })
+    // The agency itself, with no site contact to lose: nothing is kept.
+    expect(openFromNewClient(ctx.index, ctx.contacts, OPEN_RAY, typo)).toEqual({
+      addSite: {
+        ...typedAt('1 King Wiliam St'),
+        siteContactName: '',
+        siteContactPhone: '',
+      },
+      keepDraft: false,
+    })
+  })
 })
 
 describe('the line under a field as it is left (§2.6)', () => {
@@ -1047,6 +1291,42 @@ describe('the line under a field as it is left (§2.6)', () => {
     expect(
       newClientRows(ctx, { name: 'Kim Pham', phone: '0491 570 006' }),
     ).toEqual([])
+  })
+})
+
+describe('a line under Phone or Email that no Name changes (`nameFree`)', () => {
+  const ctx = ctxOf()
+  const lineFor = (field: 'phone' | 'email', name: string, typed: string) =>
+    blurLine(
+      ctx,
+      field,
+      field === 'phone' ? { name, phone: typed } : { name, email: typed },
+    )
+
+  test('a number two clients hold says the same whoever is named, and is marked so', () => {
+    const names = ['', 'Kim Pham', 'Tom Lee', 'Ray White Bayswater']
+    const drawn = names.map((name) => lineFor('phone', name, OFFICE))
+    for (const each of drawn) expect(each).toEqual(drawn[0])
+    expect(drawn[0]).toMatchObject({
+      text: '08 9272 1234 is on 2 clients — Ray White Bayswater and 1 other.',
+      nameFree: true,
+    })
+    // So too a family's mobile.
+    expect(lineFor('phone', 'Kim Pham', FAMILY)?.nameFree).toBe(true)
+  })
+
+  test('not one client’s own number or email, which a name agreeing makes one tap', () => {
+    // Her mobile, her landline, an agency's rentals@: decided again as the
+    // Name changes.
+    expect(lineFor('phone', 'Kim Pham', JANE_MOBILE)).not.toHaveProperty(
+      'nameFree',
+    )
+    expect(lineFor('phone', 'Kim Pham', MEI_LANDLINE)).not.toHaveProperty(
+      'nameFree',
+    )
+    expect(
+      lineFor('email', 'Kim Pham', 'rentals@raywhite.example'),
+    ).not.toHaveProperty('nameFree')
   })
 })
 

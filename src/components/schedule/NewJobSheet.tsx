@@ -57,6 +57,7 @@ import type {
   NewClientMatchLine,
   NewSiteValue,
 } from '#/components/clients/NewClientFields'
+import { useLineFixHold } from '#/components/clients/useMatchLines'
 import type { FieldFix } from '#/components/forms/FieldMessage'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { SendableBooking } from '#/lib/outbox/outboxItem'
@@ -88,6 +89,7 @@ import {
   propertyListEnd,
   queryHolders,
   siteLessFound,
+  siteLessNamed,
 } from '#/lib/clientSearch'
 import type { NoMatchRoute, PropertyListEnd } from '#/lib/clientSearch'
 import {
@@ -806,10 +808,12 @@ function NewJobForm({
   const propertyLookup = useCallback(
     (query: string): ComboboxLookup | null => {
       const holders = queryHolders(matchIndex, query)
+      const named = namedClient(matchIndex, query)
+      const found = siteLessFound(query, holders, siteLessOptions)
       const end = propertyListEnd(
         holders,
-        siteLessFound(query, holders, siteLessOptions),
-        namedClient(matchIndex, query),
+        named === null ? found : siteLessNamed(matchIndex, query, found),
+        named,
       )
       if (!holders && !end) return null
       /** The row the list ends with (`propertyListEnd`). */
@@ -1015,14 +1019,21 @@ function NewJobForm({
   }
   const latestApplyMatchFix = useLatest(applyMatchFix)
   const latestFocusAfterMatchFix = useLatest(focusAfterMatchFix)
+  // What a line's or the panel's fix moved up under the thumb takes no tap
+  // for a moment.
+  const lineFixHold = useLineFixHold()
   const panelFix = (fix: MatchFix): SaveWarningFix => ({
     label: fix.label,
-    apply: () => latestApplyMatchFix.current(fix),
+    apply: () => {
+      lineFixHold.taken()
+      latestApplyMatchFix.current(fix)
+    },
     focusAfter: () => latestFocusAfterMatchFix.current(),
   })
   const lineFix = (fix: MatchFix): FieldFix => ({
     label: fix.label,
     onApply: () => {
+      lineFixHold.taken()
       flushSync(() => latestApplyMatchFix.current(fix))
       latestFocusAfterMatchFix.current()
     },
@@ -1119,6 +1130,7 @@ function NewJobForm({
           text: line.text,
           ...(line.fix ? { fix: lineFix(line.fix) } : {}),
           ...(line.fix2 ? { fix2: lineFix(line.fix2) } : {}),
+          ...(line.nameFree ? { nameFree: true as const } : {}),
         }
       : null
   }
@@ -1136,6 +1148,8 @@ function NewJobForm({
     <SaveWarningsProvider value={saveWarnings}>
       <form
         className={`${SHEET_BODY} pt-3`}
+        onMouseDownCapture={lineFixHold.onTapCapture}
+        onClickCapture={lineFixHold.onTapCapture}
         onSubmit={(e) => {
           e.preventDefault()
           // The list has just come in under the thumb: a second tap of a

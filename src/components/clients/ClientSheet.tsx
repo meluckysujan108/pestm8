@@ -43,6 +43,7 @@ import type { SiteAddressDraft } from '#/components/clients/NewClientFields'
 import {
   firstTab,
   useAddSiteOnce,
+  useIntoViewOnOpen,
 } from '#/components/clients/clientSheetOpening'
 import type {
   ClientTab,
@@ -100,7 +101,6 @@ import {
 } from '#/components/clients/KeptClientView'
 
 type ClientKind = 'person' | 'business'
-
 
 const TAB_LABELS: Record<ClientTab, string> = {
   jobs: 'Jobs',
@@ -1782,6 +1782,7 @@ function PropertyFields({
   clientKind,
   businessState,
   onCheckChange,
+  picked,
 }: {
   value: PropertyFieldsValue
   onChange: (patch: Partial<PropertyFieldsValue>) => void
@@ -1790,6 +1791,9 @@ function PropertyFields({
   businessState: string
   /** How the address came to be, for the mutation's `addressCheck`. */
   onCheckChange: (check: AddressCheck) => void
+  /** The address is a suggestion picked before this was drawn (in Clients
+   * → New client): still picked, until it is changed. */
+  picked?: boolean
 }) {
   const id = useId()
   return (
@@ -1803,6 +1807,7 @@ function PropertyFields({
         size="md"
         labels="placeholders"
         onCheckChange={onCheckChange}
+        picked={picked}
       />
       {clientKind === 'business' && (
         <>
@@ -2050,11 +2055,18 @@ function NewPropertyForClientForm({
     siteContactName: initial?.siteContactName ?? '',
     siteContactPhone: initial?.siteContactPhone ?? '',
   })
-  const [addressCheck, setAddressCheck] = useState<AddressCheck>('typed')
+  // Picked from the suggestions in Clients → New client: still picked.
+  const [addressCheck, setAddressCheck] = useState<AddressCheck>(
+    initial?.addressCheck ?? 'typed',
+  )
   const hydrated = useHydrated()
   const lineDown = useLineDown()
   const lineDownId = useId()
   const warnings = useSaveWarnings({ arm: true })
+  // Opened from Clients → New client, at the foot of Details: brought into
+  // view, so the caller's address is what is seen.
+  const form = useRef<HTMLFormElement>(null)
+  useIntoViewOnOpen(form, initial !== undefined)
   const latestUseSite = useLatest(onUseSite)
   useSaveCheck(
     'add-property-own-site',
@@ -2124,6 +2136,7 @@ function NewPropertyForClientForm({
   return (
     <SaveWarningsProvider value={warnings}>
       <form
+        ref={form}
         className="flex flex-col gap-2.5 rounded-2xl border border-hairline bg-surface p-3"
         onSubmit={(e) =>
           warnings.guard(e, () => create.mutateAsync(latestArgs.current()))
@@ -2135,6 +2148,7 @@ function NewPropertyForClientForm({
           clientKind={clientKind}
           businessState={businessState}
           onCheckChange={setAddressCheck}
+          picked={initial?.addressCheck === 'picked'}
         />
         <FormAlert error={create.isError ? create.error : null} />
         <SaveWarningsPanel
