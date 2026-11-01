@@ -2854,7 +2854,9 @@ export default defineSchema({
    * row, which every booking, visit and numbered report patches, for
    * `jobs.openWork`, which answers for the business's week alone. One row a
    * business, written when it is made or its zone changes, by the calendar's
-   * own name for the zone ("Australia/Perth", however it was typed).
+   * own name for the zone ("Australia/Perth", however it was typed). A zone
+   * the calendar doesn't know is kept as typed, with no week: find the
+   * zone's week before reading this as a time zone.
    */
   businessZones: defineTable({
     businessId: v.id('businesses'),

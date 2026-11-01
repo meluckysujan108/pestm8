@@ -1871,6 +1871,74 @@ describe('siteCheck: open work at the site within a week', () => {
       ).toMatchObject({ series: [{ recurrenceId: theirs, nextAt: moved }] })
     })
 
+    test('a visit of someone else’s moved in from past them is named by when it is booked, never when it was first due, and taken back by that alone', async () => {
+      const s = await setup()
+      // A yearly inspection first due well past the twenty weeks…
+      await s.owner.as.mutation(
+        api.recurrences.create,
+        series(s, {
+          propertyId: s.jane.siteId,
+          intervalCount: 1,
+          intervalUnit: 'year',
+          anchorDate: on(fromMonday(300)),
+        }),
+      )
+      // …brought forward by the office to next week.
+      const moved = on(fromMonday(10))
+      const slot = await s.t.run(async (ctx) => {
+        const visit = (await ctx.db
+          .query('jobs')
+          .withIndex('by_property', (q) => q.eq('propertyId', s.jane.siteId))
+          .unique())!
+        await ctx.db.patch(visit._id, { scheduledAt: moved })
+        return visit.occurrenceAt!
+      })
+      expect(slot).toBe(on(fromMonday(300)))
+      const kevinBooksPast = (
+        seen: Array<{ propertyId: Id<'properties'>; at: number }>,
+      ) =>
+        s.kevin.as.mutation(
+          api.jobs.create,
+          job(s, {
+            assignedMembershipId: s.kevinId,
+            propertyId: s.jane.siteId,
+            scheduledAt: on(fromMonday(11)),
+            siteCheck: { seen, seenSeries: [] },
+          }),
+        )
+      const refused = await refusalOf(kevinBooksPast([]))
+      expect(refused).toMatchObject({
+        code: 'SITE_BOOKED',
+        rows: [{ at: moved, scheduledAt: moved }],
+      })
+      expect(JSON.stringify(refused)).not.toContain(String(slot))
+      // The date it was first due is no way through: it was never told.
+      expect(
+        await refusalOf(
+          kevinBooksPast([{ propertyId: s.jane.siteId, at: slot }]),
+        ),
+      ).toMatchObject({ code: 'SITE_BOOKED', rows: [{ at: moved }] })
+      await kevinBooksPast([{ propertyId: s.jane.siteId, at: moved }])
+      // The owner, whose visit it is, is told its own slot.
+      expect(
+        await refusalOf(
+          s.owner.as.mutation(
+            api.jobs.create,
+            job(s, {
+              propertyId: s.jane.siteId,
+              scheduledAt: on(fromMonday(9)),
+              siteCheck: nothingSeen,
+            }),
+          ),
+        ),
+      ).toMatchObject({
+        code: 'SITE_BOOKED',
+        rows: expect.arrayContaining([
+          expect.objectContaining({ at: slot, scheduledAt: moved }),
+        ]),
+      })
+    })
+
     test('a Recurring Job of someone else’s is named without its next visit past them; the owner gets the visit', async () => {
       const s = await setup()
       const existing = await s.owner.as.mutation(

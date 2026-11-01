@@ -30,6 +30,26 @@ export function slotOf(job: {
 }
 
 /**
+ * The slot someone else's job is told by, to a phone asking with `startKey`
+ * in `timezone`: its own (`slotOf`) when that day is within the twenty
+ * weeks too, otherwise when it is booked, which is within them whenever the
+ * job is told at all. So a visit the office moved in from past them never
+ * says when it was first due (the owner's answer to C5, 1 Nov 2026: never
+ * a date past them). The server takes back what it told: `seen` matches
+ * someone else's job by this, not by its slot.
+ */
+export function slotShown(
+  job: { scheduledAt: number; occurrenceAt?: number },
+  startKey: string,
+  timezone: string,
+): number {
+  const slot = slotOf(job)
+  return openWorkCovers(startKey, dayKeyOf(slot, timezone))
+    ? slot
+    : job.scheduledAt
+}
+
+/**
  * How near another booking at the same site has to be for it to be shown:
  * a week either side, by the business's calendar (the owner's answer,
  * 27 Oct 2026). Wider warns about routine repeat work; narrower misses

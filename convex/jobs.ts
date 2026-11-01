@@ -78,6 +78,7 @@ import {
   openWorkCovers,
   openWorkSpan,
   slotOf,
+  slotShown,
 } from './lib/siteWork'
 import { normaliseJobNotes } from './lib/jobNotes'
 import { requireMembership } from './lib/access'
@@ -878,7 +879,10 @@ export const listWeek = query({
  * this is about the house.
  *
  * Each row's `at` is its slot (`slotOf`), which a booking names as seen, so
- * a visit moved or projected again is still the one the person booked past.
+ * a visit moved or projected again is still the one the person booked past;
+ * for someone else's, only when that slot is within the twenty weeks too,
+ * otherwise when it is booked (`slotShown`), so a visit moved in from past
+ * them never says when it was first due.
  * A Recurring Job comes with its next visit still open from the week's
  * start (`nextAt`, from these rows only, so a series repeating less often
  * than sixteen weeks may have none; the week's start as early as it comes
@@ -973,7 +977,9 @@ export const openWork = query({
         nextAt.set(job.recurrenceId, job.scheduledAt)
       }
       if (mine) rows.push(theirRow(job))
-      else if (open && within(job)) rows.push(otherRow(job))
+      else if (open && within(job)) {
+        rows.push(otherRow(job, startKey, zone.timezone))
+      }
     }
 
     const series = running.slice(0, OPEN_WORK_LIMIT).map((recurrence) => {
@@ -1023,7 +1029,11 @@ function theirRow(job: Doc<'jobs'>) {
 }
 
 /** Someone else's open job or visit: where and when, and nothing more. */
-function otherRow(job: Doc<'jobs'>): {
+function otherRow(
+  job: Doc<'jobs'>,
+  startKey: string,
+  timezone: string,
+): {
   propertyId: Id<'properties'>
   at: number
   scheduledAt: number
@@ -1031,7 +1041,7 @@ function otherRow(job: Doc<'jobs'>): {
 } {
   return {
     propertyId: job.propertyId,
-    at: slotOf(job),
+    at: slotShown(job, startKey, timezone),
     scheduledAt: job.scheduledAt,
     ...(job.recurrenceId !== undefined ? { series: job.recurrenceId } : {}),
   }

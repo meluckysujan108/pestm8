@@ -41,9 +41,9 @@ function mondayIn(timezone: string, now: number): string {
  * Keeps the business's zone, by the calendar's own name for it, and makes
  * that zone's week if no business was in it yet; the zone it leaves loses
  * its week if no business is left in it. A zone the calendar doesn't know
- * gets no week, so `openWork` refuses that business until its zone is put
- * right; it is logged rather than thrown, so making or saving the business
- * never fails for it.
+ * is kept as typed and gets no week, so `openWork` refuses that business
+ * until its zone is put right; it is logged rather than thrown, so making
+ * or saving the business never fails for it.
  */
 export async function keepZone(
   ctx: MutationCtx,

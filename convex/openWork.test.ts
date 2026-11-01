@@ -273,6 +273,82 @@ describe('the window', () => {
     },
   )
 
+  test.each([TZ, 'Pacific/Kiritimati', 'Pacific/Pago_Pago'])(
+    'someone else’s Recurring Job has no next visit past the business’s own days in %s, though that visit is read; theirs and the owner’s do',
+    async (zone) => {
+      const s = await setup()
+      await s.t.run((ctx) => ctx.db.patch(s.businessId, { timezone: zone }))
+      await setWeek(s, { timezone: zone })
+      const { endKey } = openWorkDays(START)
+      // The first minutes past the twenty weeks, inside what is read.
+      const past = at(endKey, 0, 30, zone)
+      const { from, to } = openWorkSpan(START)
+      expect(past >= from && past < to).toBe(true)
+      const owners = await insertSeries(s)
+      const kevins = await insertSeries(s, {
+        propertyId: s.wattle,
+        assignedMembershipId: s.kevinId,
+      })
+      for (const [recurrenceId, assignedMembershipId] of [
+        [owners, s.ownerMembershipId],
+        [kevins, s.kevinId],
+      ] as const) {
+        await insertJob(s, {
+          recurrenceId,
+          assignedMembershipId,
+          status: 'recurring',
+          occurrenceAt: past,
+          scheduledAt: past,
+        })
+      }
+      const nextOf = (answer: Answer, id: Id<'recurrences'>) =>
+        answer.series.find((row) => row._id === id)?.nextAt
+      const forKevin = await ask(s.kevin, s)
+      expect(nextOf(forKevin, owners)).toBeUndefined()
+      expect(nextOf(forKevin, kevins)).toBe(past)
+      expect(nextOf(await ask(s.owner, s), owners)).toBe(past)
+    },
+  )
+
+  test('someone else’s visit moved in from past the twenty weeks is sent by when it is booked, never by when it was first due', async () => {
+    const s = await setup()
+    const recurrenceId = await insertSeries(s, { propertyId: s.wattle })
+    const { firstKey, endKey } = openWorkDays(START)
+    const visits = [
+      // Due before them and never actioned, booked in this week.
+      { slot: at(addDaysToKey(firstKey, -30), 9), moved: at(START, 9) },
+      // Within them, moved a day: its slot is within them too.
+      {
+        slot: at(addDaysToKey(START, 3), 9),
+        moved: at(addDaysToKey(START, 4), 9),
+      },
+      // Projected past them, brought forward into them.
+      {
+        slot: at(addDaysToKey(endKey, 30), 9),
+        moved: at(addDaysToKey(START, 10), 9),
+      },
+    ]
+    for (const { slot, moved } of visits) {
+      await insertJob(s, {
+        recurrenceId,
+        status: 'recurring',
+        occurrenceAt: slot,
+        scheduledAt: moved,
+      })
+    }
+    const told = (answer: Answer) =>
+      answer.rows.map((row) => [row.at, row.scheduledAt])
+    expect(told(await ask(s.kevin, s))).toEqual([
+      [visits[0].moved, visits[0].moved],
+      [visits[1].slot, visits[1].moved],
+      [visits[2].moved, visits[2].moved],
+    ])
+    // The owner, whose visits they are, is sent each one's own slot.
+    expect(told(await ask(s.owner, s))).toEqual(
+      visits.map(({ slot, moved }) => [slot, moved]),
+    )
+  })
+
   test('in date order, by when each is booked', async () => {
     const s = await setup()
     const later = await insertJob(s, { scheduledAt: at(START, 14) })

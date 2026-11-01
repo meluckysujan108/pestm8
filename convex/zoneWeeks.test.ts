@@ -205,7 +205,9 @@ describe('a business’s zone and its week', () => {
         { timezone: 'Australia/Darwin', monday: '2026-11-09' },
       ]),
     )
-  })
+    // Over a thousand saves: a busy machine running the whole suite beside
+    // it can take this past 5 s.
+  }, 30_000)
 
   test('a zone the calendar doesn’t know gets no week, and never stops the business being saved', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})

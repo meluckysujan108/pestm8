@@ -19,7 +19,13 @@ import { isInScope } from './capabilities'
 import { jobInScope } from './jobPeople'
 import { isBinned } from './bin'
 import { intervalOf } from './recurrence'
-import { isOpenStatus, openNear, openWorkCovers, slotOf } from './siteWork'
+import {
+  isOpenStatus,
+  openNear,
+  openWorkCovers,
+  slotOf,
+  slotShown,
+} from './siteWork'
 import { dayKeyOf, startOfDayInZone, startOfWeekKey } from './dates'
 import type { Infer } from 'convex/values'
 import type {
@@ -228,7 +234,8 @@ export const matchCheckArg = v.optional(
  * day, it is at another. So a job in the person's own scope, whose id their
  * phone holds (`jobs.openWork`, and SITE_BOOKED's rows), is sent by its id
  * too, and is seen wherever it has been moved. One out of their scope is
- * known by its site and slot alone, which is all their phone was sent.
+ * known by its site and the slot it was told by (`slotShown`) alone, which
+ * is all their phone was sent.
  */
 export const siteCheckArg = v.optional(
   v.object({
@@ -274,7 +281,8 @@ export type MatchedClient = {
 /** Open work at the site, as SITE_BOOKED names it. */
 export type BookedRow = {
   propertyId: Id<'properties'>
-  /** Its slot (`slotOf`), which `seen` sends back. */
+  /** Its slot (`slotOf`), which `seen` sends back; for someone else's
+   * whose slot is past the twenty weeks, when it is booked (`slotShown`). */
   at: number
   scheduledAt: number
   /** The Recurring Job a visit is of, which `seenSeries` sends back. */
@@ -907,9 +915,11 @@ async function matchedCandidate(
  * (`jobInScope`, theirs to see anyway): an annual inspection booked a year
  * ahead, or a job left open months ago, is what the phone may not hold.
  * Anyone else's is named only when it falls within `jobs.openWork`'s
- * twenty weeks from this week (`inOpenWorkNow`), which `openWork` sends
- * every member this week: the owner's answer to C5 (1 Nov 2026), "dates
- * only" and no further. So a refusal never tells someone of another
+ * twenty weeks from this week (`openWorkCovers` from this week's Monday),
+ * which `openWork` sends every member this week: the owner's answer to C5
+ * (1 Nov 2026), "dates only" and no further. Its row's slot too: past them,
+ * someone else's visit is told by when it is booked (`slotShown`), as
+ * `openWork` tells it, and `seen` takes it back by that. So a refusal never tells someone of another
  * member's work beyond what `openWork` sends them now, and a booking beside
  * work past those weeks goes ahead, for the office to see. A Recurring
  * Job's next visit, for SITE_REPEATS, is judged visit by visit the same
@@ -1023,9 +1033,20 @@ async function checkSiteWork(
     return answer
   }
   // Someone else's work is named only within `jobs.openWork`'s twenty
-  // weeks; the caller's own at any date.
+  // weeks from this week, as `openWork` sends every member this week (by
+  // the mutation's clock, in the business's zone); the caller's own at any
+  // date.
+  const monday = startOfWeekKey(dayKeyOf(read.now, business.timezone))
   const nameable = async (job: Doc<'jobs'>) =>
-    inOpenWorkNow(job.scheduledAt, read.now, business) || (await theirs(job))
+    openWorkCovers(monday, dayKeyOf(job.scheduledAt, business.timezone)) ||
+    (await theirs(job))
+  // The slot a named job is told by and taken back by: its own, but for
+  // someone else's whose slot is past the twenty weeks, when it is booked,
+  // as `openWork` tells it (`slotShown`).
+  const slotTold = async (job: Doc<'jobs'>) => {
+    const shown = slotShown(job, monday, business.timezone)
+    return shown === slotOf(job) || !(await theirs(job)) ? shown : slotOf(job)
+  }
 
   if (read.series) {
     const running = (
@@ -1112,16 +1133,17 @@ async function checkSiteWork(
   const unseen = openNear(
     jobs.filter(
       (job) =>
-        !seen.has(`${job.propertyId}|${slotOf(job)}`) &&
         !seenJobs.has(job._id) &&
         !(job.recurrenceId !== undefined && seenSeries.has(job.recurrenceId)),
     ),
     read.at,
     business.timezone,
   )
-  const near: Array<Doc<'jobs'>> = []
+  const near: Array<{ job: Doc<'jobs'>; at: number }> = []
   for (const job of unseen) {
-    if (await nameable(job)) near.push(job)
+    if (!(await nameable(job))) continue
+    const at = await slotTold(job)
+    if (!seen.has(`${job.propertyId}|${at}`)) near.push({ job, at })
   }
   if (near.length === 0) return
 
@@ -1130,18 +1152,20 @@ async function checkSiteWork(
   // its id too, so one the office moves before the resend is still seen;
   // anyone else's by site and slot alone, once each (two in one slot are
   // one pair to send back).
-  const pairOf = (job: Doc<'jobs'>) => `${job.propertyId}|${slotOf(job)}`
+  const pairOf = ({ job, at }: (typeof near)[number]) =>
+    `${job.propertyId}|${at}`
   const pairs = new Set(shown.map(pairOf))
   const more: NonNullable<SiteBooked['more']> = []
-  for (const job of near.slice(MATCH_ROWS_MAX)) {
+  for (const told of near.slice(MATCH_ROWS_MAX)) {
     if (more.length >= MORE_MAX) break
-    const pair = { propertyId: job.propertyId, at: slotOf(job) }
+    const { job, at } = told
+    const pair = { propertyId: job.propertyId, at }
     if (await theirs(job)) {
       more.push({ ...pair, jobId: job._id })
-    } else if (!pairs.has(pairOf(job))) {
+    } else if (!pairs.has(pairOf(told))) {
       more.push(pair)
     }
-    pairs.add(pairOf(job))
+    pairs.add(pairOf(told))
   }
   const siteOf = new Map(targets.map((site) => [site._id, site]))
   const names = new Map<Id<'clients'>, string | null>()
@@ -1159,12 +1183,12 @@ async function checkSiteWork(
   const data: SiteBooked = {
     code: 'SITE_BOOKED',
     rows: await Promise.all(
-      shown.map(async (job) => {
+      shown.map(async ({ job, at }) => {
         const clientName = await clientNameOf(job.propertyId)
         const own = await theirs(job)
         return {
           propertyId: job.propertyId,
-          at: slotOf(job),
+          at,
           scheduledAt: job.scheduledAt,
           ...(job.recurrenceId !== undefined
             ? { series: job.recurrenceId }
@@ -1184,19 +1208,4 @@ async function checkSiteWork(
     ...(more.length > 0 ? { more } : {}),
   }
   throw new ConvexError(data)
-}
-
-/**
- * Whether work at `at` falls within what `jobs.openWork` sends every member
- * this week: the business's own days from four weeks before this week's
- * Monday to sixteen weeks after it (`openWorkCovers`, the phone's own
- * window, asked with this week's Monday as `listWeek` takes it).
- */
-function inOpenWorkNow(
-  at: number,
-  now: number,
-  business: Doc<'businesses'>,
-): boolean {
-  const monday = startOfWeekKey(dayKeyOf(now, business.timezone))
-  return openWorkCovers(monday, dayKeyOf(at, business.timezone))
 }
