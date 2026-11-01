@@ -713,6 +713,15 @@ const clearMemberships: Step = (run) =>
       .take(n),
   )
 
+/** Its week, for `jobs.openWork` (businessWeeks.ts): one row. */
+const clearWeek: Step = (run) =>
+  sweep(run, 'businessWeeks', (n) =>
+    run.ctx.db
+      .query('businessWeeks')
+      .withIndex('by_business', (q) => q.eq('businessId', run.business._id))
+      .take(n),
+  )
+
 /** Last, so a call that stops early leaves the marker `remove` checks. */
 const clearBusiness: Step = async (run) => {
   if (run.left <= 0) return false
@@ -736,6 +745,7 @@ const STEPS: Array<Step> = [
   clearAuditLog,
   clearPlaceholders,
   clearMemberships,
+  clearWeek,
   clearBusiness,
 ]
 
@@ -977,6 +987,12 @@ export const status = internalQuery({
       clientImports: (
         await ctx.db
           .query('clientImports')
+          .withIndex('by_business', (q) => q.eq('businessId', businessId))
+          .take(STATUS_CAP)
+      ).length,
+      businessWeeks: (
+        await ctx.db
+          .query('businessWeeks')
           .withIndex('by_business', (q) => q.eq('businessId', businessId))
           .take(STATUS_CAP)
       ).length,

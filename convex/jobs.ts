@@ -75,8 +75,8 @@ import {
   OPEN_WORK_LIMIT,
   isDayKey,
   isOpenStatus,
+  openWorkCovers,
   openWorkSpan,
-  openWorkWeeks,
   slotOf,
 } from './lib/siteWork'
 import { normaliseJobNotes } from './lib/jobNotes'
@@ -852,12 +852,18 @@ export const listWeek = query({
  * again when a booking saves (lib/findSame.ts), the caller's own work at any
  * date and anyone else's within these same twenty weeks from this week.
  *
- * ONLY FOR THIS WEEK OR LAST (`openWorkWeeks`, by the server's day kept in
- * `serverDay`, with a day's give for the business's zone): any other
- * Monday, or a day that isn't one, is INVALID_WEEK. Otherwise anyone could
+ * ONLY FOR THIS WEEK: `startKey` must be the Monday of the week the
+ * business is in now, as its own row in `businessWeeks` says (moved on by a
+ * cron within two minutes of the business's Monday beginning), or it is
+ * INVALID_WEEK, as it is for a business with no row yet. And someone
+ * else's work is sent only within the business's own twenty weeks, by its
+ * zone in that row, though more is read either side. Otherwise anyone could
  * ask for any twenty weeks, and learn every other member's open work at any
  * date (the owner's answer to C5, 1 Nov 2026: twenty weeks, as the phone
- * holds). Reading that row, which changes once a day, runs this again then.
+ * holds, and never more). A phone whose clock turns the week before the row
+ * does is refused for those minutes and keeps last week's answer, which
+ * covers this week (RK3). Reading the row, which changes once a week, runs
+ * this again then.
  *
  * WHAT EACH ROW SAYS depends on whose it is (the owner's answer, 27 Oct
  * 2026). A job the viewer may see (`scope`, as a job's own sheet asks: one
@@ -881,11 +887,11 @@ export const listWeek = query({
  * Read in one range, by date, earliest first: past OPEN_WORK_LIMIT jobs the
  * furthest weeks go first, the rows are whole up to the last one sent, and
  * `capped` says so (as it does for that many running Recurring Jobs); it
- * never throws on volume. No time zone, and no clock but `serverDay`'s: the
- * window is wide enough for any zone (`openWorkSpan`), and the phone goes
- * by each row's date. So it reads jobs, Recurring Jobs, who is also going
- * and the server's day, and not the business's row, which every booking,
- * visit and numbered report patches.
+ * never throws on volume. No clock but the week's row: the window read is
+ * wide enough for any zone (`openWorkSpan`), and the phone goes by each
+ * row's date. So it reads jobs, Recurring Jobs, who is also going and the
+ * business's week, and not the business's row, which every booking, visit
+ * and numbered report patches.
  *
  * Kept on phones: a renamed or removed field means bumping KEPT_SHAPE. Its
  * own, never joined into the directory, so a job's status changing doesn't
@@ -896,11 +902,16 @@ export const openWork = query({
   handler: async (ctx, { businessId, startKey }) => {
     const { scope } = await requireActor(ctx, businessId)
     if (!isDayKey(startKey)) throw new ConvexError('INVALID_DAY')
-    // With no row yet, before the cron's first run, any week answers.
-    const today = await ctx.db.query('serverDay').first()
-    if (today !== null && !openWorkWeeks(today.utcDay).has(startKey)) {
+    const week = await ctx.db
+      .query('businessWeeks')
+      .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .unique()
+    if (week === null || startKey !== week.monday) {
       throw new ConvexError('INVALID_WEEK')
     }
+    // Someone else's work only within the business's own twenty weeks.
+    const within = (job: Doc<'jobs'>) =>
+      openWorkCovers(startKey, dayKeyOf(job.scheduledAt, week.timezone))
     const { from, weekFrom, to } = openWorkSpan(startKey)
 
     const [read, running, shared] = await Promise.all([
@@ -944,16 +955,18 @@ export const openWork = query({
       if (job.scheduledAt >= cut) break
       if (isBinned(job) || job.status === 'cancelled') continue
       const open = isOpenStatus(job.status)
+      const mine = inScope(scope, job, shared)
       if (
         open &&
         job.recurrenceId !== undefined &&
         job.scheduledAt >= weekFrom &&
+        (mine || within(job)) &&
         !nextAt.has(job.recurrenceId)
       ) {
         nextAt.set(job.recurrenceId, job.scheduledAt)
       }
-      if (inScope(scope, job, shared)) rows.push(theirRow(job))
-      else if (open) rows.push(otherRow(job))
+      if (mine) rows.push(theirRow(job))
+      else if (open && within(job)) rows.push(otherRow(job))
     }
 
     const series = running.slice(0, OPEN_WORK_LIMIT).map((recurrence) => {

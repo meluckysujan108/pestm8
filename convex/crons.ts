@@ -137,15 +137,16 @@ crons.cron(
 )
 
 /**
- * Moves the server's day on (convex/serverDay.ts) for the queries that may
- * answer only near today and never read the clock: `jobs.openWork`. Hourly,
- * so the day is at most an hour behind; it writes only when the day has
- * changed.
+ * Moves each business's week on (convex/businessWeeks.ts), for
+ * `jobs.openWork`, which answers for this week alone and never reads the
+ * clock. Every zone in use is a whole quarter-hour from UTC, so two minutes
+ * past each quarter is at most two minutes after any business's Monday
+ * begins. It writes only when a Monday changes.
  */
 crons.cron(
-  'move the server day on',
-  '2 * * * *',
-  internal.serverDay.advance,
+  'move each business week on',
+  '2,17,32,47 * * * *',
+  internal.businessWeeks.advance,
   {},
 )
 

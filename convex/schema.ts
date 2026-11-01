@@ -2850,13 +2850,15 @@ export default defineSchema({
     .index('by_userId', ['userId']),
 
   /**
-   * One row: the server's day, in UTC (convex/serverDay.ts), for a query
-   * that answers only near today, since a query never reads the clock:
-   * `jobs.openWork`, which answers for this week and last. Written by the
-   * hourly cron when the day changes, so what reads it runs again once a
-   * day.
+   * Each business's week (convex/businessWeeks.ts): its time zone, and the
+   * Monday of the week it is in now, "YYYY-MM-DD". For `jobs.openWork`,
+   * which answers for this week alone and never reads the clock or the
+   * business's row. One row a business, moved on by a cron every fifteen
+   * minutes when the Monday changes.
    */
-  serverDay: defineTable({
-    utcDay: v.string(),
-  }),
+  businessWeeks: defineTable({
+    businessId: v.id('businesses'),
+    timezone: v.string(),
+    monday: v.string(),
+  }).index('by_business', ['businessId']),
 })
