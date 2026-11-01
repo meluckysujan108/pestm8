@@ -451,6 +451,40 @@ describe('by the sheet: only a Same match not booked past refuses', () => {
     })
   })
 
+  // The phone's grade, here too (convex/lib/clientMatch.ts `tierOf`, M3): a
+  // landline is the house's, so "T Lee" with Tom Lee's may be Tina. Likely,
+  // so the sheet's booking goes ahead; his full name with it is refused.
+  test('a landline whose name agrees only as an initial and surname books (Likely); the full name with it is refused', async () => {
+    const s = await setup()
+    const tom = await addClient(s, {
+      name: 'Tom Lee',
+      phone: '08 9272 5555',
+      sites: [elm(8)],
+    })
+    const data = await refusalOf(
+      s.owner.as.mutation(
+        api.jobs.create,
+        job(s, {
+          newClient: typed({ name: 'Tom Lee', phone: '08 9272 5555' }, elm(10)),
+          matchCheck: sheet(),
+        }),
+      ),
+    )
+    expect(data).toMatchObject({
+      code: 'MATCHED_CLIENT',
+      candidates: [{ clientId: tom.clientId, evidence: ['name', 'landline'] }],
+    })
+    // Refused, nothing was made: the landline is still his alone.
+    const jobId = await s.owner.as.mutation(
+      api.jobs.create,
+      job(s, {
+        newClient: typed({ name: 'T Lee', phone: '(08) 9272 5555' }, elm(9)),
+        matchCheck: sheet(),
+      }),
+    )
+    expect((await clientOfJob(s, jobId))?._id).not.toBe(tom.clientId)
+  })
+
   test('an agency’s shared number or rentals@ books, and makes no hint', async () => {
     const s = await setup()
     await addClient(s, {

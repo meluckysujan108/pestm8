@@ -53,6 +53,15 @@ export const LINK_BUTTON = `${FULL} ${GREY_LINK} ${BASE}`
 export const LINK_BUTTON_COMPACT = `${COMPACT} ${GREY_LINK} ${BASE}`
 
 /**
+ * Added beside a button that `useSaveWarnings({ arm: true })` holds (its
+ * `aria-disabled` for the half-second after the list above it came in,
+ * changed or was fixed): it stays pressed in, as it is under a finger, so
+ * a tap then reads as the last press still landing rather than a button
+ * that ignored it. Not dimmed: half a second of grey would flash.
+ */
+export const HELD_BUTTON = 'aria-disabled:scale-[.975]'
+
+/**
  * A page's create action: the round red + in PageHeader's action slot (New
  * job, New client, New report…). Drawn at 36px so the header keeps its
  * height, with a 44px hit area; give it an `aria-label` naming what it adds

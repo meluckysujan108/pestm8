@@ -288,6 +288,15 @@ export function mayBeBehind(at: {
   return !at.lineLive
 }
 
+/**
+ * `mayBeBehind` for `queryKey`'s answer, as the keeper has it now: for words
+ * decided once in an event, as New Job's check at Book decides "From the
+ * clients on this phone, updated 9:42am." as its rows appear.
+ */
+export function answerMayBeBehind(queryKey: QueryKey): boolean {
+  return behindNow(queryKey)
+}
+
 /** `mayBeBehind` for `queryKey`'s answer, as the keeper has it now. */
 function behindNow(queryKey: QueryKey): boolean {
   const html = keeper.htmlAsOf([queryKey])

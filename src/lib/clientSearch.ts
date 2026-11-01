@@ -1,4 +1,9 @@
-import { emailKeys, phoneKeys } from '../../convex/lib/contactKeys'
+import {
+  emailKeys,
+  isPlaceholderName,
+  nameKey,
+  phoneKeys,
+} from '../../convex/lib/contactKeys'
 import { filterByWords } from './searchMatch'
 import type { MatchIndex } from '../../convex/lib/clientMatch'
 import type { Id } from '../../convex/_generated/dataModel'
@@ -187,12 +192,56 @@ export function siteLessFound(
 }
 
 /**
+ * The one client a query names in full ("Jane Nguyen"), whether or not they
+ * have sites, or null: a number or an email is found by who holds it
+ * instead, and a placeholder or a name two clients have names nobody.
+ */
+export function namedClient(
+  index: MatchIndex,
+  query: string,
+): Id<'clients'> | null {
+  const shape = queryShape(query, index.areaCode)
+  if (shape === 'phone' || shape === 'email') return null
+  const name = query.trim()
+  if (name === '' || isPlaceholderName(name)) return null
+  const holders = index.names.get(nameKey(name)) ?? []
+  return holders.length === 1 ? holders[0] : null
+}
+
+/**
+ * Of the clients with no site the words found (`siteLessFound`), those a
+ * query naming one client in full (`namedClient`) may still mean: each of
+ * its words is a word of their own name ("Sam Wu" for "Sam", "Ann Smith"
+ * for "Smith"). Not a name the words are only inside ("Lee Tomkins" for
+ * "Tom Lee"), nor a business found by its contact person's name ("Tom
+ * Leeming"): beside the client named in full, they are someone else.
+ */
+export function siteLessNamed(
+  index: MatchIndex,
+  query: string,
+  found: ReadonlyArray<string>,
+): Array<string> {
+  const words = nameKey(query).split(' ')
+  return found.filter((id) => {
+    const client = index.clients.get(id as Id<'clients'>)
+    const own = new Set(nameKey(client?.name ?? '').split(' '))
+    return words.every((word) => own.has(word))
+  })
+}
+
+/**
  * How the Property picker's list ends for a query: "New site for {client}"
  * for the one client holding the number or email typed, whether or not they
- * have sites, or for the one client it finds with no site
- * (`siteLessFound`); a way to choose among several with none; or nothing.
- * Either is in place of "New client": a client the list can't show is still
- * a client, and a second record is what a new one would make of them.
+ * have sites; for the one client it finds with no site (`siteLessFound`); a
+ * way to choose among several with none; for the one client the query names
+ * in full when it finds none with no site (`named`, from `namedClient`:
+ * Choose Jane Nguyen’s site, from the line under Name, ends there); or
+ * nothing. With a client named in full, `siteLess` is only those with no
+ * site their own name says the words of (`siteLessNamed`), and they come
+ * before the one named: the end row is the only way to them from the
+ * Property picker, while the one named has their sites listed above it.
+ * Either is in place of "New client": a client the list can't show is
+ * still a client, and a second record is what a new one would make of them.
  */
 export type PropertyListEnd =
   { kind: 'one'; clientId: string } | { kind: 'several'; count: number } | null
@@ -200,9 +249,16 @@ export type PropertyListEnd =
 export function propertyListEnd(
   holders: QueryHolders | null,
   siteLess: ReadonlyArray<string>,
+  named: string | null = null,
 ): PropertyListEnd {
   if (holders?.clientIds.length === 1) {
     return { kind: 'one', clientId: holders.clientIds[0] }
+  }
+  // A client the list can't show, found by the words, comes first: the end
+  // row is the only way to them from here, while the client named in full
+  // has their sites listed above it.
+  if (!holders && named !== null && siteLess.length === 0) {
+    return { kind: 'one', clientId: named }
   }
   if (siteLess.length === 1) return { kind: 'one', clientId: siteLess[0] }
   if (siteLess.length > 1) return { kind: 'several', count: siteLess.length }

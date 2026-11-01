@@ -617,6 +617,67 @@ describe('who holds a number or an email', () => {
     ])
   })
 
+  test('a landline agreeing only by initial and surname is Likely, not Same: it may be anyone in the house', () => {
+    const { book, add } = newBook()
+    const tom = add('Tom Lee', { phone: '08 9272 5555' })
+    const ray = agency(add)
+
+    expect(
+      match(book, { name: 'T Lee', phone: '08 9272 5555' }).candidates.map(
+        brief,
+      ),
+    ).toEqual([
+      {
+        clientId: tom.clientId,
+        tier: 'likely',
+        evidence: ['nameNear', 'landline'],
+      },
+    ])
+    // Through a contact person's name too: Sarah's initial, the office line.
+    const office = newBook()
+    const agencyOnly = office.add('Ray White Bayswater', {
+      kind: 'business',
+      contacts: [{ name: 'Sarah Lee', phone: '08 9272 7777' }],
+    })
+    expect(
+      match(office.book, {
+        name: 'S Lee',
+        phone: '08 9272 7777',
+      }).candidates.map(brief),
+    ).toEqual([
+      {
+        clientId: agencyOnly.clientId,
+        tier: 'likely',
+        evidence: ['nameNear', 'landline'],
+      },
+    ])
+    // A mobile with the same similar name is still Same: a person's own.
+    const mobile = newBook()
+    const jane = mobile.add('Jane Nguyen', { phone: '0491 570 156' })
+    expect(
+      match(mobile.book, {
+        name: 'J Nguyen',
+        phone: '0491 570 156',
+      }).candidates.map(brief),
+    ).toEqual([
+      {
+        clientId: jane.clientId,
+        tier: 'same',
+        evidence: ['nameNear', 'mobile'],
+      },
+    ])
+    // A business's shorter name on its own line stays Same (above).
+    expect(
+      match(book, { name: 'Ray White', phone: OFFICE }).candidates.map(brief),
+    ).toEqual([
+      {
+        clientId: ray.clientId,
+        tier: 'same',
+        evidence: ['nameNear', 'landline'],
+      },
+    ])
+  })
+
   test('a line number is always shared, even on one client', () => {
     const { book, add } = newBook()
     const bunnings = add('Bunnings Morley', {

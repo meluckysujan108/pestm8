@@ -1,15 +1,19 @@
 /*
- * Client books for New Job's search (the matching plan's M2): a small one
- * built around the domain cases — a client with her own email and mobile,
- * an agency with a contact person whose office number its owners share, a
- * family sharing a mobile, a client with no site yet — and a synthetic one
- * of 10,000 clients and 11,000 sites, for timing the pickers on a real old
- * iPhone. Each is `clients.directory`'s answer for a business id of its own,
- * so no other specimen changes. The small book's numbers are from ACMA's
- * ranges for fiction.
+ * Client books for New Job's search and its check at Book (the matching
+ * plan's M2 and M3): a small one built around the domain cases — a client
+ * with her own email and mobile, an agency with a contact person whose
+ * office number its owners share, a family sharing a mobile, someone on a
+ * landline of her own, a client with no site yet — the same book cut short
+ * at the directory's limit, and a synthetic one of 10,000 clients and
+ * 11,000 sites, for timing the pickers on a real old iPhone. Each is
+ * `clients.directory`'s answer for a business id of its own, so no other
+ * specimen changes. The small book's numbers are from ACMA's ranges for
+ * fiction.
  */
 
 export const MATCH_BIZ = 'biz_match'
+/** The small book, said to be past the directory's limit (`capped`). */
+export const MATCH_CAPPED_BIZ = 'biz_match_capped'
 export const TEN_K_BIZ = 'biz_10k'
 
 const DAY = 86_400_000
@@ -109,6 +113,14 @@ function matchDirectory() {
         { kind: 'business', phone: '08 7010 5500', clientNumber: 1101 },
         500,
       ),
+      // On a landline of her own: whoever else rings from it is shown her,
+      // never offered her in one tap.
+      client(
+        'c_mei',
+        'Mei Chen',
+        { phone: '08 7010 2222', clientNumber: 1460 },
+        120,
+      ),
     ],
     sites: [
       site('p_jane', 'c_jane', '12 Wattle St', 'Bayswater', '6053', 2),
@@ -136,6 +148,7 @@ function matchDirectory() {
         '6004',
         500,
       ),
+      site('p_mei', 'c_mei', '9 Beaufort St', 'Perth', '6000', 120),
     ],
     contacts: [
       {
@@ -285,6 +298,9 @@ export function resolveMatch(fn: string, args: unknown): unknown {
   if (fn !== 'clients:directory') return undefined
   const businessId = (args as { businessId?: string } | undefined)?.businessId
   if (businessId === MATCH_BIZ) return matchDirectory()
+  if (businessId === MATCH_CAPPED_BIZ) {
+    return { ...matchDirectory(), capped: true }
+  }
   if (businessId === TEN_K_BIZ) return tenKDirectory()
   return undefined
 }

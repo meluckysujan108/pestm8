@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
@@ -6,6 +6,8 @@ import { z } from 'zod'
 import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
+import type { OpenedFromNewClient } from '#/components/clients/clientSheetOpening'
+import { useCan } from '#/lib/access'
 import {
   EmptyState,
   EmptyStateButton,
@@ -24,6 +26,16 @@ import { dayKeyOf } from '../../../../convex/lib/dates'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { sitesWithClients } from '#/lib/directory'
 import { rq } from '#/lib/routeQueries'
+
+/**
+ * Loaded only when New client finds the caller is a client already: the
+ * client's sheet is much more than this page needs otherwise.
+ */
+const ClientSheet = lazy(() =>
+  import('#/components/clients/ClientSheet').then((m) => ({
+    default: m.ClientSheet,
+  })),
+)
 
 export const Route = createFileRoute('/$businessSlug/reports/new')({
   // Arriving from a job's detail sheet ($businessSlug/schedule via
@@ -46,6 +58,17 @@ function NewReportPage() {
   // Straight from "No properties yet": the client and address, here, and
   // then the picker below with it chosen.
   const [newClientOpen, setNewClientOpen] = useState(false)
+  // The client New client found the caller to be already, opened over the
+  // page with Add property on the address typed: once it has a site, the
+  // picker below has it. The sheet stays once loaded, so closing it slides
+  // it away rather than cutting it off.
+  const [openClient, setOpenClient] = useState<{
+    clientId: Id<'clients'>
+    fromNewClient: OpenedFromNewClient
+  } | null>(null)
+  const [sheetLoaded, setSheetLoaded] = useState(false)
+  const canManageClients = useCan('clients.manage')
+  const canRenumber = useCan('business.manage')
 
   // Every site with its client, oldest first, from the slim directory
   // (`clients.directory`) in the shape `properties.list` had: the first is
@@ -393,7 +416,26 @@ function NewReportPage() {
         businessId={business._id}
         open={newClientOpen}
         onClose={() => setNewClientOpen(false)}
+        onOpenClient={(clientId, { addSite }) => {
+          setSheetLoaded(true)
+          setOpenClient({ clientId, fromNewClient: { addSite } })
+        }}
       />
+      {sheetLoaded && (
+        <Suspense fallback={null}>
+          <ClientSheet
+            businessId={business._id}
+            timezone={business.timezone}
+            businessSlug={business.slug}
+            businessState={business.state}
+            canManageClients={canManageClients}
+            canRenumber={canRenumber}
+            clientId={openClient?.clientId ?? null}
+            fromNewClient={openClient?.fromNewClient}
+            onClose={() => setOpenClient(null)}
+          />
+        </Suspense>
+      )}
     </>
   )
 }
