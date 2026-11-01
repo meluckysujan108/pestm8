@@ -116,8 +116,9 @@ import type { ActorEnvelope } from './actor'
  * it back, never with a name, so one Book anyway that sends them all back
  * gets through, not one refusal per three. (Unless a week turns between
  * the two in the business's zone: someone else's work in the week that
- * came within `jobs.openWork`'s twenty weeks was never named, and refuses
- * once more, for that week alone: see `checkSiteWork`.)
+ * came within `jobs.openWork`'s twenty weeks was never named, and a visit
+ * of theirs whose slot crossed an edge of them is told by its other slot,
+ * so either refuses once more: see `checkSiteWork`.)
  *
  * In that order: a booking moved onto a client is sent again with its
  * `siteCheck`, so two techs who took the same caller end with one client
@@ -932,14 +933,22 @@ async function matchedCandidate(
  * The weeks go by the mutation's clock, so a Book anyway sent back after a
  * week has turned in the business's zone can be refused once more: work
  * of someone else's in the week that came within them wasn't named the
- * first time. Only that week's, so the next Book anyway gets through; an
- * outbox booking held for a look and sent days later can meet it too
- * (M7's and 2c-J's copy says so as new work, never as a loop). So can one
- * after the office moves someone else's visit whose slot is past the
- * twenty weeks: it was told by when it was booked (`slotShown`), since its
- * slot is a date past them, so once moved it is new to them, as a one-off
- * is. A visit told as someone else's that has become the caller's since is
- * still seen by what it was told.
+ * first time, and a visit of someone else's whose slot crossed an edge of
+ * them at the turn is told by its other slot now (`slotShown`: its slot
+ * one side, when it is booked the other; most often a visit overdue from
+ * four weeks back and moved forward), so the pair sent back no longer
+ * holds it. Once each, so the next Book anyway gets through; an outbox
+ * booking held for a look and sent days later can meet it too. M7's and
+ * 2c-J's copy says so as more to look at, never as a loop, and not as new
+ * work: a visit told by its other slot is one already named, at the same
+ * site and booked time.
+ *
+ * So can a Book anyway after the office moves someone else's visit whose
+ * slot is past the twenty weeks: it was told by when it was booked, since
+ * its slot is a date past them, so once moved it is shown again, as a
+ * one-off is. A visit told as someone else's that has become the caller's
+ * since is still seen by what it was told while its slot stays past them
+ * (once within them, it is told and seen by its slot, as their own is).
  *
  * A date tried that finds nothing books a job there, which the office
  * sees: the target's own refusals come first (`backstop`), so a booking
