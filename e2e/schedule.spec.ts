@@ -11,6 +11,7 @@ import {
   signUpActor,
   uniqueEmail,
 } from './fixtures'
+import { weatherKeyOf } from '../convex/lib/forecastWindow'
 
 /**
  * The Phase 2 core loop (§6.2), driven through the UI rather than the API:
@@ -302,6 +303,80 @@ test('a job card renders a weather panel for its own suburb', async ({
   // a live geocode + forecast round trip and passes or fails on timing.
   await expect(card.getByTestId('weather-pending')).toHaveCount(0)
   await expect(card).toContainText(/\d+°|No forecast/)
+})
+
+/**
+ * A card is as tall while its forecast is on the way as once it has landed,
+ * so nothing below it moves when the forecast arrives, or when signal comes
+ * back to a phone that had none. At 390px the placeholder was one row (62px)
+ * and the forecast wrapped to two, so every card grew 49px.
+ *
+ * The forecast is held on the socket until the placeholder is measured, then
+ * answered here with the longest words a strip can hold: the live one might
+ * be "No forecast", and its words change from day to day.
+ */
+test('a job card keeps its height when its forecast lands', async ({
+  page,
+}) => {
+  const { email, slug } = await seedOneJob('cardweatherheight')
+
+  let release = () => {}
+  const released = new Promise<void>((resolve) => (release = resolve))
+  const convexHost = new URL(process.env.VITE_CONVEX_URL!).host
+  await page.routeWebSocket(
+    (url) => url.host === convexHost,
+    (ws) => {
+      const server = ws.connectToServer()
+      ws.onMessage((message) => {
+        const sent = typeof message === 'string' ? JSON.parse(message) : null
+        if (sent?.type !== 'Action' || sent.udfPath !== 'weather:forDays') {
+          server.send(message)
+          return
+        }
+        const { days } = sent.args[0] as {
+          days: Array<{ dayKey: string; suburb: string; postcode: string }>
+        }
+        const result = Object.fromEntries(
+          days.map((d) => [
+            weatherKeyOf(d.suburb, d.postcode, d.dayKey),
+            {
+              suburb: d.suburb,
+              code: 85,
+              partial: true,
+              maxTempC: 38,
+              minTempC: 24,
+              rainMm: 12.5,
+              windKmh: 46,
+            },
+          ]),
+        )
+        void released.then(() =>
+          ws.send(
+            JSON.stringify({
+              type: 'ActionResponse',
+              requestId: sent.requestId,
+              success: true,
+              result,
+              logLines: [],
+            }),
+          ),
+        )
+      })
+      server.onMessage((message) => ws.send(message))
+    },
+  )
+
+  await signInViaUi(page, email)
+  await page.goto(`/${slug}/schedule`)
+
+  const card = page.getByRole('button', { name: /Termite Inspection/ })
+  await expect(card.getByTestId('weather-pending')).toBeVisible()
+  const pending = (await card.boundingBox())!.height
+
+  release()
+  await expect(card).toContainText('Snow showers · rest of today')
+  await expect(card.getByTestId('weather-pending')).toHaveCount(0)
+  expect((await card.boundingBox())!.height).toBeCloseTo(pending, 1)
 })
 
 /** A Perth day, as the schedule's `?date=` names it. */

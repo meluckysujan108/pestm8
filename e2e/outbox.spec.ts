@@ -414,10 +414,11 @@ test('booked with no signal: kept on the phone, shown, and once back, the same s
   await expect(groupHeading(page, 'Sent')).toBeVisible()
   // Where it was in its own group: as far below the group's heading, which
   // now reads Sent. Measured from the heading, not the page: offline every
-  // card's forecast is a placeholder, and back online the forecasts land and
-  // the day's cards above the group (Beatrice, Cedric) grow, moving the whole
-  // group down. Not its height either: Arthur's own forecast lands too, so
-  // its card legitimately grows like theirs.
+  // card's forecast is a placeholder, and back online a forecast lands at the
+  // placeholder's height, but a lookup that fails lands as "No forecast",
+  // which is shorter, and the day's cards above the group (Beatrice, Cedric)
+  // shrink, moving the whole group up. Not its height either: Arthur's own
+  // forecast lands too, so its card can legitimately shrink like theirs.
   await expect
     .poll(() => offsetInGroup(page, 'Sent', 'Arthur Wellard'))
     .toBeCloseTo(before!, 1)
