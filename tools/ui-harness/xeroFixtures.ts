@@ -21,8 +21,11 @@ export const XERO_BIZ = {
   leftover: 'biz_xero_leftover',
   unconfigured: 'biz_xero_unconfigured',
   demo: 'biz_xero_demo',
-  /** Two-step sign-in is off, which Connect needs. */
+  /** Two-step sign-in is off, on a deployment where Connect needs it
+   * (`XERO_TWO_STEP_REQUIRED=on`). */
   twoStepOff: 'biz_xero_two_step_off',
+  /** Two-step sign-in is off, and Connect doesn't need it: suggested. */
+  twoStepSuggested: 'biz_xero_two_step_suggested',
   /** Never answers: the page's placeholder. */
   loading: 'biz_xero_loading',
   /** Connected, its contacts being read. */
@@ -266,6 +269,7 @@ function statusFor(businessId: string) {
     switched: false,
     isOwner: true,
     twoStepOn: true,
+    twoStepNeeded: false,
     timezone: 'Australia/Perth',
     business: null as ReturnType<typeof view> | null,
     mine: null as ReturnType<typeof view> | null,
@@ -278,6 +282,8 @@ function statusFor(businessId: string) {
     case XERO_BIZ.demo:
       return { ...base, demo: true }
     case XERO_BIZ.twoStepOff:
+      return { ...base, twoStepOn: false, twoStepNeeded: true }
+    case XERO_BIZ.twoStepSuggested:
       return { ...base, twoStepOn: false }
     // Connected, as most connections are once their contacts have been read:
     // nothing left to check.

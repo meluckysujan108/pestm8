@@ -28,6 +28,26 @@ export function xeroPaused(): boolean {
 }
 
 /**
+ * Whether connecting Xero needs two-step sign-in on for whoever connects:
+ * `XERO_TWO_STEP_REQUIRED=on`. Off by default (the owner's call, 1 Nov 2026),
+ * as two-step sign-in is everywhere else in PestM8 (lib/mfa.ts,
+ * `AUTH_MFA_REQUIRED`).
+ *
+ * Xero asks an app to put two-step sign-in on its own users only past 1,000
+ * connected organisations, or for its Practice Manager, Tax and HQ APIs (its
+ * security standard for API consumers) — PestM8 holds at most `maxOrgs()`.
+ * Whoever approves a connection signs in to Xero itself, which asks for its
+ * own two-step sign-in. What a password alone could do — copy the client
+ * book into an organisation of its choosing — is told, instead of refused:
+ * every connect emails the person whose account it was, and the owner when a
+ * member connects their own (convex/xero.ts `finish`). Turn this on to
+ * refuse it again, without a code change.
+ */
+export function xeroTwoStepRequired(): boolean {
+  return process.env.XERO_TWO_STEP_REQUIRED === 'on'
+}
+
+/**
  * How many distinct Xero organisations this deployment may hold, across
  * every business. Xero's free Starter tier allows 5 for the whole app; Core
  * ($35 AUD a month) allows 50. Past the cap Xero itself refuses, but by then
@@ -89,7 +109,7 @@ export const XERO_API_BASE = 'https://api.xero.com/api.xro/2.0'
  * either page changes what it says about Xero; each connection records the
  * version it was made under.
  */
-export const XERO_TERMS_VERSION = '2026-10-06'
+export const XERO_TERMS_VERSION = '2026-11-01'
 
 /** How long a Connect may sit at Xero's sign-in before it is refused. */
 export const XERO_STATE_TTL_MS = 10 * 60 * 1000

@@ -123,6 +123,20 @@ type Setup = Awaited<ReturnType<typeof setup>>
 /** Runs whatever was scheduled: the organisation read, a release at Xero. */
 const settle = (s: Setup) => s.t.finishAllScheduledFunctions(vi.runAllTimers)
 
+/** Two-step sign-in on or off for someone, as Settings → Sign-in leaves it.
+ * Test accounts start with it on (test/harness.ts). */
+async function twoStep(s: Setup, actor: TestActor, on: boolean) {
+  await s.t.run(async (ctx) => {
+    await ctx.runMutation(components.betterAuth.adapter.updateOne, {
+      input: {
+        model: 'user',
+        where: [{ field: '_id', value: actor.userId }],
+        update: { twoFactorEnabled: on },
+      },
+    })
+  })
+}
+
 /** Where the callback sends the browser back to, on Coastal Pest. */
 function back(
   kind: 'business' | 'member',
@@ -691,27 +705,57 @@ describe('who may connect, finish and disconnect', () => {
     })
   })
 
-  test('connecting needs two-step sign-in on: refused at the start, and at finish if it was turned off meanwhile', async () => {
+  test('connecting needs no two-step sign-in: with only a password, the page suggests it and the connect goes through', async () => {
     const s = await setup()
-    const twoStep = async (actor: TestActor, on: boolean) => {
-      await s.t.run(async (ctx) => {
-        await ctx.runMutation(components.betterAuth.adapter.updateOne, {
-          input: {
-            model: 'user',
-            where: [{ field: '_id', value: actor.userId }],
-            update: { twoFactorEnabled: on },
-          },
-        })
-      })
-    }
+    await twoStep(s, s.kevin, false)
+    await twoStep(s, s.terence, false)
 
-    // Kevin has only a password: the page knows, and Connect is refused for
-    // his own Xero — nothing reaches Xero, and no sign-in link is kept.
-    await twoStep(s.kevin, false)
+    // The page offers Connect, with two-step sign-in suggested beside it.
     const kevins = await s.kevin.as.query(api.xero.status, {
       businessId: s.businessId,
     })
     expect(kevins.twoStepOn).toBe(false)
+    expect(kevins.twoStepNeeded).toBe(false)
+
+    // Kevin connects his own Xero, and Terence the business's.
+    for (const [actor, kind, xeroUserId, tenantId] of [
+      [s.kevin, 'member', XU.kevin, ORG.kevin],
+      [s.terence, 'business', XU.terence, ORG.coastal],
+    ] as const) {
+      const location = await connectVia(s.t, actor.as, {
+        businessId: s.businessId,
+        kind,
+        xeroUserId,
+        tenantId,
+      })
+      await actor.as.action(api.xero.finishConnect, {
+        businessId: s.businessId,
+        token: finishFrom(location),
+      })
+    }
+    const rows = await s.t.run((ctx) =>
+      ctx.db.query('xeroConnections').collect(),
+    )
+    expect(
+      rows
+        .filter((row) => row.status === 'connected')
+        .map((row) => row.tenantId)
+        .sort(),
+    ).toEqual([ORG.coastal, ORG.kevin].sort())
+  })
+
+  test('where the deployment asks for it (XERO_TWO_STEP_REQUIRED=on), connecting needs two-step sign-in: refused at the start, and at finish if it was turned off meanwhile', async () => {
+    const s = await setup()
+    vi.stubEnv('XERO_TWO_STEP_REQUIRED', 'on')
+
+    // Kevin has only a password: the page knows, and Connect is refused for
+    // his own Xero — nothing reaches Xero, and no sign-in link is kept.
+    await twoStep(s, s.kevin, false)
+    const kevins = await s.kevin.as.query(api.xero.status, {
+      businessId: s.businessId,
+    })
+    expect(kevins.twoStepOn).toBe(false)
+    expect(kevins.twoStepNeeded).toBe(true)
     await expect(
       s.kevin.as.action(api.xero.startConnect, {
         businessId: s.businessId,
@@ -724,17 +768,18 @@ describe('who may connect, finish and disconnect', () => {
 
     // Terence starts with it on, then turns it off while he is at Xero:
     // finishing is refused and nothing is connected.
-    expect(
-      (await s.terence.as.query(api.xero.status, { businessId: s.businessId }))
-        .twoStepOn,
-    ).toBe(true)
+    const terences = await s.terence.as.query(api.xero.status, {
+      businessId: s.businessId,
+    })
+    expect(terences.twoStepOn).toBe(true)
+    expect(terences.twoStepNeeded).toBe(false)
     const location = await connectVia(s.t, s.terence.as, {
       businessId: s.businessId,
       kind: 'business',
       xeroUserId: XU.terence,
       tenantId: ORG.coastal,
     })
-    await twoStep(s.terence, false)
+    await twoStep(s, s.terence, false)
     await expect(
       s.terence.as.action(api.xero.finishConnect, {
         businessId: s.businessId,
@@ -747,10 +792,211 @@ describe('who may connect, finish and disconnect', () => {
     expect(rows.filter((row) => row.status === 'connected')).toHaveLength(0)
 
     // On again, the same finish link still works.
-    await twoStep(s.terence, true)
+    await twoStep(s, s.terence, true)
     await s.terence.as.action(api.xero.finishConnect, {
       businessId: s.businessId,
       token: finishFrom(location),
+    })
+  })
+
+  describe('who is told of a connect', () => {
+    type Sent = {
+      from: string
+      to: Array<string>
+      subject: string
+      text: string
+    }
+
+    /** Resend, recorded, in front of the Xero fake: account email on. */
+    function recordEmail(): Array<Sent> {
+      vi.stubEnv('RESEND_API_KEY', 're_test')
+      vi.stubEnv('RESEND_ACCOUNT_FROM_EMAIL', 'noreply@pestm8.com.au')
+      const sent: Array<Sent> = []
+      const xeroFetch = globalThis.fetch
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+          const url = input instanceof Request ? input.url : String(input)
+          if (url !== 'https://api.resend.com/emails') {
+            return xeroFetch(input, init)
+          }
+          sent.push(JSON.parse(String(init?.body)) as Sent)
+          return new Response(JSON.stringify({ id: `msg_${sent.length}` }))
+        }),
+      )
+      return sent
+    }
+
+    async function connect(
+      s: Setup,
+      actor: TestActor,
+      kind: 'business' | 'member',
+      xeroUserId: string,
+      tenantId: string,
+    ) {
+      const location = await connectVia(s.t, actor.as, {
+        businessId: s.businessId,
+        kind,
+        xeroUserId,
+        tenantId,
+      })
+      await actor.as.action(api.xero.finishConnect, {
+        businessId: s.businessId,
+        token: finishFrom(location),
+      })
+      await settle(s)
+    }
+
+    test('a member connecting their own Xero: they are told, and so is the owner', async () => {
+      const s = await setup()
+      const sent = recordEmail()
+      await twoStep(s, s.kevin, false)
+
+      await connect(s, s.kevin, 'member', XU.kevin, ORG.kevin)
+
+      expect(sent.map((email) => email.to)).toEqual([
+        ['kevin@coastal.test'],
+        ['terence@coastal.test'],
+      ])
+      const [kevins, terences] = sent
+      expect(kevins.from).toBe('PestM8 <noreply@pestm8.com.au>')
+      expect(kevins.subject).toBe('Xero is connected to Coastal Pest in PestM8')
+      expect(kevins.text).toContain(
+        'Your PestM8 account connected the Xero organisation “Kevin Walsh Pest Services” to Coastal Pest on ',
+      )
+      expect(kevins.text).toMatch(
+        / on \w{3} \d{1,2} \w{3,4}, \d{1,2}:\d{2}(am|pm)\./,
+      )
+      expect(kevins.text).toContain(
+        'the copies stay in your Xero if you leave Coastal Pest',
+      )
+      expect(kevins.text).toContain('Settings → My Xero')
+      expect(kevins.text).toContain(
+        `${TEST_SITE_URL}/coastal-pest/settings/my-xero`,
+      )
+
+      expect(terences.subject).toBe(
+        'Kevin Walsh connected their Xero to Coastal Pest',
+      )
+      expect(terences.text).toContain(
+        'Kevin Walsh connected their own Xero organisation “Kevin Walsh Pest Services” to Coastal Pest on ',
+      )
+      expect(terences.text).toContain('remove Kevin Walsh from the team')
+      expect(terences.text).toContain(
+        `${TEST_SITE_URL}/coastal-pest/settings/team`,
+      )
+
+      // Neither asks anyone to write in (CLAUDE.md, 29 Sept 2026).
+      for (const email of sent) {
+        expect(email.text).not.toMatch(/reply to this|email us|get in touch/i)
+      }
+      const rows = await s.t.run((ctx) =>
+        ctx.db.query('accountEmails').collect(),
+      )
+      expect(rows.map((row) => [row.kind, row.status])).toEqual([
+        ['xeroConnected', 'sent'],
+        ['memberXeroConnected', 'sent'],
+      ])
+    })
+
+    test('the owner connecting the business’s Xero is told once; a reconnect, or a connect that never finished, tells nobody', async () => {
+      const s = await setup()
+      const sent = recordEmail()
+
+      // Started and left at Xero: nothing connected, nobody told.
+      await connectVia(s.t, s.terence.as, {
+        businessId: s.businessId,
+        kind: 'business',
+        xeroUserId: XU.terence,
+        tenantId: ORG.coastal,
+      })
+      await settle(s)
+      expect(sent).toHaveLength(0)
+
+      await connect(s, s.terence, 'business', XU.terence, ORG.coastal)
+      expect(sent.map((email) => email.to)).toEqual([['terence@coastal.test']])
+      expect(sent[0].text).toContain('Settings → Xero')
+      expect(sent[0].text).not.toContain('My Xero')
+      expect(sent[0].text).not.toContain('if you leave')
+
+      // Reconnecting the same organisation tells nobody again.
+      await connect(s, s.terence, 'business', XU.terence, ORG.coastal)
+      expect(sent).toHaveLength(1)
+    })
+
+    test('Reconnect pressed, the connection disconnected meanwhile, then another organisation chosen: a new connect, told of as one', async () => {
+      const s = await setup()
+      const sent = recordEmail()
+      await connect(s, s.kevin, 'member', XU.kevin, ORG.kevin)
+      expect(sent).toHaveLength(2)
+
+      // Started while Kevin's connection is live, so as a reconnect of it…
+      const { url } = await s.kevin.as.action(api.xero.startConnect, {
+        businessId: s.businessId,
+        kind: 'member',
+      })
+      // …which is then disconnected, and someone else's organisation chosen.
+      const [first] = await s.t.run((ctx) =>
+        ctx.db.query('xeroConnections').collect(),
+      )
+      await s.kevin.as.mutation(api.xero.disconnect, {
+        businessId: s.businessId,
+        connectionId: first._id,
+      })
+      const code = s.xero.consent({ xeroUserId: XU.mia, tenantId: ORG.harbour })
+      const location = await callbackLocation(s.t, {
+        code,
+        state: stateFrom(url),
+      })
+      await s.kevin.as.action(api.xero.finishConnect, {
+        businessId: s.businessId,
+        token: finishFrom(location),
+      })
+      await settle(s)
+
+      const rows = await s.t.run((ctx) =>
+        ctx.db.query('xeroConnections').collect(),
+      )
+      expect(rows.map((row) => [row.tenantId, row.status])).toEqual([
+        [ORG.kevin, 'disconnected'],
+        [ORG.harbour, 'connected'],
+      ])
+      expect(sent.slice(2).map((email) => email.to)).toEqual([
+        ['kevin@coastal.test'],
+        ['terence@coastal.test'],
+      ])
+      expect(sent[2].text).toContain('“Harbour Pest Pty Ltd”')
+      const actions = await s.t.run((ctx) => ctx.db.query('auditLog').collect())
+      expect(
+        actions
+          .map((row) => row.action)
+          .filter((action) => action.startsWith('xero.')),
+      ).toEqual(['xero.connect', 'xero.disconnect', 'xero.connect'])
+    })
+
+    test('told the same where two-step sign-in is required', async () => {
+      const s = await setup()
+      const sent = recordEmail()
+      vi.stubEnv('XERO_TWO_STEP_REQUIRED', 'on')
+      await connect(s, s.kevin, 'member', XU.kevin, ORG.kevin)
+      expect(sent.map((email) => email.to)).toEqual([
+        ['kevin@coastal.test'],
+        ['terence@coastal.test'],
+      ])
+    })
+
+    test('a deployment that can’t send account email still connects, and queues nothing', async () => {
+      const s = await setup()
+      vi.stubEnv('RESEND_API_KEY', '')
+      vi.stubEnv('RESEND_ACCOUNT_FROM_EMAIL', '')
+      await connect(s, s.kevin, 'member', XU.kevin, ORG.kevin)
+      expect(
+        await s.t.run((ctx) => ctx.db.query('accountEmails').collect()),
+      ).toHaveLength(0)
+      const rows = await s.t.run((ctx) =>
+        ctx.db.query('xeroConnections').collect(),
+      )
+      expect(rows.filter((row) => row.status === 'connected')).toHaveLength(1)
     })
   })
 

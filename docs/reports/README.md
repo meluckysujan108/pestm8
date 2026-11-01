@@ -550,7 +550,7 @@ is sent again from its send sheet. `lib/emailConfig` is the one definition of
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `RESEND_API_KEY`            | The business's own Resend key                                                                                                                                                                                 |
 | `RESEND_FROM_EMAIL`         | Where reports come from (`info@pestm8.com.au` on prod). A bare address on a verified domain. Required: Resend rejects a `from` that is a bare display name, and the business's own address goes in `reply-to` |
-| `RESEND_ACCOUNT_FROM_EMAIL` | Where account email comes from (`noreply@pestm8.com.au` on prod): password-reset links and "your password was changed" (`convex/accountEmails.ts`). Not needed for reports                                    |
+| `RESEND_ACCOUNT_FROM_EMAIL` | Where account email comes from (`noreply@pestm8.com.au` on prod): password-reset links, "your password was changed" and "Xero is connected" (`convex/accountEmails.ts`). Not needed for reports               |
 | `RESEND_WEBHOOK_SECRET`     | The `whsec_…` for the endpoint, registered in Resend against this deployment's `.site` origin                                                                                                                 |
 
 Set them with `npx convex env set`, and confirm the deployment first —

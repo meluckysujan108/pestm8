@@ -43,8 +43,11 @@ an organisation until its holder presses **Start syncing**.
    - "Do you agree to meet Xero's minimum security requirements?": **Yes**.
      What meets them: tokens encrypted with AES-256-GCM under a key held apart
      from the data, the callback answering with a 302, TLS throughout, and
-     two-step sign-in required of whoever connects (`XERO_TWO_STEP_REQUIRED`,
-     below).
+     staff access to the deployments kept to the owner. They don't include
+     two-step sign-in in the app itself: Xero asks for that only past 1,000
+     connected organisations, or for its Practice Manager, Tax and HQ APIs
+     (its security standard for API consumers, checked 1 Nov 2026). PestM8
+     holds at most `XERO_MAX_ORGS` (below).
    - Terms and privacy URLs: prod's `SITE_URL` + `/terms` and `/privacy`. Both
      pages are drafts for the owner to approve first (step 6).
    - Generate a client secret. Xero shows it once.
@@ -102,6 +105,7 @@ an organisation until its holder presses **Start syncing**.
 | `XERO_REDIRECT_URI`                     | unset (→ `https://rare-retriever-156.convex.site/xero/callback`) | unset; a local backend sets `http://localhost:3211/xero/callback` | —                             |
 | `XERO_SYNC_PAUSED`                      | unset; `on` stops every write to Xero (R3)                       | as needed                                                         | —                             |
 | `XERO_MAX_ORGS`                         | unset (5); `50` once on Core                                     | unset (5)                                                         | —                             |
+| `XERO_TWO_STEP_REQUIRED`                | unset; `on` refuses a connect without two-step sign-in           | unset                                                             | —                             |
 
 `SITE_URL`, which every deployment already has for sign-in, is where the
 callback sends the browser back to. All three of the client id, the secret and
@@ -112,13 +116,44 @@ Without them, Settings shows no Xero rows, `xero.startConnect` throws
 
 ## How connecting works
 
-Connecting needs two-step sign-in on for the person connecting — Xero's
-minimum security requirements ask for strong sign-in on whoever links an
-organisation, and two-step is otherwise optional in PestM8 (`lib/mfa.ts`). The
-page shows "Turn on two-step sign-in" in place of Connect Xero until it is on;
-`beginConnect` and `finish` both refuse without it (`XERO_TWO_STEP_REQUIRED`),
-so turning it off while at Xero leaves the connect unfinished. Nobody else's
-sign-in changes.
+Connecting needs no two-step sign-in in PestM8 (since 1 Nov 2026, the
+owner's call; it was required from R1 until then). Xero doesn't ask for it
+below 1,000 connected organisations (step 2 above), and whoever approves the
+connection signs in to Xero itself, which has its own two-step sign-in. Two-step
+stays optional everywhere in PestM8 (`lib/mfa.ts`); the page suggests it under
+Connect Xero, with a link to turn it on, for anyone who hasn't.
+
+What a password alone could do is told instead of refused. A connect (not a
+reconnect of the same organisation) emails, from the account sender
+(`RESEND_ACCOUNT_FROM_EMAIL`, noreply@):
+
+- **whoever's account connected it** — "Xero is connected to {business} in
+  PestM8": which organisation, when, what is copied once Start syncing is
+  pressed, and, if it wasn't them, to choose a new password with "Forgot
+  password?" (which signs every device out) and disconnect it;
+- **the owner, when a member connects their own Xero** (My Xero) — "{member}
+  connected their Xero to {business}": every client goes there and stays
+  there if they leave; to undo it, remove them in Settings → Team, which
+  disconnects it.
+
+Both are queued in `finish`'s own transaction (`queueXeroConnected` in
+`convex/accountEmails.ts`) and sent like a password reset. A reconnect is only
+`finish` completing the very row it set out to reconnect: Reconnect pressed and
+the connection disconnected before Xero sends the browser back makes a new
+connection (to whichever organisation was chosen), which is told of like any
+connect. A deployment with no account sender connects just the same and sends
+nothing. Neither email asks anyone to reply or write in. The privacy page says
+so (`XERO_TERMS_VERSION` 2026-11-01).
+
+Rolling the backend back to before these emails means deleting the
+`accountEmails` rows of kind `xeroConnected` and `memberXeroConnected` first:
+the older schema doesn't know them, and the push is refused.
+
+`XERO_TWO_STEP_REQUIRED=on` puts the old rule back without a code change: the
+page shows "Turn on two-step sign-in" in place of Connect Xero (and Reconnect
+Xero) until it is on, and `beginConnect` and `finish` both refuse without it
+(`XERO_TWO_STEP_REQUIRED`), so turning it off while at Xero leaves the connect
+unfinished. The emails are sent either way.
 
 Connect Xero (`xero.startConnect`) makes a random `state`, stores only its
 hash, bound to the person, their membership and which kind of connection, for

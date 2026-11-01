@@ -166,15 +166,23 @@ export function disclosureCopy(
     : `Every client in ${business} is copied into your Xero organisation, with every change after that, so you can invoice any of them. They stay in your Xero if you leave ${business}. ${owner} can see which organisation you connected.`
 }
 
-/** The line above the button, saying what connecting is for. */
 /**
- * Why Connect Xero is not offered yet: connecting needs two-step sign-in on
- * (convex/xero.ts `requireTwoStep`), because Xero asks every app for strong
- * sign-in on whoever links an organisation.
+ * Why Connect Xero is not offered yet, on a deployment where connecting needs
+ * two-step sign-in on (`XERO_TWO_STEP_REQUIRED=on`, convex/xero.ts
+ * `requireTwoStep`).
  */
 export const TWO_STEP_FIRST =
-  'Xero asks for two-step sign-in on any account that connects it. Turn it on first, then come back here.'
+  'Connecting Xero here needs two-step sign-in on your account. Turn it on first, then come back here.'
 
+/**
+ * Under Connect Xero for someone without two-step sign-in, where connecting
+ * doesn't need it: why it is worth turning on, followed by the link. A
+ * password alone can connect Xero, and Xero gets every client.
+ */
+export const TWO_STEP_SUGGESTED =
+  'Two-step sign-in keeps your account, and the clients it sends to Xero, safer.'
+
+/** The line above the button, saying what connecting is for. */
 export const EXPLAINER: Readonly<Record<XeroKind, string>> = {
   business:
     'Connect the business’s Xero, and PestM8 keeps its contacts in step with your clients — nobody types them in twice.',
