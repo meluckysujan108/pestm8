@@ -9,7 +9,12 @@ import {
   joinBusiness,
   testApp,
 } from '../test/harness'
-import { addDaysToKey, todayKeyInZone, zonedDateTimeToUtc } from './lib/dates'
+import {
+  addDaysToKey,
+  startOfWeekKey,
+  todayKeyInZone,
+  zonedDateTimeToUtc,
+} from './lib/dates'
 import { requireActor } from './lib/actor'
 import {
   automaticMoveOf,
@@ -1598,6 +1603,431 @@ describe('siteCheck: open work at the site within a week', () => {
     )
   })
 
+  describe('someone else’s work past `jobs.openWork`’s twenty weeks (C5, the owner’s answer of 1 Nov 2026)', () => {
+    const zoned = (dayKey: string, hh: number, mm = 0) =>
+      zonedDateTimeToUtc(dayKey, hh, mm, TZ)
+    // A fixed clock, Wednesday 4 Nov 2026 at 10am in Perth, so no test
+    // depends on the day or hour it runs at; a test may set another.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(zoned('2026-11-04', 10))
+    })
+
+    /** Days from today to the day `days` after this week's Monday. */
+    const fromMonday = (days: number) => {
+      const today = todayKeyInZone(TZ)
+      const weekday = (new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7
+      return days - weekday
+    }
+    const kevinBooks = (s: Setup, scheduledAt: number) =>
+      s.kevin.as.mutation(
+        api.jobs.create,
+        job(s, {
+          assignedMembershipId: s.kevinId,
+          propertyId: s.jane.siteId,
+          scheduledAt,
+          siteCheck: nothingSeen,
+        }),
+      )
+
+    test('is never named to a subcontractor: they book beside it, and the owner, who sees every job, is still refused', async () => {
+      const s = await setup()
+      // The first day past sixteen weeks from this week's Monday.
+      const past = on(fromMonday(112))
+      await insertJob(s, { scheduledAt: past })
+      await kevinBooks(s, past)
+      expect(
+        await refusalOf(
+          s.owner.as.mutation(
+            api.jobs.create,
+            job(s, {
+              propertyId: s.jane.siteId,
+              scheduledAt: on(fromMonday(112) + 1),
+              siteCheck: nothingSeen,
+            }),
+          ),
+        ),
+      ).toMatchObject({ code: 'SITE_BOOKED' })
+    })
+
+    test('within them it is named by its date, whatever date is booked: the last day ahead, the first day back', async () => {
+      const ahead = await setup()
+      await insertJob(ahead, { scheduledAt: on(fromMonday(111)) })
+      // Booked past the twenty weeks, beside work within them.
+      expect(
+        await refusalOf(kevinBooks(ahead, on(fromMonday(111) + 3))),
+      ).toEqual({
+        code: 'SITE_BOOKED',
+        rows: [
+          {
+            propertyId: ahead.jane.siteId,
+            at: on(fromMonday(111)),
+            scheduledAt: on(fromMonday(111)),
+            clientName: 'Jane Nguyen',
+          },
+        ],
+      })
+
+      const back = await setup()
+      await insertJob(back, { scheduledAt: on(fromMonday(-28)) })
+      expect(
+        await refusalOf(kevinBooks(back, on(fromMonday(-29)))),
+      ).toMatchObject({
+        code: 'SITE_BOOKED',
+        rows: [{ at: on(fromMonday(-28)) }],
+      })
+    })
+
+    test('a job left open more than four weeks before this week is never named either', async () => {
+      const s = await setup()
+      await insertJob(s, { scheduledAt: on(fromMonday(-29)) })
+      await kevinBooks(s, on(fromMonday(-29)))
+    })
+
+    test('their own work is named at any date: a job they lead, or one they are also going on', async () => {
+      const lead = await setup()
+      const led = await insertJob(lead, {
+        scheduledAt: on(200),
+        assignedMembershipId: lead.kevinId,
+      })
+      expect(await refusalOf(kevinBooks(lead, on(201)))).toMatchObject({
+        code: 'SITE_BOOKED',
+        rows: [{ jobId: led, jobNumber: 41 }],
+      })
+
+      const going = await setup()
+      const owners = await insertJob(going, { scheduledAt: on(300) })
+      await going.t.run((ctx) =>
+        ctx.db.insert('jobPeople', {
+          businessId: going.businessId,
+          jobId: owners,
+          membershipId: going.kevinId,
+          scheduledAt: on(300),
+          addedBy: going.ownerMembershipId,
+          addedAt: Date.now(),
+        }),
+      )
+      expect(await refusalOf(kevinBooks(going, on(299)))).toMatchObject({
+        code: 'SITE_BOOKED',
+        rows: [{ jobId: owners }],
+      })
+    })
+
+    test('by the business’s own days and week: in the first minutes of its Monday, and the last of its Sunday, both Sunday in UTC', async () => {
+      for (const now of [
+        zoned('2026-11-09', 0, 30),
+        zoned('2026-11-08', 23, 30),
+      ]) {
+        vi.setSystemTime(now)
+        const monday = startOfWeekKey(todayKeyInZone(TZ))
+        const edges = [
+          // Ahead: the last minutes of its last day, the first of the next.
+          [
+            zoned(addDaysToKey(monday, 111), 23, 30),
+            zoned(addDaysToKey(monday, 112), 0, 30),
+          ],
+          // Back: the first minutes of its first day, the last of the day before.
+          [
+            zoned(addDaysToKey(monday, -28), 0, 30),
+            zoned(addDaysToKey(monday, -29), 23, 30),
+          ],
+        ]
+        for (const [inside, outside] of edges) {
+          const named = await setup()
+          await insertJob(named, { scheduledAt: inside })
+          expect(await refusalOf(kevinBooks(named, outside))).toMatchObject({
+            code: 'SITE_BOOKED',
+            rows: [{ at: inside }],
+          })
+          const past = await setup()
+          await insertJob(past, { scheduledAt: outside })
+          await kevinBooks(past, outside)
+        }
+      }
+    })
+
+    test('what a refusal hands back holds only work within them: Book anyway with all of it books', async () => {
+      const s = await setup()
+      // Four of the owner's within the weeks, two past them, all near.
+      for (const day of [108, 109, 110, 111, 112, 114]) {
+        await insertJob(s, { scheduledAt: on(fromMonday(day)) })
+      }
+      const book = (seen: Seen) =>
+        s.kevin.as.mutation(
+          api.jobs.create,
+          job(s, {
+            assignedMembershipId: s.kevinId,
+            propertyId: s.jane.siteId,
+            scheduledAt: on(fromMonday(113)),
+            siteCheck: { seen, seenSeries: [] },
+          }),
+        )
+      const data = (await refusalOf(book([]))) as {
+        rows: Array<{ at: number }>
+        more?: Seen
+      }
+      expect(data.rows.map((row) => row.at)).toEqual(
+        [111, 110, 109].map((day) => on(fromMonday(day))),
+      )
+      expect(data.more).toEqual([
+        { propertyId: s.jane.siteId, at: on(fromMonday(108)) },
+      ])
+      await book([
+        ...data.rows.map(({ at }) => ({ propertyId: s.jane.siteId, at })),
+        ...data.more!,
+      ])
+    })
+
+    test('a resend that crosses into a new week can be refused once more, for the week that came into them alone', async () => {
+      // Sunday, two minutes to midnight in Perth.
+      vi.setSystemTime(zoned('2026-11-08', 23, 58))
+      const s = await setup()
+      // From this week's Monday, worked out once: the clock moves below.
+      const [a, b, booked] = [110, 113, 115].map((day) => on(fromMonday(day)))
+      await insertJob(s, { scheduledAt: a })
+      await insertJob(s, { scheduledAt: b })
+      const book = (seen: Seen) =>
+        s.kevin.as.mutation(
+          api.jobs.create,
+          job(s, {
+            assignedMembershipId: s.kevinId,
+            propertyId: s.jane.siteId,
+            scheduledAt: booked,
+            siteCheck: { seen, seenSeries: [] },
+          }),
+        )
+      expect(await refusalOf(book([]))).toMatchObject({ rows: [{ at: a }] })
+      // Book anyway, three minutes later: Monday, and B is within them.
+      vi.setSystemTime(zoned('2026-11-09', 0, 1))
+      const seenA = { propertyId: s.jane.siteId, at: a }
+      expect(await refusalOf(book([seenA]))).toEqual({
+        code: 'SITE_BOOKED',
+        rows: [
+          {
+            propertyId: s.jane.siteId,
+            at: b,
+            scheduledAt: b,
+            clientName: 'Jane Nguyen',
+          },
+        ],
+      })
+      await book([seenA, { propertyId: s.jane.siteId, at: b }])
+    })
+
+    test('a visit of their own Recurring Job moved onto someone else past them is no longer its next visit for them', async () => {
+      const s = await setup()
+      const first = on(fromMonday(140))
+      const theirs = await s.kevin.as.mutation(
+        api.recurrences.create,
+        series(s, {
+          assignedMembershipId: s.kevinId,
+          propertyId: s.jane.siteId,
+          anchorDate: first,
+        }),
+      )
+      const again = () =>
+        refusalOf(
+          s.kevin.as.mutation(
+            api.recurrences.create,
+            series(s, {
+              assignedMembershipId: s.kevinId,
+              propertyId: s.jane.siteId,
+              siteCheck: nothingSeen,
+            }),
+          ),
+        )
+      const repeats = {
+        recurrenceId: theirs,
+        propertyId: s.jane.siteId,
+        intervalCount: 3,
+        intervalUnit: 'month',
+        jobType: 'General Pest Control',
+      }
+      expect(await again()).toEqual({
+        code: 'SITE_REPEATS',
+        series: [{ ...repeats, nextAt: first }],
+      })
+      // The office gives that visit to the owner, a week later.
+      const moved = on(fromMonday(147))
+      await s.t.run(async (ctx) => {
+        const visit = await ctx.db
+          .query('jobs')
+          .withIndex('by_property', (q) => q.eq('propertyId', s.jane.siteId))
+          .filter((q) => q.eq(q.field('recurrenceId'), theirs))
+          .unique()
+        await ctx.db.patch(visit!._id, {
+          assignedMembershipId: s.ownerMembershipId,
+          scheduledAt: moved,
+        })
+      })
+      expect(await again()).toEqual({ code: 'SITE_REPEATS', series: [repeats] })
+      expect(
+        await refusalOf(
+          s.owner.as.mutation(
+            api.recurrences.create,
+            series(s, { propertyId: s.jane.siteId, siteCheck: nothingSeen }),
+          ),
+        ),
+      ).toMatchObject({ series: [{ recurrenceId: theirs, nextAt: moved }] })
+    })
+
+    test('a visit of someone else’s moved in from past them is named by when it is booked, never when it was first due, and taken back by that alone', async () => {
+      const s = await setup()
+      // A yearly inspection first due well past the twenty weeks…
+      await s.owner.as.mutation(
+        api.recurrences.create,
+        series(s, {
+          propertyId: s.jane.siteId,
+          intervalCount: 1,
+          intervalUnit: 'year',
+          anchorDate: on(fromMonday(300)),
+        }),
+      )
+      // …brought forward by the office to next week.
+      const moved = on(fromMonday(10))
+      const slot = await s.t.run(async (ctx) => {
+        const visit = (await ctx.db
+          .query('jobs')
+          .withIndex('by_property', (q) => q.eq('propertyId', s.jane.siteId))
+          .unique())!
+        await ctx.db.patch(visit._id, { scheduledAt: moved })
+        return visit.occurrenceAt!
+      })
+      expect(slot).toBe(on(fromMonday(300)))
+      const kevinBooksPast = (
+        seen: Array<{ propertyId: Id<'properties'>; at: number }>,
+      ) =>
+        s.kevin.as.mutation(
+          api.jobs.create,
+          job(s, {
+            assignedMembershipId: s.kevinId,
+            propertyId: s.jane.siteId,
+            scheduledAt: on(fromMonday(11)),
+            siteCheck: { seen, seenSeries: [] },
+          }),
+        )
+      const refused = await refusalOf(kevinBooksPast([]))
+      expect(refused).toMatchObject({
+        code: 'SITE_BOOKED',
+        rows: [{ at: moved, scheduledAt: moved }],
+      })
+      expect(JSON.stringify(refused)).not.toContain(String(slot))
+      // The date it was first due is no way through: it was never told.
+      expect(
+        await refusalOf(
+          kevinBooksPast([{ propertyId: s.jane.siteId, at: slot }]),
+        ),
+      ).toMatchObject({ code: 'SITE_BOOKED', rows: [{ at: moved }] })
+      await kevinBooksPast([{ propertyId: s.jane.siteId, at: moved }])
+      // The owner, whose visit it is, is told its own slot.
+      expect(
+        await refusalOf(
+          s.owner.as.mutation(
+            api.jobs.create,
+            job(s, {
+              propertyId: s.jane.siteId,
+              scheduledAt: on(fromMonday(9)),
+              siteCheck: nothingSeen,
+            }),
+          ),
+        ),
+      ).toMatchObject({
+        code: 'SITE_BOOKED',
+        rows: expect.arrayContaining([
+          expect.objectContaining({ at: slot, scheduledAt: moved }),
+        ]),
+      })
+    })
+
+    test('a visit told by when it is booked is shown again once the office moves it, as a one-off is, then books; and once it is theirs, what they were told still holds', async () => {
+      const s = await setup()
+      await s.owner.as.mutation(
+        api.recurrences.create,
+        series(s, {
+          propertyId: s.jane.siteId,
+          intervalCount: 1,
+          intervalUnit: 'year',
+          anchorDate: on(fromMonday(300)),
+        }),
+      )
+      const moveVisit = (fields: Partial<Doc<'jobs'>>) =>
+        s.t.run(async (ctx) => {
+          const visit = (await ctx.db
+            .query('jobs')
+            .withIndex('by_property', (q) => q.eq('propertyId', s.jane.siteId))
+            .unique())!
+          await ctx.db.patch(visit._id, fields)
+          return visit._id
+        })
+      const told = on(fromMonday(10))
+      await moveVisit({ scheduledAt: told })
+      const kevinBooksBeside = () =>
+        s.kevin.as.mutation(
+          api.jobs.create,
+          job(s, {
+            assignedMembershipId: s.kevinId,
+            propertyId: s.jane.siteId,
+            scheduledAt: on(fromMonday(11)),
+            siteCheck: {
+              seen: [{ propertyId: s.jane.siteId, at: told }],
+              seenSeries: [],
+            },
+          }),
+        )
+      // Moved two hours on: what was told no longer holds it.
+      const later = on(fromMonday(10), 11)
+      const visitId = await moveVisit({ scheduledAt: later })
+      expect(await refusalOf(kevinBooksBeside())).toMatchObject({
+        code: 'SITE_BOOKED',
+        rows: [{ at: later, scheduledAt: later }],
+      })
+      // Back where it was told, and given to Kevin: it is his now, and what
+      // he was told is still the visit he booked past.
+      await moveVisit({ scheduledAt: told, assignedMembershipId: s.kevinId })
+      expect(await s.t.run((ctx) => ctx.db.get(visitId))).toMatchObject({
+        assignedMembershipId: s.kevinId,
+      })
+      await kevinBooksBeside()
+    })
+
+    test('a Recurring Job of someone else’s is named without its next visit past them; the owner gets the visit', async () => {
+      const s = await setup()
+      const existing = await s.owner.as.mutation(
+        api.recurrences.create,
+        series(s, {
+          propertyId: s.jane.siteId,
+          anchorDate: on(fromMonday(140)),
+        }),
+      )
+      expect(
+        await refusalOf(
+          s.kevin.as.mutation(
+            api.recurrences.create,
+            series(s, {
+              assignedMembershipId: s.kevinId,
+              propertyId: s.jane.siteId,
+              siteCheck: nothingSeen,
+            }),
+          ),
+        ),
+      ).toEqual({
+        code: 'SITE_REPEATS',
+        series: [{ recurrenceId: existing, propertyId: s.jane.siteId }],
+      })
+      expect(
+        await refusalOf(
+          s.owner.as.mutation(
+            api.recurrences.create,
+            series(s, { propertyId: s.jane.siteId, siteCheck: nothingSeen }),
+          ),
+        ),
+      ).toMatchObject({
+        code: 'SITE_REPEATS',
+        series: [{ recurrenceId: existing, nextAt: on(fromMonday(140)) }],
+      })
+    })
+  })
+
   test('a one-off of their own, moved by the office after it was shown, is still the job that was seen, by its id', async () => {
     const s = await setup()
     // Shown at Book: Jane's job at 8am, three days out.
@@ -2210,9 +2640,9 @@ describe('the checks never reach what is stored', () => {
 describe('what the booking itself is refused for comes before the check', () => {
   test('so a check that finds nothing books, and its answer is never had for nothing: no number of "12" to learn when another member is booked at an address', async () => {
     const s = await setup()
-    // The owner's job at Jane's, 200 days out: past what jobs.openWork sends
-    // Kevin, though not past the server's check.
-    await insertJob(s, { scheduledAt: on(200) })
+    // The owner's job at Jane's, 60 days out: someone else's work within
+    // jobs.openWork's twenty weeks, so the server's check names it to Kevin.
+    await insertJob(s, { scheduledAt: on(60) })
     const gone = await addClient(s, {
       name: 'Gone Away',
       binned: true,
@@ -2272,8 +2702,8 @@ describe('what the booking itself is refused for comes before the check', () => 
     for (const [code, fields] of refused) {
       // Within a week of the owner's job, and three weeks past it: the same
       // answer either way, so it says nothing about the work there.
-      expect(await refusalOf(asKevin(203, fields))).toBe(code)
-      expect(await refusalOf(asKevin(230, fields))).toBe(code)
+      expect(await refusalOf(asKevin(63, fields))).toBe(code)
+      expect(await refusalOf(asKevin(90, fields))).toBe(code)
     }
     expect(
       await refusalOf(
@@ -2281,7 +2711,7 @@ describe('what the booking itself is refused for comes before the check', () => 
           api.recurrences.create,
           series(s, {
             assignedMembershipId: s.kevinId,
-            anchorDate: on(203),
+            anchorDate: on(63),
             newClient: typed({ name: 'Tom Lee', phone: '12' }, WATTLE),
             matchCheck: sheet(),
             siteCheck: nothingSeen,
@@ -2318,11 +2748,11 @@ describe('what the booking itself is refused for comes before the check', () => 
     // A booking that can be made: near the owner's job it is refused; three
     // weeks past it, it books, and the office sees it.
     const tom = typed({ name: 'Tom Lee', phone: '0499 111 222' }, WATTLE)
-    expect(await refusalOf(asKevin(203, { newClient: tom }))).toMatchObject({
+    expect(await refusalOf(asKevin(63, { newClient: tom }))).toMatchObject({
       code: 'SITE_BOOKED',
-      rows: [{ propertyId: s.jane.siteId, scheduledAt: on(200) }],
+      rows: [{ propertyId: s.jane.siteId, scheduledAt: on(60) }],
     })
-    const jobId = await asKevin(230, { newClient: tom })
+    const jobId = await asKevin(90, { newClient: tom })
     expect((await clientOfJob(s, jobId))?.name).toBe('Tom Lee')
   })
 })

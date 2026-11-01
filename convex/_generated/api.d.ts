@@ -165,6 +165,7 @@ import type * as xeroCallback from "../xeroCallback.js";
 import type * as xeroMatch from "../xeroMatch.js";
 import type * as xeroSync from "../xeroSync.js";
 import type * as xeroTokens from "../xeroTokens.js";
+import type * as zoneWeeks from "../zoneWeeks.js";
 
 import type {
   ApiFromModules,
@@ -330,6 +331,7 @@ declare const fullApi: ApiFromModules<{
   xeroMatch: typeof xeroMatch;
   xeroSync: typeof xeroSync;
   xeroTokens: typeof xeroTokens;
+  zoneWeeks: typeof zoneWeeks;
 }>;
 
 /**

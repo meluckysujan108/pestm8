@@ -5,6 +5,7 @@ import { authComponent } from '../auth'
 import { purgeNote } from '../notes'
 import { logoFilesOf } from '../lib/businessLogo'
 import { heldAsLicence } from '../lib/fileClaims'
+import { leaveZone } from '../zoneWeeks'
 import { DEMO_PLAN, PLACEHOLDER_EMAIL_DOMAIN } from './shared'
 import type { Doc, Id, TableNames } from '../_generated/dataModel'
 import type { MutationCtx, QueryCtx } from '../_generated/server'
@@ -713,6 +714,26 @@ const clearMemberships: Step = (run) =>
       .take(n),
   )
 
+/** Its zone, for `jobs.openWork` (zoneWeeks.ts): one row. The zone's
+ * week is every business's in that zone, and goes only with the last. */
+const clearZone: Step = (run) =>
+  sweep(
+    run,
+    'businessZones',
+    (n) =>
+      run.ctx.db
+        .query('businessZones')
+        .withIndex('by_business', (q) => q.eq('businessId', run.business._id))
+        .take(n),
+    {
+      drop: async (zone) => {
+        await dropRow(run, 'businessZones', zone._id)
+        if (await leaveZone(run.ctx, zone.timezone)) tally(run, 'zoneWeeks')
+        return true
+      },
+    },
+  )
+
 /** Last, so a call that stops early leaves the marker `remove` checks. */
 const clearBusiness: Step = async (run) => {
   if (run.left <= 0) return false
@@ -736,6 +757,7 @@ const STEPS: Array<Step> = [
   clearAuditLog,
   clearPlaceholders,
   clearMemberships,
+  clearZone,
   clearBusiness,
 ]
 
@@ -977,6 +999,12 @@ export const status = internalQuery({
       clientImports: (
         await ctx.db
           .query('clientImports')
+          .withIndex('by_business', (q) => q.eq('businessId', businessId))
+          .take(STATUS_CAP)
+      ).length,
+      businessZones: (
+        await ctx.db
+          .query('businessZones')
           .withIndex('by_business', (q) => q.eq('businessId', businessId))
           .take(STATUS_CAP)
       ).length,

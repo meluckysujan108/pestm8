@@ -378,6 +378,16 @@ beforeAll(async () => {
     durationMinutes: 60,
   })
 
+  // The zone's week as of `today`, as the cron would have it: the business
+  // was made before `today` was read, and a week may have turned between.
+  await t.run(async (ctx) => {
+    const week = await ctx.db
+      .query('zoneWeeks')
+      .withIndex('by_timezone', (q) => q.eq('timezone', TZ))
+      .unique()
+    await ctx.db.patch(week!._id, { monday: startOfWeekKey(today) })
+  })
+
   // The keys the phone keeps them under (keptQueries, src/lib/offline/
   // keptSet.ts): a day, a week, and the business; what is booked at each
   // site, by this week's Monday.

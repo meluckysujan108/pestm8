@@ -75,8 +75,10 @@ import {
   OPEN_WORK_LIMIT,
   isDayKey,
   isOpenStatus,
+  openWorkCovers,
   openWorkSpan,
   slotOf,
+  slotShown,
 } from './lib/siteWork'
 import { normaliseJobNotes } from './lib/jobNotes'
 import { requireMembership } from './lib/access'
@@ -847,8 +849,23 @@ export const listWeek = query({
  * visits from four weeks before the week of `startKey` (a Monday, as
  * `listWeek` takes it) to sixteen weeks after, the visits done in that time
  * that the viewer may see, and every running Recurring Job. Kept on phones
- * (KEPT_FNS), so the check can be made with no signal; the server is to
- * check again, on complete data, when a booking saves.
+ * (KEPT_FNS), so the check can be made with no signal; the server checks
+ * again when a booking saves (lib/findSame.ts), the caller's own work at any
+ * date and anyone else's within these same twenty weeks from this week.
+ *
+ * ONLY FOR THIS WEEK: `startKey` must be the Monday of the week the
+ * business is in now, as its zone's row in `zoneWeeks` says (moved on by a
+ * cron within two minutes of the zone's Monday beginning), or it is
+ * INVALID_WEEK, as it is for a business with no zone kept yet
+ * (`businessZones`, zoneWeeks.ts). And someone else's work is sent only
+ * within the business's own twenty weeks, by that zone, though more is
+ * read either side. Otherwise anyone could
+ * ask for any twenty weeks, and learn every other member's open work at any
+ * date (the owner's answer to C5, 1 Nov 2026: twenty weeks, as the phone
+ * holds, and never more). A phone whose clock turns the week before the row
+ * does is refused for those minutes and keeps last week's answer, which
+ * covers this week (RK3). Reading the zone's week, which changes once a
+ * week, runs this again then.
  *
  * WHAT EACH ROW SAYS depends on whose it is (the owner's answer, 27 Oct
  * 2026). A job the viewer may see (`scope`, as a job's own sheet asks: one
@@ -862,7 +879,10 @@ export const listWeek = query({
  * this is about the house.
  *
  * Each row's `at` is its slot (`slotOf`), which a booking names as seen, so
- * a visit moved or projected again is still the one the person booked past.
+ * a visit moved or projected again is still the one the person booked past;
+ * for someone else's, only when that slot is within the twenty weeks too,
+ * otherwise when it is booked (`slotShown`), so a visit moved in from past
+ * them never says when it was first due.
  * A Recurring Job comes with its next visit still open from the week's
  * start (`nextAt`, from these rows only, so a series repeating less often
  * than sixteen weeks may have none; the week's start as early as it comes
@@ -872,10 +892,11 @@ export const listWeek = query({
  * Read in one range, by date, earliest first: past OPEN_WORK_LIMIT jobs the
  * furthest weeks go first, the rows are whole up to the last one sent, and
  * `capped` says so (as it does for that many running Recurring Jobs); it
- * never throws on volume. No time zone, no clock: the window is wide
- * enough for any zone (`openWorkSpan`), and the phone goes by each row's
- * date. So it reads jobs, Recurring Jobs and who is also going, and not the
- * business's row, which every booking, visit and numbered report patches.
+ * never throws on volume. No clock but the zone's week: the window read is
+ * wide enough for any zone (`openWorkSpan`), and the phone goes by each
+ * row's date. So it reads jobs, Recurring Jobs, who is also going, the
+ * business's zone and that zone's week, and not the business's row, which
+ * every booking, visit and numbered report patches.
  *
  * Kept on phones: a renamed or removed field means bumping KEPT_SHAPE. Its
  * own, never joined into the directory, so a job's status changing doesn't
@@ -886,6 +907,22 @@ export const openWork = query({
   handler: async (ctx, { businessId, startKey }) => {
     const { scope } = await requireActor(ctx, businessId)
     if (!isDayKey(startKey)) throw new ConvexError('INVALID_DAY')
+    const zone = await ctx.db
+      .query('businessZones')
+      .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .unique()
+    const week =
+      zone &&
+      (await ctx.db
+        .query('zoneWeeks')
+        .withIndex('by_timezone', (q) => q.eq('timezone', zone.timezone))
+        .unique())
+    if (!zone || !week || startKey !== week.monday) {
+      throw new ConvexError('INVALID_WEEK')
+    }
+    // Someone else's work only within the business's own twenty weeks.
+    const within = (job: Doc<'jobs'>) =>
+      openWorkCovers(startKey, dayKeyOf(job.scheduledAt, zone.timezone))
     const { from, weekFrom, to } = openWorkSpan(startKey)
 
     const [read, running, shared] = await Promise.all([
@@ -929,16 +966,20 @@ export const openWork = query({
       if (job.scheduledAt >= cut) break
       if (isBinned(job) || job.status === 'cancelled') continue
       const open = isOpenStatus(job.status)
+      const mine = inScope(scope, job, shared)
       if (
         open &&
         job.recurrenceId !== undefined &&
         job.scheduledAt >= weekFrom &&
+        (mine || within(job)) &&
         !nextAt.has(job.recurrenceId)
       ) {
         nextAt.set(job.recurrenceId, job.scheduledAt)
       }
-      if (inScope(scope, job, shared)) rows.push(theirRow(job))
-      else if (open) rows.push(otherRow(job))
+      if (mine) rows.push(theirRow(job))
+      else if (open && within(job)) {
+        rows.push(otherRow(job, startKey, zone.timezone))
+      }
     }
 
     const series = running.slice(0, OPEN_WORK_LIMIT).map((recurrence) => {
@@ -988,7 +1029,11 @@ function theirRow(job: Doc<'jobs'>) {
 }
 
 /** Someone else's open job or visit: where and when, and nothing more. */
-function otherRow(job: Doc<'jobs'>): {
+function otherRow(
+  job: Doc<'jobs'>,
+  startKey: string,
+  timezone: string,
+): {
   propertyId: Id<'properties'>
   at: number
   scheduledAt: number
@@ -996,7 +1041,7 @@ function otherRow(job: Doc<'jobs'>): {
 } {
   return {
     propertyId: job.propertyId,
-    at: slotOf(job),
+    at: slotShown(job, startKey, timezone),
     scheduledAt: job.scheduledAt,
     ...(job.recurrenceId !== undefined ? { series: job.recurrenceId } : {}),
   }

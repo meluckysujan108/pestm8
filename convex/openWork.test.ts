@@ -8,7 +8,7 @@ import {
   testApp,
 } from '../test/harness'
 import { addDaysToKey, zonedDateTimeToUtc } from './lib/dates'
-import { OPEN_WORK_LIMIT, openWorkDays } from './lib/siteWork'
+import { OPEN_WORK_LIMIT, openWorkDays, openWorkSpan } from './lib/siteWork'
 import type { Doc, Id } from './_generated/dataModel'
 import type { TestActor } from '../test/harness'
 
@@ -18,11 +18,14 @@ import type { TestActor } from '../test/harness'
  * around the week asked for, in any time zone; cancelled and binned jobs are
  * left out; a subcontractor gets anyone else's open work as a site and a
  * date only, and nobody else's work done at all (the owner's answer, 27 Oct
- * 2026); and past its limit it says so rather than failing.
+ * 2026), and only within the business's own twenty weeks; it answers for
+ * the business's own week alone (zoneWeeks.ts; the owner's answer to
+ * C5, 1 Nov 2026); and past its limit it says so rather than failing.
  */
 
 const TZ = 'Australia/Perth'
-/** The Monday asked about: a fixed date, since the query reads no clock. */
+/** The Monday asked about, the business's week in every test's setup: a
+ * fixed date, since the query reads no clock. */
 const START = '2026-11-02'
 const MINUTE = 60 * 1000
 
@@ -70,6 +73,7 @@ async function setup() {
       ),
     )
   })
+  await setWeek({ t, businessId }, { monday: START, timezone: TZ })
   return {
     t,
     owner,
@@ -83,6 +87,29 @@ async function setup() {
 }
 
 type Setup = Awaited<ReturnType<typeof setup>>
+
+/** Puts the business in `timezone` and that zone's week at `monday`, as
+ * a zone change and the cron would (zoneWeeks.ts). */
+function setWeek(
+  s: Pick<Setup, 't' | 'businessId'>,
+  week: { monday?: string; timezone?: string },
+) {
+  return s.t.run(async (ctx) => {
+    const zone = await ctx.db
+      .query('businessZones')
+      .withIndex('by_business', (q) => q.eq('businessId', s.businessId))
+      .unique()
+    const timezone = week.timezone ?? zone!.timezone
+    await ctx.db.patch(zone!._id, { timezone })
+    const row = await ctx.db
+      .query('zoneWeeks')
+      .withIndex('by_timezone', (q) => q.eq('timezone', timezone))
+      .unique()
+    const monday = week.monday ?? row?.monday ?? START
+    if (row) await ctx.db.patch(row._id, { monday })
+    else await ctx.db.insert('zoneWeeks', { timezone, monday })
+  })
+}
 
 /** A job written as it is stored, so its status and slot are exactly as given. */
 function insertJob(
@@ -179,8 +206,9 @@ describe('the window', () => {
     'every day of the business’s own twenty weeks in %s, and nothing two days beyond',
     async (zone) => {
       const s = await setup()
-      // The query never reads it; this is where the business is.
+      // Where the business is: the query reads it from the business's week.
       await s.t.run((ctx) => ctx.db.patch(s.businessId, { timezone: zone }))
+      await setWeek(s, { timezone: zone })
       const { firstKey, endKey } = openWorkDays(START)
       const lastKey = addDaysToKey(endKey, -1)
 
@@ -206,6 +234,120 @@ describe('the window', () => {
     // The first test here loads every Convex module.
     30_000,
   )
+
+  test.each([TZ, 'Pacific/Kiritimati', 'Pacific/Pago_Pago'])(
+    'someone else’s work only within the business’s own days in %s, though more is read either side; the owner’s view whole',
+    async (zone) => {
+      const s = await setup()
+      await s.t.run((ctx) => ctx.db.patch(s.businessId, { timezone: zone }))
+      await setWeek(s, { timezone: zone })
+      const { firstKey, endKey } = openWorkDays(START)
+      const lastKey = addDaysToKey(endKey, -1)
+      const inside = [
+        await insertJob(s, { scheduledAt: at(firstKey, 0, 30, zone) }),
+        await insertJob(s, { scheduledAt: at(lastKey, 23, 30, zone) }),
+      ]
+      // On the days either side, where read: in UTC+14 nothing before the
+      // first day is.
+      const { from, to } = openWorkSpan(START)
+      const outside = []
+      for (const scheduledAt of [
+        at(addDaysToKey(firstKey, -1), 23, 30, zone),
+        at(endKey, 0, 30, zone),
+      ]) {
+        if (scheduledAt >= from && scheduledAt < to) {
+          outside.push(await insertJob(s, { scheduledAt }))
+        }
+      }
+      expect(outside.length).toBeGreaterThan(0)
+      const owners = (await ask(s.owner, s)).rows.map(idOf)
+      expect(owners).toEqual(expect.arrayContaining([...inside, ...outside]))
+      const kevins = (await ask(s.kevin, s)).rows.map((row) => row.scheduledAt)
+      const when = (ids: Array<Id<'jobs'>>) =>
+        s.t.run(async (ctx) =>
+          Promise.all(
+            ids.map(async (id) => (await ctx.db.get(id))!.scheduledAt),
+          ),
+        )
+      expect(kevins.sort()).toEqual((await when(inside)).sort())
+    },
+  )
+
+  test.each([TZ, 'Pacific/Kiritimati', 'Pacific/Pago_Pago'])(
+    'someone else’s Recurring Job has no next visit past the business’s own days in %s, though that visit is read; theirs and the owner’s do',
+    async (zone) => {
+      const s = await setup()
+      await s.t.run((ctx) => ctx.db.patch(s.businessId, { timezone: zone }))
+      await setWeek(s, { timezone: zone })
+      const { endKey } = openWorkDays(START)
+      // The first minutes past the twenty weeks, inside what is read.
+      const past = at(endKey, 0, 30, zone)
+      const { from, to } = openWorkSpan(START)
+      expect(past >= from && past < to).toBe(true)
+      const owners = await insertSeries(s)
+      const kevins = await insertSeries(s, {
+        propertyId: s.wattle,
+        assignedMembershipId: s.kevinId,
+      })
+      for (const [recurrenceId, assignedMembershipId] of [
+        [owners, s.ownerMembershipId],
+        [kevins, s.kevinId],
+      ] as const) {
+        await insertJob(s, {
+          recurrenceId,
+          assignedMembershipId,
+          status: 'recurring',
+          occurrenceAt: past,
+          scheduledAt: past,
+        })
+      }
+      const nextOf = (answer: Answer, id: Id<'recurrences'>) =>
+        answer.series.find((row) => row._id === id)?.nextAt
+      const forKevin = await ask(s.kevin, s)
+      expect(nextOf(forKevin, owners)).toBeUndefined()
+      expect(nextOf(forKevin, kevins)).toBe(past)
+      expect(nextOf(await ask(s.owner, s), owners)).toBe(past)
+    },
+  )
+
+  test('someone else’s visit moved in from past the twenty weeks is sent by when it is booked, never by when it was first due', async () => {
+    const s = await setup()
+    const recurrenceId = await insertSeries(s, { propertyId: s.wattle })
+    const { firstKey, endKey } = openWorkDays(START)
+    const visits = [
+      // Due before them and never actioned, booked in this week.
+      { slot: at(addDaysToKey(firstKey, -30), 9), moved: at(START, 9) },
+      // Within them, moved a day: its slot is within them too.
+      {
+        slot: at(addDaysToKey(START, 3), 9),
+        moved: at(addDaysToKey(START, 4), 9),
+      },
+      // Projected past them, brought forward into them.
+      {
+        slot: at(addDaysToKey(endKey, 30), 9),
+        moved: at(addDaysToKey(START, 10), 9),
+      },
+    ]
+    for (const { slot, moved } of visits) {
+      await insertJob(s, {
+        recurrenceId,
+        status: 'recurring',
+        occurrenceAt: slot,
+        scheduledAt: moved,
+      })
+    }
+    const told = (answer: Answer) =>
+      answer.rows.map((row) => [row.at, row.scheduledAt])
+    expect(told(await ask(s.kevin, s))).toEqual([
+      [visits[0].moved, visits[0].moved],
+      [visits[1].slot, visits[1].moved],
+      [visits[2].moved, visits[2].moved],
+    ])
+    // The owner, whose visits they are, is sent each one's own slot.
+    expect(told(await ask(s.owner, s))).toEqual(
+      visits.map(({ slot, moved }) => [slot, moved]),
+    )
+  })
 
   test('in date order, by when each is booked', async () => {
     const s = await setup()
@@ -711,6 +853,44 @@ describe('what it reads', () => {
     for (const startKey of ['2026-11-31', '20261102', 'next week']) {
       await expect(ask(s.owner, s, startKey)).rejects.toThrow('INVALID_DAY')
     }
+  })
+
+  test('answers only for the business’s own week, whoever asks (C5, 1 Nov 2026)', async () => {
+    const s = await setup()
+    const job = await insertJob(s, { scheduledAt: at(START, 9) })
+    expect((await ask(s.owner, s)).rows.map(idOf)).toEqual([job])
+    expect((await ask(s.kevin, s)).rows).toHaveLength(1)
+    // Any other week, near or a year away, or a day that isn't its Monday:
+    // no one may ask for anyone's work at whatever date they like.
+    for (const startKey of [
+      addDaysToKey(START, -7),
+      addDaysToKey(START, 7),
+      addDaysToKey(START, 364),
+      addDaysToKey(START, -364),
+      addDaysToKey(START, 1),
+    ]) {
+      for (const actor of [s.kevin, s.owner]) {
+        await expect(ask(actor, s, startKey)).rejects.toThrow('INVALID_WEEK')
+      }
+    }
+  })
+
+  test('the week moved on answers for the new one, and no longer for the old', async () => {
+    const s = await setup()
+    const next = addDaysToKey(START, 7)
+    await setWeek(s, { monday: next })
+    expect((await ask(s.owner, s, next)).rows).toEqual([])
+    await expect(ask(s.owner, s)).rejects.toThrow('INVALID_WEEK')
+  })
+
+  test('a business with no zone kept yet answers for no week', async () => {
+    const s = await setup()
+    await s.t.run(async (ctx) => {
+      for (const row of await ctx.db.query('businessZones').collect()) {
+        await ctx.db.delete(row._id)
+      }
+    })
+    await expect(ask(s.owner, s)).rejects.toThrow('INVALID_WEEK')
   })
 
   test('refuses someone who isn’t in the business', async () => {
