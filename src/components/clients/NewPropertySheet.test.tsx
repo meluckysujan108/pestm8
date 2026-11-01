@@ -1,6 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test, vi } from 'vitest'
-import { KeptDraftNote, answerOnceRead } from './NewPropertySheet'
+import {
+  KeptDraftNote,
+  answerOnceRead,
+  keepsDraftAfterOpen,
+} from './NewPropertySheet'
 import type { SaveWarning } from '#/components/forms/SaveWarnings'
 
 // The sheet's imports reach the root state, read at import time.
@@ -21,6 +25,40 @@ describe('New client, kept from before an Open', () => {
       'Still filled in from before you opened Jane Nguyen.',
     )
     expect(html).toMatch(/<button type="button"[^>]*>Clear<\/button>/)
+  })
+})
+
+/**
+ * Jane Nguyen and her mobile at a new address: everything typed goes with
+ * Open Jane Nguyen, Add property on 5 Elm St (`openFromNewClient`). With no
+ * signal her sheet is the copy kept on the phone, which adds no site: New
+ * client keeps 5 Elm St, or it would be nowhere once her sheet is closed.
+ */
+describe('New client after an Open, with no signal', () => {
+  const elm = {
+    addressLine: '5 Elm St',
+    suburb: 'Bayswater',
+    state: 'WA',
+    postcode: '6053',
+  }
+
+  test('keeps what was typed when an address went with the open', () => {
+    const opened = { keepDraft: false, addSite: elm }
+    expect(keepsDraftAfterOpen(opened, 'no-signal')).toBe(true)
+    expect(keepsDraftAfterOpen(opened, 'unreachable')).toBe(true)
+    // With signal, Add property opens on it, and New client is cleared.
+    expect(keepsDraftAfterOpen(opened, null)).toBe(false)
+  })
+
+  test('clears it when no address went, as everything typed is theirs', () => {
+    expect(keepsDraftAfterOpen({ keepDraft: false }, 'no-signal')).toBe(false)
+  })
+
+  test('keeps it, signal or not, when something went nowhere', () => {
+    expect(keepsDraftAfterOpen({ keepDraft: true }, null)).toBe(true)
+    expect(
+      keepsDraftAfterOpen({ keepDraft: true, addSite: elm }, 'no-signal'),
+    ).toBe(true)
   })
 })
 

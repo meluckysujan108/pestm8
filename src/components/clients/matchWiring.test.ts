@@ -9,7 +9,7 @@ import { describe, expect, test } from 'vitest'
  * in Clients → New client. The hooks and helpers are tested on their own
  * (`useIntoViewOnOpen` in clientSheetOpening.test.ts, `useLineFixHold` in
  * useMatchLines.test.ts, `openFromNewClient` in clientMatchRows.test.ts,
- * `answerOnceRead` in NewPropertySheet.test.tsx); there is no DOM renderer
+ * `answerOnceRead` and `keepsDraftAfterOpen` in NewPropertySheet.test.tsx); there is no DOM renderer
  * in these tests to open a sheet or tap a line's fix, so this pins where
  * each is put to work.
  */
@@ -63,6 +63,14 @@ describe('Clients → New client, a Save waiting for the client list', () => {
     expect(sheet).toMatch(
       /function clear\(\) \{[^}]*waitingForList\.current = \[\]/,
     )
+  })
+})
+
+describe('Clients → New client, an Open with no signal', () => {
+  test('keeps what was typed by `keepsDraftAfterOpen`, given the line as it is then', () => {
+    expect(
+      functionText(source('./NewPropertySheet.tsx'), 'NewPropertySheet'),
+    ).toContain('if (keepsDraftAfterOpen(opened, lineDown)) {')
   })
 })
 

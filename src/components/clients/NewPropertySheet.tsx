@@ -115,6 +115,21 @@ export function answerOnceRead(
 }
 
 /**
+ * Whether New client keeps what was typed after an Open {client}: where
+ * something in it went nowhere (`openFromNewClient`), and where an address
+ * went with the open with no signal. Their sheet is then the copy kept on
+ * the phone, which adds no site, so closed before signal is back, Add
+ * property never opens on it, and the address the caller gave would be
+ * nowhere. Kept, New client says so (`KeptDraftNote`).
+ */
+export function keepsDraftAfterOpen(
+  opened: { keepDraft: boolean; addSite?: SiteAddressDraft },
+  lineDown: LineDown | null,
+): boolean {
+  return opened.keepDraft || (opened.addSite !== undefined && lineDown !== null)
+}
+
+/**
  * Creates a client and its first property together in one step — a client
  * without at least one address is meaningless in this domain, so splitting
  * "new client" from "add first property" into two screens would cost a step
@@ -128,7 +143,8 @@ export function answerOnceRead(
  * with the caller as its site contact), unless the address is theirs
  * already or the row only shows who the caller may be. What was typed is
  * kept for New client again unless all of it went with the open or is
- * theirs already (`openFromNewClient`).
+ * theirs already (`openFromNewClient`), and kept with no signal whenever an
+ * address went with it (`keepsDraftAfterOpen`).
  */
 export function NewPropertySheet({
   businessId,
@@ -230,7 +246,7 @@ export function NewPropertySheet({
         siteContactPhone: typed.siteContactPhone,
       }),
     })
-    if (opened.keepDraft) {
+    if (keepsDraftAfterOpen(opened, lineDown)) {
       saveWarnings.reset()
       setKeptFrom(matchName(index.clients.get(fix.clientId)))
       onClose()

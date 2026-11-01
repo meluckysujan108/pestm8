@@ -1196,6 +1196,98 @@ test.describe('part 2: match lines and the check at Book', () => {
     expect(after.clients).toHaveLength(before.clients.length)
   })
 
+  test('Clients → New client with no signal: Open Jane Nguyen keeps the new address in New client, as her kept sheet adds no site', async ({
+    page,
+    context,
+  }) => {
+    const s = await seedMatching('match-open-offline')
+    const before = await bookOf(s.owner, s.businessId)
+    await signInViaUi(page, s.owner.email)
+    await page.goto(`/${s.slug}/schedule`)
+    await expect(newJobButton(page)).toBeEnabled()
+    await keepPageInWorker(page)
+    await expect
+      .poll(() => keptDirectory(page, s.businessId), { timeout: KEEP_TIMEOUT })
+      .toContain(P2_JANE_EMAIL)
+
+    await page.clock.setSystemTime(Date.now() + PAGE_AGE_MS)
+    await context.setOffline(true)
+    try {
+      await page.goto('/')
+      await expect(newJobButton(page)).toBeEnabled()
+      await page
+        .getByRole('navigation', { name: 'Tabs' })
+        .getByRole('link', { name: 'Clients', exact: true })
+        .click()
+      const add = page.getByRole('button', { name: 'New client' })
+      await expect(add).toBeEnabled()
+      const sheet = page.getByRole('dialog')
+      await clickUntil(add, () =>
+        expect(sheet.getByText('New client').first()).toBeVisible({
+          timeout: 2_000,
+        }),
+      )
+
+      await sheet.getByLabel('Client name', { exact: true }).fill('Jane Nguyen')
+      await sheet
+        .getByLabel('Phone (optional)', { exact: true })
+        .fill(P2_JANE_MOBILE)
+      await leavePhone(sheet)
+      await expect(
+        sheet.getByText('Jane Nguyen, of Bayswater, has this mobile.'),
+      ).toBeVisible()
+      await typeAddress(sheet, {
+        street: '40 Coode St',
+        suburb: 'Bayswater',
+        postcode: '6053',
+      })
+      await sheet.getByRole('button', { name: 'Save client' }).click()
+      const panel = panelOf(sheet)
+      await expect(panel).toContainText(
+        'Jane Nguyen, of Bayswater, has the same name and mobile.',
+      )
+      await panel.getByRole('button', { name: 'Open Jane Nguyen' }).click()
+
+      // Her sheet is the copy kept on the phone, which adds no site: no
+      // Add property on 40 Coode St there.
+      const hers = page.getByRole('dialog').filter({
+        has: page.getByRole('heading', { name: 'Jane Nguyen', exact: true }),
+      })
+      await expect(
+        hers.getByText(
+          /^No signal — showing the copy kept on this phone, updated \S.*\. Editing needs signal\.$/,
+        ),
+      ).toBeVisible()
+      await expect(
+        hers.getByLabel('Street address', { exact: true }),
+      ).toHaveCount(0)
+      await page.keyboard.press('Escape')
+      await expect(hers).toHaveCount(0)
+
+      // So New client kept it: opened again, the caller's address is
+      // still there, and it says why.
+      await clickUntil(add, () =>
+        expect(sheet.getByText('New client').first()).toBeVisible({
+          timeout: 2_000,
+        }),
+      )
+      await expect(
+        sheet.getByText('Still filled in from before you opened Jane Nguyen.'),
+      ).toBeVisible()
+      await expect(
+        sheet.getByLabel('Street address', { exact: true }),
+      ).toHaveValue('40 Coode St')
+      await expect(
+        sheet.getByLabel('Phone (optional)', { exact: true }),
+      ).toHaveValue(P2_JANE_MOBILE)
+    } finally {
+      await context.setOffline(false)
+    }
+    // Nothing was made meanwhile.
+    const after = await bookOf(s.owner, s.businessId)
+    expect(after.clients).toHaveLength(before.clients.length)
+  })
+
   // Its second tap lands while the first's address checks still answer
   // ("Checking…"); the next test's lands once the panel is drawn.
   test('a double tap on Book books nothing and applies no fix', async ({
