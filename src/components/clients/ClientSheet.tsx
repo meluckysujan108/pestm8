@@ -2083,6 +2083,8 @@ function NewPropertyForClientForm({
         },
       })),
     [value.addressLine, value.suburb, value.postcode],
+    // This form's own: the provider is rendered below, by this component.
+    warnings,
   )
   // Against a blank form: an address and site contact brought from Clients
   // → New client are the caller's, and closing on them asks first, as on

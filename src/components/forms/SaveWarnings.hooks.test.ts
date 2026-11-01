@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { hookHarness } from '#/lib/offline/hooks.fixtures'
-import { useSaveWarnings } from './SaveWarnings'
+import { useSaveCheck, useSaveWarnings } from './SaveWarnings'
 import { FIX_ARM_MS, SUBMIT_ARM_MS } from './saveWarningRules'
 import type { SaveWarning } from './saveWarningRules'
 import type * as React from 'react'
@@ -10,6 +10,9 @@ import type * as React from 'react'
 vi.mock('react', async (importOriginal) => ({
   ...(await importOriginal<typeof React>()),
   ...(await import('#/lib/offline/hooks.fixtures')).hookHarness.hooks,
+  // Nothing is rendered above a hook the harness mounts, so a context gives
+  // what React gives with no provider above: the save warnings' none.
+  useContext: () => null,
 }))
 // A fix is applied and drawn at once in the browser; here, just applied.
 vi.mock('react-dom', () => ({ flushSync: (change: () => void) => change() }))
@@ -155,5 +158,37 @@ describe('a fix, as the list comes in', () => {
     // under it, Book among them.
     expect(hook.current().armed).toBe(true)
     expect(hook.current().isArmed()).toBe(true)
+  })
+})
+
+describe('a form’s own check, made where its provider is rendered', () => {
+  // As in New Job, New client and Add a site: the component that renders
+  // the provider has none above it, so its own check is registered through
+  // the controller it holds.
+  function own(controller: boolean) {
+    const check = vi.fn(() => [jane])
+    const hook = hookHarness.mount(() => {
+      const warnings = useSaveWarnings({ arm: true })
+      useSaveCheck('match', check, [], controller ? warnings : undefined)
+      return warnings
+    })
+    return { hook, check }
+  }
+
+  test('is asked at Book when given the form’s controller', () => {
+    const { hook, check } = own(true)
+    const save = vi.fn()
+    hook.current().guard(press(), save)
+    expect(check).toHaveBeenCalledTimes(1)
+    expect(save).not.toHaveBeenCalled()
+    expect(hook.current().warnings.map((w) => w.id)).toEqual([jane.id])
+  })
+
+  test('without it, is never asked: Book books straight through', () => {
+    const { hook, check } = own(false)
+    const save = vi.fn()
+    hook.current().guard(press(), save)
+    expect(check).not.toHaveBeenCalled()
+    expect(save).toHaveBeenCalledTimes(1)
   })
 })

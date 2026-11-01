@@ -276,6 +276,11 @@ export function SaveWarningsProvider({
  * Pass `null` for no check. Outside a SaveWarningsProvider it does nothing,
  * so a field works in a form that has not adopted the panel.
  *
+ * A form's own check, made in the component that renders the provider,
+ * passes that form's `controller`: a component reads only the context of
+ * those above it, so there the hook finds no provider, and its check would
+ * never be asked.
+ *
  * The check should return its array straight away whenever it needs no
  * network, so the form saves in the same tick; see SaveCheck.
  */
@@ -283,8 +288,10 @@ export function useSaveCheck(
   source: string,
   check: SaveCheck | null,
   deps: ReadonlyArray<unknown>,
+  controller?: SaveWarningsController,
 ): void {
-  const fields = useContext(FieldsContext)
+  const above = useContext(FieldsContext)
+  const fields = controller?.fields ?? above
 
   useEffect(() => {
     if (!fields || !check) return

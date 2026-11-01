@@ -319,6 +319,8 @@ export function NewPropertySheet({
       value.suburb,
       value.postcode,
     ],
+    // This form's own: the provider is rendered below, by this component.
+    saveWarnings,
   )
   const matchLine = (
     field: NewClientMatchField,
