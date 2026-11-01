@@ -48,6 +48,7 @@ import { ReportPreview } from '#/components/onboarding/ReportPreview'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 import { EmailInput } from '#/components/forms/EmailInput'
 import { JobCard } from '#/components/schedule/JobCard'
+import type { WeatherCell } from '#/lib/weather'
 import { RecurringServices } from '#/components/schedule/RecurringServices'
 import { useBusinessDay } from '#/lib/useBusinessDay'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
@@ -246,6 +247,71 @@ function JobCards() {
             // Contact line, so the two are seen stacked beside the price.
             travel={job._id === 'j5' ? '≈ 4 km → Leederville' : undefined}
           />
+        ))}
+      </div>
+    </Phone>
+  )
+}
+
+/**
+ * One card in each state of its forecast: on its way, then the forecasts it
+ * can land as. The placeholder must be the height of every one of them, or
+ * the day's cards jump as the forecast arrives (`data-weather` names each,
+ * for measuring).
+ */
+const CARD_WEATHER: Array<[string, WeatherCell]> = [
+  ['pending', { status: 'pending' }],
+  [
+    'ready',
+    {
+      status: 'ready',
+      weather: {
+        suburb: 'Subiaco',
+        code: 2,
+        maxTempC: 24.4,
+        minTempC: 13.1,
+        rainMm: 0.4,
+        windKmh: 18,
+      },
+    },
+  ],
+  [
+    'ready-long',
+    {
+      status: 'ready',
+      weather: {
+        suburb: 'Subiaco',
+        code: 85,
+        maxTempC: -3.6,
+        minTempC: -12.2,
+        rainMm: 112.5,
+        windKmh: 104,
+        partial: true,
+      },
+    },
+  ],
+  [
+    'ready-sparse',
+    { status: 'ready', weather: { suburb: 'Subiaco', maxTempC: 9 } },
+  ],
+]
+
+function JobCardWeather() {
+  return (
+    <Phone>
+      <Header kicker="Friday 26 September" title="Schedule" />
+      <div className="flex flex-col gap-3 p-4">
+        {CARD_WEATHER.map(([name, cell]) => (
+          <div key={name} data-weather={name}>
+            <h2 className="section-label mb-2">{name}</h2>
+            <JobCard
+              job={JOBS[1] as never}
+              weather={cell}
+              timezone={TZ}
+              onOpen={() => {}}
+              hideTechnician
+            />
+          </div>
         ))}
       </div>
     </Phone>
@@ -3081,6 +3147,7 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'report-preview': ReportPreviewSpecimen,
   dock: Dock,
   jobcards: JobCards,
+  'jobcard-weather': JobCardWeather,
   jobdetail: JobDetail,
   newjob: NewJob,
   'newjob-no-signal': NewJobNoSignal,

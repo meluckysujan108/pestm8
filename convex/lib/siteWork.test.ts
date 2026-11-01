@@ -11,6 +11,7 @@ import {
   openWorkDays,
   openWorkSpan,
   slotOf,
+  slotShown,
 } from './siteWork'
 
 /**
@@ -88,6 +89,33 @@ describe('the days an answer covers', () => {
 
   test('last week’s answer still covers this Monday, opened with no signal', () => {
     expect(openWorkCovers('2026-10-19', '2026-10-26')).toBe(true)
+  })
+})
+
+describe('the slot someone else’s visit is told by (slotShown)', () => {
+  const nine = (dayKey: string) => zonedDateTimeToUtc(dayKey, 9, 0, PERTH)
+  const told = (slot: string, booked: string) =>
+    slotShown(
+      { occurrenceAt: nine(slot), scheduledAt: nine(booked) },
+      '2026-10-26',
+      PERTH,
+    )
+
+  test('its own slot while that is within the twenty weeks too, to their last day', () => {
+    expect(told('2026-10-29', '2026-10-30')).toBe(nine('2026-10-29'))
+    expect(told('2026-09-28', '2026-10-30')).toBe(nine('2026-09-28'))
+    expect(told('2027-02-14', '2026-10-30')).toBe(nine('2027-02-14'))
+  })
+
+  test('when it is booked, once its slot is past them either side', () => {
+    expect(told('2026-09-27', '2026-10-30')).toBe(nine('2026-10-30'))
+    expect(told('2027-02-15', '2026-10-30')).toBe(nine('2026-10-30'))
+  })
+
+  test('a one-off is told by when it is booked, its only slot', () => {
+    expect(
+      slotShown({ scheduledAt: nine('2026-10-30') }, '2026-10-26', PERTH),
+    ).toBe(nine('2026-10-30'))
   })
 })
 

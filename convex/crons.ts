@@ -136,4 +136,18 @@ crons.cron(
   {},
 )
 
+/**
+ * Moves each time zone's week on (convex/zoneWeeks.ts), for `jobs.openWork`,
+ * which answers for the business's week alone and never reads the clock.
+ * Every zone in use is a whole quarter-hour from UTC, so two minutes past
+ * each quarter is at most two minutes after any zone's Monday begins. It
+ * reads only the zones in use and writes only when a Monday changes.
+ */
+crons.cron(
+  'move each zone week on',
+  '2,17,32,47 * * * *',
+  internal.zoneWeeks.advance,
+  {},
+)
+
 export default crons

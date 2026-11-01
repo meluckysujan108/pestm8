@@ -20,13 +20,36 @@ export function isOpenStatus(status: string): status is OpenStatus {
  * engine projected it onto, which stays its own when the visit is moved
  * (schema.ts `occurrenceAt`); otherwise when it is booked. A booking says
  * which slots it was shown by these, so a visit the office moves, or one the
- * engine projects again, is still the one that was seen.
+ * engine projects again, is still the one that was seen. Someone else's
+ * visit whose slot is past the twenty weeks is told, and so seen, by when it
+ * is booked instead (`slotShown`), like a one-off: moved again, it is shown
+ * again.
  */
 export function slotOf(job: {
   scheduledAt: number
   occurrenceAt?: number
 }): number {
   return job.occurrenceAt ?? job.scheduledAt
+}
+
+/**
+ * The slot someone else's job is told by, to a phone asking with `startKey`
+ * in `timezone`: its own (`slotOf`) when that day is within the twenty
+ * weeks too, otherwise when it is booked, which is within them whenever the
+ * job is told at all. So a visit the office moved in from past them never
+ * says when it was first due (the owner's answer to C5, 1 Nov 2026: never
+ * a date past them). The server takes back what it told: `seen` matches
+ * someone else's job by this, not by its slot.
+ */
+export function slotShown(
+  job: { scheduledAt: number; occurrenceAt?: number },
+  startKey: string,
+  timezone: string,
+): number {
+  const slot = slotOf(job)
+  return openWorkCovers(startKey, dayKeyOf(slot, timezone))
+    ? slot
+    : job.scheduledAt
 }
 
 /**
@@ -110,10 +133,11 @@ export function openWorkCovers(startKey: string, dayKey: string): boolean {
  * to 26 hours more at either end, which the phone, going by each row's date
  * in the business's zone, never counts on.
  *
- * That way the query needs no time zone, and so never reads the business's
- * row, which every booking, Recurring Job visit and numbered report patches:
- * a query that read it would run again for every member each time.
- * `weekFrom` is where `startKey` itself can first begin.
+ * That way the read needs no time zone. The query trims someone else's rows
+ * to the business's own days by its zone's row (convex/zoneWeeks.ts), never
+ * the business's row, which every booking, Recurring Job visit and numbered
+ * report patches: a query that read it would run again for every member
+ * each time. `weekFrom` is where `startKey` itself can first begin.
  */
 export function openWorkSpan(startKey: string): {
   from: number

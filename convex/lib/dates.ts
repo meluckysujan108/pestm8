@@ -97,6 +97,22 @@ function pad(n: number): string {
   return String(n).padStart(2, '0')
 }
 
+/**
+ * The calendar's own name for `timezone`, which it matches whatever the
+ * case and through an old name ("australia/perth" and "Australia/West" are
+ * "Australia/Perth"), or null for one it doesn't know. Never cached: every
+ * spelling would be kept.
+ */
+export function zoneName(timezone: string): string | null {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+    }).resolvedOptions().timeZone
+  } catch {
+    return null
+  }
+}
+
 /** "YYYY-MM-DD" for an instant, as seen in `timezone`. */
 export function dayKeyOf(ts: number, timezone: string): string {
   const parts = dateTimeFormat('en-CA', {

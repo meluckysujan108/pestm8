@@ -4,6 +4,7 @@ import betterAuthTest from '@convex-dev/better-auth/test'
 import prosemirrorSyncTest from '@convex-dev/prosemirror-sync/test'
 import schema from '../convex/schema'
 import { MEMBER_COLOURS } from '../convex/lib/colours'
+import { keepZone } from '../convex/zoneWeeks'
 import { api, components } from '../convex/_generated/api'
 import type { Id } from '../convex/_generated/dataModel'
 
@@ -180,6 +181,8 @@ export async function createBusiness(
       subscriptionStatus: 'trialing',
       createdAt: now,
     })
+    // Its zone and week, as businesses.create keeps them (zoneWeeks.ts).
+    await keepZone(ctx, { _id: businessId, timezone: 'Australia/Perth' }, now)
     const ownerMembershipId = await ctx.db.insert('memberships', {
       userId: owner.userId,
       businessId,

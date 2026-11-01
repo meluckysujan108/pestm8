@@ -2848,4 +2848,31 @@ export default defineSchema({
   })
     // A person's reports, newest first; and the throttle.
     .index('by_userId', ['userId']),
+
+  /**
+   * Each business's time zone (convex/zoneWeeks.ts), kept off the business's
+   * row, which every booking, visit and numbered report patches, for
+   * `jobs.openWork`, which answers for the business's week alone. One row a
+   * business, written when it is made or its zone changes, by the calendar's
+   * own name for the zone ("Australia/Perth", however it was typed). A zone
+   * the calendar doesn't know is kept as typed, with no week: find the
+   * zone's week before reading this as a time zone.
+   */
+  businessZones: defineTable({
+    businessId: v.id('businesses'),
+    timezone: v.string(),
+  })
+    .index('by_business', ['businessId'])
+    .index('by_timezone', ['timezone']),
+
+  /**
+   * The Monday of the week each time zone in use is in now, "YYYY-MM-DD"
+   * (convex/zoneWeeks.ts), since a query never reads the clock. One row a
+   * zone a business is in, moved on by a cron every fifteen minutes when its
+   * Monday changes, and dropped when its last business leaves it.
+   */
+  zoneWeeks: defineTable({
+    timezone: v.string(),
+    monday: v.string(),
+  }).index('by_timezone', ['timezone']),
 })

@@ -343,6 +343,7 @@ Don't let a form stretch across 1280px.
 - `lg:` brings the sidebar, split panes, and fixed bars becoming static.
 - `xl:` adds a third column.
 - Switch layouts in CSS, not with `useMediaQuery`. Hover is never the only way to reach something.
+- Something drawn in cards of many widths, whose height must not change as it loads (the job card's forecast, `schedule/WeatherStrip.tsx`), is laid out by its own width with a container query (`@container`, then `@lg:`), never by its words wrapping. Each line keeps its height when empty, and its placeholder is the same layout with blank lines, so the two are one height at every width.
 
 **Sheets or pages?**
 
@@ -506,7 +507,7 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 | `KeptJobView` (`schedule/KeptJobView.tsx`)        | A job opened with no answer from PestM8 (`useKeptJob`: the line down, or 3 s with nothing while its day isn't live), read-only from the day that lists it, with “No signal — showing the copy kept on this phone, updated 9:42am. Editing needs signal.” under the property. Laid out as the live sheet down to the property's Call, Edit's row and the status menu's chevron held unseen where the live sheet has them (`UnseenEdit`, `UnseenMenu`, which `KeptClientView` uses too), and drawn in the sheet's own body, which the live sheet lands in at the same scroll and height (`useHandOverBody`), so nothing moves when PestM8 answers (States says where the phone can't tell). With the line down and no day on the phone listing it, `NotKeptJob`: “This job isn’t on this phone. It opens when you have signal.” |
 | `KeptClientView` (`clients/KeptClientView.tsx`)   | A client opened with no answer from PestM8 (`useKeptClient`: the job sheet's rule, with the client list in the day's place), read-only from the phone's client list: who they are, their number and tags, and Call, Text and Email (the client list's email, or for a copy kept before the list carried emails, a day the phone holds) where the live sheet has them, held there across the hand-over as the job's are, then the job sheet's line, then each site with Map and its site contact; Jobs, Notes, a business's Contacts and, where the live sheet has a row for it, Xero say “Opens when you have signal.” One the list doesn't have is `NotKeptClient`: “This client isn’t on this phone. It opens when you have signal.”                                                                                        |
 
-Placeholders are shaped like what they stand in for, so nothing jumps when the content lands. They contain **no** headings, buttons or visible text: the e2e suite takes a heading as the sign that a page has loaded.
+Placeholders are shaped like what they stand in for, so nothing jumps when the content lands. Where the content's height would depend on its words, lay it out by width instead (Breakpoints, in 3). They contain **no** headings, buttons or visible text: the e2e suite takes a heading as the sign that a page has loaded.
 
 ### 4.7 Settings pages: `settings/ui.tsx`
 

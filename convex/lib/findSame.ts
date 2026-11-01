@@ -19,8 +19,14 @@ import { isInScope } from './capabilities'
 import { jobInScope } from './jobPeople'
 import { isBinned } from './bin'
 import { intervalOf } from './recurrence'
-import { isOpenStatus, openNear, slotOf } from './siteWork'
-import { dayKeyOf, startOfDayInZone } from './dates'
+import {
+  isOpenStatus,
+  openNear,
+  openWorkCovers,
+  slotOf,
+  slotShown,
+} from './siteWork'
+import { dayKeyOf, startOfDayInZone, startOfWeekKey } from './dates'
 import type { Infer } from 'convex/values'
 import type {
   Candidate,
@@ -75,8 +81,8 @@ import type { ActorEnvelope } from './actor'
  *    its absence says anything about the clients outside their book. (A
  *    site chosen by its id is checked whoever's it is: its id, and its
  *    work's dates for twenty weeks, are what `jobs.openWork` already sends
- *    every member. The check itself goes by the booking's own date, however
- *    far off: see `checkSiteWork`.)
+ *    every member; and someone else's work is named only within those
+ *    twenty weeks: see `checkSiteWork`.)
  *  - sites only at the typed postcode (`by_business_and_postcode`), in both
  *    forms for one written with three digits or four (810 is 0810). Exact
  *    address keys include the postcode, so every site that can be the typed
@@ -98,16 +104,21 @@ import type { ActorEnvelope } from './actor'
  *    weak evidence.
  *  - `SITE_BOOKED`: open work within a week of the booking at the site, or
  *    at any site that is the typed address, whoever's of the clients the
- *    caller may see, that the booking wasn't sent as seen; for a booking
- *    the outbox moved onto a client at a new site for them, at their own
- *    sites only like it too.
+ *    caller may see, that the booking wasn't sent as seen: the caller's own
+ *    at any date, anyone else's only within `jobs.openWork`'s twenty weeks
+ *    from this week. For a booking the outbox moved onto a client at a new
+ *    site for them, at their own sites only like it too.
  *  - `SITE_REPEATS`: a second Recurring Job at the site, when the one there
  *    wasn't seen.
  *
  * Each names at most MATCH_ROWS_MAX, and hands back every other one that
  * stops the booking (`more`) as `dismissed`, `seen` or `seenSeries` takes
  * it back, never with a name, so one Book anyway that sends them all back
- * gets through, not one refusal per three.
+ * gets through, not one refusal per three. (Unless a week turns between
+ * the two in the business's zone: someone else's work in the week that
+ * came within `jobs.openWork`'s twenty weeks was never named, and a visit
+ * of theirs whose slot crossed an edge of them is told by its other slot,
+ * so either refuses once more: see `checkSiteWork`.)
  *
  * In that order: a booking moved onto a client is sent again with its
  * `siteCheck`, so two techs who took the same caller end with one client
@@ -218,14 +229,16 @@ export const matchCheckArg = v.optional(
 
 /**
  * The work at the site the person was shown, and booked past: each job or
- * visit by its site and slot (`slotOf`), and each Recurring Job, whose
- * visits are then all seen. Optional; never stored.
+ * visit by its site and the slot it was told by (`slotOf`, or `slotShown`
+ * for someone else's), and each Recurring Job, whose visits are then all
+ * seen. Optional; never stored.
  *
  * A one-off has no slot of its own: moved by the office, even on the same
  * day, it is at another. So a job in the person's own scope, whose id their
  * phone holds (`jobs.openWork`, and SITE_BOOKED's rows), is sent by its id
  * too, and is seen wherever it has been moved. One out of their scope is
- * known by its site and slot alone, which is all their phone was sent.
+ * known by its site and the slot it was told by (`slotShown`) alone, which
+ * is all their phone was sent.
  */
 export const siteCheckArg = v.optional(
   v.object({
@@ -271,7 +284,8 @@ export type MatchedClient = {
 /** Open work at the site, as SITE_BOOKED names it. */
 export type BookedRow = {
   propertyId: Id<'properties'>
-  /** Its slot (`slotOf`), which `seen` sends back. */
+  /** Its slot (`slotOf`), which `seen` sends back; for someone else's
+   * whose slot is past the twenty weeks, when it is booked (`slotShown`). */
   at: number
   scheduledAt: number
   /** The Recurring Job a visit is of, which `seenSeries` sends back. */
@@ -900,15 +914,45 @@ async function matchedCandidate(
  * second job at a second, misspelt site (FW1). Only ever a hold for a tap,
  * never a move: nobody is moved by an address that is only like theirs.
  *
- * By the booking's own date, however far off, and so past `jobs.openWork`'s
- * twenty weeks: an annual inspection booked a year ahead, or a job left
- * open months ago, is what the phone can't show, and what the server's
- * check is for. So a refusal can name another member's open work at the
- * site, by its date alone (C5's "dates only"), at whatever date the person
- * books, past jobs left open included, beyond what their phone is sent. A
- * date tried that finds nothing books a job there, which the office sees:
- * the target's own refusals come first (`backstop`), so a booking can't be
- * made to fail after the check instead.
+ * By the booking's own date, however far off, for the caller's own work
+ * (`jobInScope`, theirs to see anyway): an annual inspection booked a year
+ * ahead, or a job left open months ago, is what the phone may not hold.
+ * Anyone else's is named only when it falls within `jobs.openWork`'s
+ * twenty weeks from this week (`openWorkCovers` from this week's Monday),
+ * which `openWork` sends every member this week: the owner's answer to C5
+ * (1 Nov 2026), "dates only" and no further. Its row's slot too: past them,
+ * someone else's visit is told by when it is booked (`slotShown`), as
+ * `openWork` tells it, and `seen` takes it back by that. So a refusal never tells someone of another
+ * member's work beyond what `openWork` sends them now, and a booking beside
+ * work past those weeks goes ahead, for the office to see. A Recurring
+ * Job's next visit, for SITE_REPEATS, is judged visit by visit the same
+ * way, so one the office moved onto someone else past them isn't named,
+ * whoever's the series is. Someone who sees the whole schedule has every
+ * job in scope, so for them nothing is cut.
+ *
+ * The weeks go by the mutation's clock, so a Book anyway sent back after a
+ * week has turned in the business's zone can be refused once more: work
+ * of someone else's in the week that came within them wasn't named the
+ * first time, and a visit of someone else's whose slot crossed an edge of
+ * them at the turn is told by its other slot now (`slotShown`: its slot
+ * one side, when it is booked the other; most often a visit overdue from
+ * four weeks back and moved forward), so the pair sent back no longer
+ * holds it. Once each, so the next Book anyway gets through; an outbox
+ * booking held for a look and sent days later can meet it too. M7's and
+ * 2c-J's copy says so as more to look at, never as a loop, and not as new
+ * work: a visit told by its other slot is one already named, at the same
+ * site and booked time.
+ *
+ * So can a Book anyway after the office moves someone else's visit whose
+ * slot is past the twenty weeks: it was told by when it was booked, since
+ * its slot is a date past them, so once moved it is shown again, as a
+ * one-off is. A visit told as someone else's that has become the caller's
+ * since is still seen by what it was told while its slot stays past them
+ * (once within them, it is told and seen by its slot, as their own is).
+ *
+ * A date tried that finds nothing books a job there, which the office
+ * sees: the target's own refusals come first (`backstop`), so a booking
+ * can't be made to fail after the check instead.
  *
  * Every site at the address up to TARGETS_MAX, past it the newest, and the
  * cut logged; their jobs read newest made first, JOBS_PER_SITE each up to
@@ -993,6 +1037,34 @@ async function checkSiteWork(
     .flat()
     .filter((job) => !isBinned(job) && job.businessId === business._id)
 
+  // Whether a job is the caller's to see, asked once a job: it decides
+  // whether someone else's work is past what may be named, and what a
+  // named row carries.
+  const scoped = new Map<Id<'jobs'>, boolean>()
+  const theirs = async (job: Doc<'jobs'>) => {
+    let answer = scoped.get(job._id)
+    if (answer === undefined) {
+      answer = await jobInScope(ctx, env.scope, job)
+      scoped.set(job._id, answer)
+    }
+    return answer
+  }
+  // Someone else's work is named only within `jobs.openWork`'s twenty
+  // weeks from this week, as `openWork` sends every member this week (by
+  // the mutation's clock, in the business's zone); the caller's own at any
+  // date.
+  const monday = startOfWeekKey(dayKeyOf(read.now, business.timezone))
+  const nameable = async (job: Doc<'jobs'>) =>
+    openWorkCovers(monday, dayKeyOf(job.scheduledAt, business.timezone)) ||
+    (await theirs(job))
+  // The slot a named job is told by and taken back by: its own, but for
+  // someone else's whose slot is past the twenty weeks, when it is booked,
+  // as `openWork` tells it (`slotShown`).
+  const slotTold = async (job: Doc<'jobs'>) => {
+    const shown = slotShown(job, monday, business.timezone)
+    return shown === slotOf(job) || !(await theirs(job)) ? shown : slotOf(job)
+  }
+
   if (read.series) {
     const running = (
       await Promise.all(
@@ -1027,35 +1099,40 @@ async function checkSiteWork(
       )
       const data: SiteRepeats = {
         code: 'SITE_REPEATS',
-        series: running.slice(0, MATCH_ROWS_MAX).map((row) => {
-          const nextAt = jobs
-            .filter(
-              (job) =>
-                job.recurrenceId === row._id &&
-                isOpenStatus(job.status) &&
-                job.scheduledAt >= today,
-            )
-            .reduce<number | undefined>(
-              (soonest, job) =>
-                soonest === undefined || job.scheduledAt < soonest
-                  ? job.scheduledAt
-                  : soonest,
-              undefined,
-            )
-          const interval = isInScope(env.scope, row) ? intervalOf(row) : null
-          return {
-            recurrenceId: row._id,
-            propertyId: row.propertyId,
-            ...(nextAt !== undefined ? { nextAt } : {}),
-            ...(interval
-              ? {
-                  intervalCount: interval.count,
-                  intervalUnit: interval.unit,
-                  jobType: row.jobType,
-                }
-              : {}),
-          }
-        }),
+        series: await Promise.all(
+          running.slice(0, MATCH_ROWS_MAX).map(async (row) => {
+            // Its next visit, judged visit by visit as SITE_BOOKED judges a
+            // job: one moved onto someone else past the twenty weeks is
+            // theirs alone to know, whoever's the series is.
+            let nextAt: number | undefined
+            for (const visit of jobs
+              .filter(
+                (job) =>
+                  job.recurrenceId === row._id &&
+                  isOpenStatus(job.status) &&
+                  job.scheduledAt >= today,
+              )
+              .sort((a, b) => a.scheduledAt - b.scheduledAt)) {
+              if (await nameable(visit)) {
+                nextAt = visit.scheduledAt
+                break
+              }
+            }
+            const interval = isInScope(env.scope, row) ? intervalOf(row) : null
+            return {
+              recurrenceId: row._id,
+              propertyId: row.propertyId,
+              ...(nextAt !== undefined ? { nextAt } : {}),
+              ...(interval
+                ? {
+                    intervalCount: interval.count,
+                    intervalUnit: interval.unit,
+                    jobType: row.jobType,
+                  }
+                : {}),
+            }
+          }),
+        ),
         ...(more.length > 0 ? { more } : {}),
       }
       throw new ConvexError(data)
@@ -1070,16 +1147,25 @@ async function checkSiteWork(
       pair.jobId !== undefined ? [pair.jobId] : [],
     ),
   )
-  const near = openNear(
+  const unseen = openNear(
     jobs.filter(
       (job) =>
-        !seen.has(`${job.propertyId}|${slotOf(job)}`) &&
         !seenJobs.has(job._id) &&
         !(job.recurrenceId !== undefined && seenSeries.has(job.recurrenceId)),
     ),
     read.at,
     business.timezone,
   )
+  const near: Array<{ job: Doc<'jobs'>; at: number }> = []
+  for (const job of unseen) {
+    if (!(await nameable(job))) continue
+    const at = await slotTold(job)
+    if (seen.has(`${job.propertyId}|${at}`)) continue
+    // The caller's own, told as someone else's before it became theirs.
+    const shown = slotShown(job, monday, business.timezone)
+    if (shown !== at && seen.has(`${job.propertyId}|${shown}`)) continue
+    near.push({ job, at })
+  }
   if (near.length === 0) return
 
   const shown = near.slice(0, MATCH_ROWS_MAX)
@@ -1087,18 +1173,20 @@ async function checkSiteWork(
   // its id too, so one the office moves before the resend is still seen;
   // anyone else's by site and slot alone, once each (two in one slot are
   // one pair to send back).
-  const pairOf = (job: Doc<'jobs'>) => `${job.propertyId}|${slotOf(job)}`
+  const pairOf = ({ job, at }: (typeof near)[number]) =>
+    `${job.propertyId}|${at}`
   const pairs = new Set(shown.map(pairOf))
   const more: NonNullable<SiteBooked['more']> = []
-  for (const job of near.slice(MATCH_ROWS_MAX)) {
+  for (const told of near.slice(MATCH_ROWS_MAX)) {
     if (more.length >= MORE_MAX) break
-    const pair = { propertyId: job.propertyId, at: slotOf(job) }
-    if (await jobInScope(ctx, env.scope, job)) {
+    const { job, at } = told
+    const pair = { propertyId: job.propertyId, at }
+    if (await theirs(job)) {
       more.push({ ...pair, jobId: job._id })
-    } else if (!pairs.has(pairOf(job))) {
+    } else if (!pairs.has(pairOf(told))) {
       more.push(pair)
     }
-    pairs.add(pairOf(job))
+    pairs.add(pairOf(told))
   }
   const siteOf = new Map(targets.map((site) => [site._id, site]))
   const names = new Map<Id<'clients'>, string | null>()
@@ -1116,18 +1204,18 @@ async function checkSiteWork(
   const data: SiteBooked = {
     code: 'SITE_BOOKED',
     rows: await Promise.all(
-      shown.map(async (job) => {
+      shown.map(async ({ job, at }) => {
         const clientName = await clientNameOf(job.propertyId)
-        const theirs = await jobInScope(ctx, env.scope, job)
+        const own = await theirs(job)
         return {
           propertyId: job.propertyId,
-          at: slotOf(job),
+          at,
           scheduledAt: job.scheduledAt,
           ...(job.recurrenceId !== undefined
             ? { series: job.recurrenceId }
             : {}),
           ...(clientName !== null ? { clientName } : {}),
-          ...(theirs
+          ...(own
             ? {
                 jobId: job._id,
                 ...(job.jobNumber !== undefined
