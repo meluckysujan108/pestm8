@@ -51,6 +51,7 @@ import {
   REMATCH_ERROR_COPY,
   SYNC_PAUSED,
   TWO_STEP_FIRST,
+  TWO_STEP_SUGGESTED,
   backfillCopy,
   backfillHeldCopy,
   disclosureCopy,
@@ -291,6 +292,7 @@ function XeroConnection({
       view={kind === 'business' ? status.business : status.mine}
       timezone={status.timezone}
       twoStepOn={status.twoStepOn}
+      twoStepNeeded={status.twoStepNeeded}
       paused={status.paused}
       search={search}
       onSearchDone={onSearchDone}
@@ -308,6 +310,7 @@ function ConnectionStates({
   view,
   timezone,
   twoStepOn,
+  twoStepNeeded,
   paused,
   search,
   onSearchDone,
@@ -316,8 +319,11 @@ function ConnectionStates({
   business: Business
   view: XeroView | null
   timezone: string
-  /** Connecting needs two-step sign-in on (convex/xero.ts). */
+  /** Two-step sign-in is on: otherwise the page suggests it. */
   twoStepOn: boolean
+  /** Connecting is refused until it is on, where the deployment asks for it
+   * (`XERO_TWO_STEP_REQUIRED=on`, convex/xero.ts `requireTwoStep`). */
+  twoStepNeeded: boolean
   /** The kill switch is on (`XERO_SYNC_PAUSED`). */
   paused: boolean
   search: XeroSearch
@@ -396,15 +402,18 @@ function ConnectionStates({
             <p className="text-body text-ink">{EXPLAINER[kind]}</p>
             <p className="mt-2 text-caption text-ink-2">{disclosure}</p>
             <div className="mt-3.5">
-              {twoStepOn ? (
-                <ConnectButton
-                  id={connectId}
-                  businessId={business._id}
-                  kind={kind}
-                  label="Connect Xero"
-                />
-              ) : (
+              {twoStepNeeded ? (
                 <TwoStepFirst id={connectId} slug={business.slug} />
+              ) : (
+                <>
+                  <ConnectButton
+                    id={connectId}
+                    businessId={business._id}
+                    kind={kind}
+                    label="Connect Xero"
+                  />
+                  {!twoStepOn && <TwoStepSuggested slug={business.slug} />}
+                </>
               )}
             </div>
           </div>
@@ -469,14 +478,14 @@ function ConnectionStates({
             </p>
             <p className="mt-2 text-caption text-ink-2">{disclosure}</p>
             <div className="mt-3.5">
-              {twoStepOn ? (
+              {twoStepNeeded ? (
+                <TwoStepFirst slug={business.slug} />
+              ) : (
                 <ConnectButton
                   businessId={business._id}
                   kind={kind}
                   label="Reconnect Xero"
                 />
-              ) : (
-                <TwoStepFirst slug={business.slug} />
               )}
             </div>
           </div>
@@ -1120,9 +1129,11 @@ export function useRematch(
 }
 
 /**
- * In place of Connect Xero while two-step sign-in is off: why, and the way to
- * turn it on — a `LINK_BUTTON`, since it goes somewhere else. The server refuses a connect without it (`requireTwoStep` in
- * convex/xero.ts), so offering the button would only lead to that refusal.
+ * In place of Connect Xero while two-step sign-in is off, on a deployment
+ * that needs it for connecting (`XERO_TWO_STEP_REQUIRED=on`): why, and the
+ * way to turn it on — a `LINK_BUTTON`, since it goes somewhere else. The
+ * server refuses a connect without it (`requireTwoStep` in convex/xero.ts),
+ * so offering the button would only lead to that refusal.
  */
 function TwoStepFirst({ id, slug }: { id?: string; slug: string }) {
   return (
@@ -1137,6 +1148,27 @@ function TwoStepFirst({ id, slug }: { id?: string; slug: string }) {
         Turn on two-step sign-in
       </Link>
     </>
+  )
+}
+
+/**
+ * Under Connect Xero for someone without two-step sign-in, where connecting
+ * doesn't need it: a suggestion, never in the way. One caption with its
+ * link inline (a text button, as the terms line's are), so it reads as an
+ * aside to the button above it rather than a second action beside it.
+ */
+function TwoStepSuggested({ slug }: { slug: string }) {
+  return (
+    <p className="mt-3 text-caption text-ink-2">
+      {TWO_STEP_SUGGESTED}{' '}
+      <Link
+        to="/$businessSlug/settings/sign-in"
+        params={{ businessSlug: slug }}
+        className="relative tap-target font-semibold text-blue"
+      >
+        Turn on two-step sign-in
+      </Link>
+    </p>
   )
 }
 
