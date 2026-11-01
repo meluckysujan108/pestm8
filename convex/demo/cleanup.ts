@@ -713,11 +713,12 @@ const clearMemberships: Step = (run) =>
       .take(n),
   )
 
-/** Its week, for `jobs.openWork` (businessWeeks.ts): one row. */
-const clearWeek: Step = (run) =>
-  sweep(run, 'businessWeeks', (n) =>
+/** Its zone, for `jobs.openWork` (zoneWeeks.ts): one row. The zone's
+ * week is every business's in that zone, and stays. */
+const clearZone: Step = (run) =>
+  sweep(run, 'businessZones', (n) =>
     run.ctx.db
-      .query('businessWeeks')
+      .query('businessZones')
       .withIndex('by_business', (q) => q.eq('businessId', run.business._id))
       .take(n),
   )
@@ -745,7 +746,7 @@ const STEPS: Array<Step> = [
   clearAuditLog,
   clearPlaceholders,
   clearMemberships,
-  clearWeek,
+  clearZone,
   clearBusiness,
 ]
 
@@ -990,9 +991,9 @@ export const status = internalQuery({
           .withIndex('by_business', (q) => q.eq('businessId', businessId))
           .take(STATUS_CAP)
       ).length,
-      businessWeeks: (
+      businessZones: (
         await ctx.db
-          .query('businessWeeks')
+          .query('businessZones')
           .withIndex('by_business', (q) => q.eq('businessId', businessId))
           .take(STATUS_CAP)
       ).length,

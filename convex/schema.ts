@@ -2850,15 +2850,23 @@ export default defineSchema({
     .index('by_userId', ['userId']),
 
   /**
-   * Each business's week (convex/businessWeeks.ts): its time zone, and the
-   * Monday of the week it is in now, "YYYY-MM-DD". For `jobs.openWork`,
-   * which answers for this week alone and never reads the clock or the
-   * business's row. One row a business, moved on by a cron every fifteen
-   * minutes when the Monday changes.
+   * Each business's time zone (convex/zoneWeeks.ts), kept off the business's
+   * row, which every booking, visit and numbered report patches, for
+   * `jobs.openWork`, which answers for the business's week alone. One row a
+   * business, written when it is made or its zone changes.
    */
-  businessWeeks: defineTable({
+  businessZones: defineTable({
     businessId: v.id('businesses'),
     timezone: v.string(),
-    monday: v.string(),
   }).index('by_business', ['businessId']),
+
+  /**
+   * The Monday of the week each time zone in use is in now, "YYYY-MM-DD"
+   * (convex/zoneWeeks.ts), since a query never reads the clock. One row a
+   * zone, moved on by a cron every fifteen minutes when its Monday changes.
+   */
+  zoneWeeks: defineTable({
+    timezone: v.string(),
+    monday: v.string(),
+  }).index('by_timezone', ['timezone']),
 })

@@ -19,7 +19,7 @@ import type { TestActor } from '../test/harness'
  * left out; a subcontractor gets anyone else's open work as a site and a
  * date only, and nobody else's work done at all (the owner's answer, 27 Oct
  * 2026), and only within the business's own twenty weeks; it answers for
- * the business's own week alone (businessWeeks.ts; the owner's answer to
+ * the business's own week alone (zoneWeeks.ts; the owner's answer to
  * C5, 1 Nov 2026); and past its limit it says so rather than failing.
  */
 
@@ -88,17 +88,26 @@ async function setup() {
 
 type Setup = Awaited<ReturnType<typeof setup>>
 
-/** Sets the business's week (businessWeeks.ts), as the cron would. */
+/** Puts the business in `timezone` and that zone's week at `monday`, as
+ * a zone change and the cron would (zoneWeeks.ts). */
 function setWeek(
   s: Pick<Setup, 't' | 'businessId'>,
   week: { monday?: string; timezone?: string },
 ) {
   return s.t.run(async (ctx) => {
-    const row = await ctx.db
-      .query('businessWeeks')
+    const zone = await ctx.db
+      .query('businessZones')
       .withIndex('by_business', (q) => q.eq('businessId', s.businessId))
       .unique()
-    await ctx.db.patch(row!._id, week)
+    const timezone = week.timezone ?? zone!.timezone
+    await ctx.db.patch(zone!._id, { timezone })
+    const row = await ctx.db
+      .query('zoneWeeks')
+      .withIndex('by_timezone', (q) => q.eq('timezone', timezone))
+      .unique()
+    const monday = week.monday ?? row?.monday ?? START
+    if (row) await ctx.db.patch(row._id, { monday })
+    else await ctx.db.insert('zoneWeeks', { timezone, monday })
   })
 }
 
@@ -798,10 +807,10 @@ describe('what it reads', () => {
     await expect(ask(s.owner, s)).rejects.toThrow('INVALID_WEEK')
   })
 
-  test('a business with no week yet answers for none', async () => {
+  test('a business with no zone kept yet answers for no week', async () => {
     const s = await setup()
     await s.t.run(async (ctx) => {
-      for (const row of await ctx.db.query('businessWeeks').collect()) {
+      for (const row of await ctx.db.query('businessZones').collect()) {
         await ctx.db.delete(row._id)
       }
     })

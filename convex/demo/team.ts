@@ -13,7 +13,7 @@ import {
 } from '../lib/capabilities'
 import { MEMBER_COLOURS, nextColour } from '../lib/colours'
 import { todayKeyInZone } from '../lib/dates'
-import { keepWeek } from '../businessWeeks'
+import { keepZone } from '../zoneWeeks'
 import { INVITE_TTL_MS } from '../lib/inviteTokens'
 import { factsFromMembership } from '../lib/membershipFacts'
 import {
@@ -103,7 +103,7 @@ export const seed = internalMutation({
       plan: DEMO_PLAN,
       createdAt: openedAt,
     })
-    await keepWeek(ctx, { _id: businessId, timezone }, now)
+    await keepZone(ctx, { _id: businessId, timezone }, now)
     const owner = await ctx.db.insert('memberships', {
       userId: source.owner.userId,
       businessId,

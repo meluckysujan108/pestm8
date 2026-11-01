@@ -13,7 +13,7 @@ import { isEmailCardSize, logoFileRefusal } from './lib/businessLogo'
 import { heldAnywhere } from './lib/fileClaims'
 import { CLAIM_WINDOW_MS } from './lib/products'
 import { businessAllowance } from './businessInvites'
-import { keepWeek } from './businessWeeks'
+import { keepZone } from './zoneWeeks'
 import { logoEmailImage } from './schema'
 import type { Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
@@ -210,8 +210,8 @@ export const create = mutation({
       ...(withSetup ? { setup: { step: 'brand' as const } } : {}),
     })
     await allowance.spend(businessId, now)
-    // Its week, for `jobs.openWork`, which answers for no other.
-    await keepWeek(ctx, { _id: businessId, timezone: args.timezone }, now)
+    // Its zone and week, for `jobs.openWork`, which answers for no other.
+    await keepZone(ctx, { _id: businessId, timezone: args.timezone }, now)
 
     await ctx.db.insert('memberships', {
       userId,
@@ -343,7 +343,7 @@ export const update = mutation({
       await ctx.db.patch(businessId, fields)
       // A new zone can be another week, for `jobs.openWork`.
       if (typeof fields.timezone === 'string') {
-        await keepWeek(
+        await keepZone(
           ctx,
           { _id: businessId, timezone: fields.timezone },
           Date.now(),

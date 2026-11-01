@@ -17,7 +17,6 @@ import type * as auditLog from "../auditLog.js";
 import type * as auth from "../auth.js";
 import type * as bin from "../bin.js";
 import type * as businessInvites from "../businessInvites.js";
-import type * as businessWeeks from "../businessWeeks.js";
 import type * as businesses from "../businesses.js";
 import type * as clientContacts from "../clientContacts.js";
 import type * as clientImports from "../clientImports.js";
@@ -166,6 +165,7 @@ import type * as xeroCallback from "../xeroCallback.js";
 import type * as xeroMatch from "../xeroMatch.js";
 import type * as xeroSync from "../xeroSync.js";
 import type * as xeroTokens from "../xeroTokens.js";
+import type * as zoneWeeks from "../zoneWeeks.js";
 
 import type {
   ApiFromModules,
@@ -183,7 +183,6 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   bin: typeof bin;
   businessInvites: typeof businessInvites;
-  businessWeeks: typeof businessWeeks;
   businesses: typeof businesses;
   clientContacts: typeof clientContacts;
   clientImports: typeof clientImports;
@@ -332,6 +331,7 @@ declare const fullApi: ApiFromModules<{
   xeroMatch: typeof xeroMatch;
   xeroSync: typeof xeroSync;
   xeroTokens: typeof xeroTokens;
+  zoneWeeks: typeof zoneWeeks;
 }>;
 
 /**

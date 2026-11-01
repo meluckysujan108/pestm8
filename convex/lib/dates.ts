@@ -34,7 +34,10 @@ export function zonedDateTimeToUtc(
   let matched = false
   for (let i = 0; i < 2; i++) {
     ts = naiveUtc - offsetMs(ts, timezone)
-    if (dayKeyOf(ts, timezone) === dayKey && timeKeyOf(ts, timezone) === `${pad(hh)}:${pad(mm)}`) {
+    if (
+      dayKeyOf(ts, timezone) === dayKey &&
+      timeKeyOf(ts, timezone) === `${pad(hh)}:${pad(mm)}`
+    ) {
       matched = true
       break
     }
@@ -97,6 +100,16 @@ function pad(n: number): string {
   return String(n).padStart(2, '0')
 }
 
+/** Whether `timezone` is one the calendar knows ("Australia/Perth"). */
+export function isTimeZone(timezone: string): boolean {
+  try {
+    dateTimeFormat('en-CA', { timeZone: timezone })
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** "YYYY-MM-DD" for an instant, as seen in `timezone`. */
 export function dayKeyOf(ts: number, timezone: string): string {
   const parts = dateTimeFormat('en-CA', {
@@ -135,7 +148,8 @@ function offsetMs(ts: number, timezone: string): number {
     second: '2-digit',
   }).formatToParts(new Date(ts))
 
-  const get = (type: string) => Number(parts.find((p) => p.type === type)!.value)
+  const get = (type: string) =>
+    Number(parts.find((p) => p.type === type)!.value)
   const asUtc = Date.UTC(
     get('year'),
     get('month') - 1,

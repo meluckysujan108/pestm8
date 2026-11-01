@@ -853,17 +853,18 @@ export const listWeek = query({
  * date and anyone else's within these same twenty weeks from this week.
  *
  * ONLY FOR THIS WEEK: `startKey` must be the Monday of the week the
- * business is in now, as its own row in `businessWeeks` says (moved on by a
- * cron within two minutes of the business's Monday beginning), or it is
- * INVALID_WEEK, as it is for a business with no row yet. And someone
- * else's work is sent only within the business's own twenty weeks, by its
- * zone in that row, though more is read either side. Otherwise anyone could
+ * business is in now, as its zone's row in `zoneWeeks` says (moved on by a
+ * cron within two minutes of the zone's Monday beginning), or it is
+ * INVALID_WEEK, as it is for a business with no zone kept yet
+ * (`businessZones`, zoneWeeks.ts). And someone else's work is sent only
+ * within the business's own twenty weeks, by that zone, though more is
+ * read either side. Otherwise anyone could
  * ask for any twenty weeks, and learn every other member's open work at any
  * date (the owner's answer to C5, 1 Nov 2026: twenty weeks, as the phone
  * holds, and never more). A phone whose clock turns the week before the row
  * does is refused for those minutes and keeps last week's answer, which
- * covers this week (RK3). Reading the row, which changes once a week, runs
- * this again then.
+ * covers this week (RK3). Reading the zone's week, which changes once a
+ * week, runs this again then.
  *
  * WHAT EACH ROW SAYS depends on whose it is (the owner's answer, 27 Oct
  * 2026). A job the viewer may see (`scope`, as a job's own sheet asks: one
@@ -887,11 +888,11 @@ export const listWeek = query({
  * Read in one range, by date, earliest first: past OPEN_WORK_LIMIT jobs the
  * furthest weeks go first, the rows are whole up to the last one sent, and
  * `capped` says so (as it does for that many running Recurring Jobs); it
- * never throws on volume. No clock but the week's row: the window read is
+ * never throws on volume. No clock but the zone's week: the window read is
  * wide enough for any zone (`openWorkSpan`), and the phone goes by each
- * row's date. So it reads jobs, Recurring Jobs, who is also going and the
- * business's week, and not the business's row, which every booking, visit
- * and numbered report patches.
+ * row's date. So it reads jobs, Recurring Jobs, who is also going, the
+ * business's zone and that zone's week, and not the business's row, which
+ * every booking, visit and numbered report patches.
  *
  * Kept on phones: a renamed or removed field means bumping KEPT_SHAPE. Its
  * own, never joined into the directory, so a job's status changing doesn't
@@ -902,16 +903,22 @@ export const openWork = query({
   handler: async (ctx, { businessId, startKey }) => {
     const { scope } = await requireActor(ctx, businessId)
     if (!isDayKey(startKey)) throw new ConvexError('INVALID_DAY')
-    const week = await ctx.db
-      .query('businessWeeks')
+    const zone = await ctx.db
+      .query('businessZones')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
       .unique()
-    if (week === null || startKey !== week.monday) {
+    const week =
+      zone &&
+      (await ctx.db
+        .query('zoneWeeks')
+        .withIndex('by_timezone', (q) => q.eq('timezone', zone.timezone))
+        .unique())
+    if (!zone || !week || startKey !== week.monday) {
       throw new ConvexError('INVALID_WEEK')
     }
     // Someone else's work only within the business's own twenty weeks.
     const within = (job: Doc<'jobs'>) =>
-      openWorkCovers(startKey, dayKeyOf(job.scheduledAt, week.timezone))
+      openWorkCovers(startKey, dayKeyOf(job.scheduledAt, zone.timezone))
     const { from, weekFrom, to } = openWorkSpan(startKey)
 
     const [read, running, shared] = await Promise.all([

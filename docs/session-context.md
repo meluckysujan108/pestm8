@@ -181,7 +181,7 @@ Before editing Convex code, read `convex/_generated/ai/guidelines.md`. CLAUDE.md
   - `materialiseAll` daily at 18:00.
   - Notes purge at 19:00; reports purge at 19:20 (30-day bin).
   - Switch and view sweeps every hour.
-  - Each business's week (`businessWeeks`, for `jobs.openWork`) every 15 minutes, at :02, :17, :32 and :47.
+  - Each time zone's week (`zoneWeeks`, for `jobs.openWork`) every 15 minutes, at :02, :17, :32 and :47.
 - **`migrations/`:** hand-run `internalMutation`s. Each header holds its runbook.
   - accessV3, jobStatusV1, memberColoursV1, notesV2, propertyFixesV1.
   - recurringIntervalV1, reportSnapshotsV1, reportsContract, reportsLibrary.

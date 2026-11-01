@@ -507,7 +507,7 @@ describe('removing a demo', () => {
       'noteMentions',
       'products',
       'clientImports',
-      'businessWeeks',
+      'businessZones',
     ]) {
       expect(before[table], table).toBeGreaterThan(0)
     }
@@ -590,7 +590,7 @@ describe('removing a demo', () => {
       'jobTypes',
       'products',
       'clientImports',
-      'businessWeeks',
+      'businessZones',
     ]) {
       expect(totals[table] ?? 0, table).toBe(before[table])
     }
