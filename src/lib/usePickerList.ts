@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { logConnectionSlower } from '#/lib/connectionLog'
 import { orderedMatches } from '#/lib/searchMatch'
 import type {
   ComboboxLookup,
@@ -25,6 +26,9 @@ const NOTHING_SHOWN: PickerList = {
   hasExactMatch: false,
 }
 
+/** A filter slower than a frame is noted (`picker-filter`). */
+export const SLOW_FILTER_MS = 16
+
 /**
  * A picker's list for the query it shows. Worked out only while the sheet is
  * open, so a closed picker over ten thousand sites costs nothing as pushes
@@ -35,6 +39,12 @@ const NOTHING_SHOWN: PickerList = {
  * empty: a sheet closed by a pick collapsed to its search and Done as it
  * left, and one taking typed values showed an "Add …" row, still tappable,
  * that it never had while open. Opened again, it is worked out afresh.
+ *
+ * A list that took longer than a frame to work out is noted in the phone's
+ * own notes, counts only (`picker-filter {rows, ms}`, the matching plan's
+ * §2.12): what a key costs in a big book on an old phone. Only when slower
+ * than any noted before (`logConnectionSlower`): a slow book is slow at
+ * every key.
  */
 export function usePickerList({
   open,
@@ -50,11 +60,12 @@ export function usePickerList({
   lookup?: (query: string) => ComboboxLookup | null
   allowCustom: boolean
 }): PickerList {
-  const live = useMemo((): PickerList | null => {
+  const worked = useMemo((): { list: PickerList; ms: number } | null => {
     if (!open) return null
+    const started = performance.now()
     const typed = query.trim()
     const found = typed === '' ? null : (lookup?.(query) ?? null)
-    return {
+    const list = {
       query,
       found,
       ordered: orderedMatches(rows, query, found?.first),
@@ -63,7 +74,13 @@ export function usePickerList({
         typed !== '' &&
         rows.some((o) => o.label.toLowerCase() === typed.toLowerCase()),
     }
+    return { list, ms: performance.now() - started }
   }, [open, rows, query, lookup, allowCustom])
+  useEffect(() => {
+    if (!worked || worked.ms <= SLOW_FILTER_MS) return
+    logConnectionSlower('picker-filter', { rows: rows.length, ms: worked.ms })
+  }, [worked, rows.length])
+  const live = worked?.list ?? null
   const [kept, setKept] = useState<PickerList>(NOTHING_SHOWN)
   if (live !== null && live !== kept) setKept(live)
   return live ?? kept

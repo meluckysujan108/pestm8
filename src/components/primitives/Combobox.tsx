@@ -143,6 +143,7 @@ export function Combobox({
   lookup,
   detailOf,
   handleRef,
+  onDismiss,
   ariaLabel,
   invalid = false,
   errorId,
@@ -173,6 +174,10 @@ export function Combobox({
   detailOf?: (value: string) => string | undefined
   /** `openWith`, for opening the list with a query typed. */
   handleRef?: Ref<ComboboxHandle>
+  /** The sheet shut by ✕, Done or a swipe, not by a row: for one choice,
+   * closed with nothing chosen, which a caller waiting on a choice there
+   * needs to know ("Show them" in New Job). */
+  onDismiss?: () => void
   ariaLabel?: string
   /** Marks the field invalid and ties it to the message that says why. */
   invalid?: boolean
@@ -360,6 +365,12 @@ export function Combobox({
     chosenAction.onSelect()
   }
 
+  /** Shut with nothing chosen or done: ✕, Done or a swipe. */
+  function dismiss() {
+    setOpen(false)
+    onDismiss?.()
+  }
+
   return (
     <>
       <button
@@ -404,7 +415,7 @@ export function Combobox({
 
       <Sheet
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={dismiss}
         title={title ?? ariaLabel ?? ''}
         description={description}
         returnFocusRef={returnTo}
@@ -412,7 +423,7 @@ export function Combobox({
         footer={
           <button
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={dismiss}
             className={`${NEUTRAL_BUTTON_COMPACT} w-full`}
           >
             Done

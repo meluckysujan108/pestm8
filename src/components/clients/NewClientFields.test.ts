@@ -5,6 +5,7 @@ import {
   EMPTY_NEW_CLIENT,
   EMPTY_NEW_SITE,
   NEW_CLIENT_ERROR_COPY,
+  movesToAnotherField,
   newClientArgs,
   newSiteArgs,
 } from './NewClientFields'
@@ -158,5 +159,29 @@ describe('NEW_CLIENT_ERROR_COPY', () => {
     expect(
       describeError(new Error('NO_ACCESS'), NEW_CLIENT_ERROR_COPY),
     ).not.toMatch(/ABN/)
+  })
+})
+
+describe('leaving a field for another (`movesToAnotherField`)', () => {
+  const field = (tagName: string) => ({ tagName })
+  const nowhere = { contains: () => false }
+
+  test('another input, select or textarea: the line under it is decided', () => {
+    expect(movesToAnotherField(field('INPUT'), nowhere)).toBe(true)
+    expect(movesToAnotherField(field('SELECT'), nowhere)).toBe(true)
+    expect(movesToAnotherField(field('TEXTAREA'), nowhere)).toBe(true)
+  })
+
+  test('a button, or nowhere (a tap on Book on iOS), says nothing above it', () => {
+    expect(movesToAnotherField(field('BUTTON'), nowhere)).toBe(false)
+    expect(movesToAnotherField(null, nowhere)).toBe(false)
+    expect(movesToAnotherField(undefined, nowhere)).toBe(false)
+  })
+
+  test('a field inside the one being left is not another', () => {
+    const inside = field('INPUT')
+    expect(
+      movesToAnotherField(inside, { contains: (other) => other === inside }),
+    ).toBe(false)
   })
 })

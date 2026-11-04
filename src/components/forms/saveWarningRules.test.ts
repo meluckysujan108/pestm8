@@ -1,11 +1,17 @@
 import { describe, expect, test, vi } from 'vitest'
 import {
+  FIX_ARM_MS,
   IDLE_SAVE_GUARD,
+  SUBMIT_ARM_MS,
   afterEdit,
   createSaveGuard,
+  panelFooter,
+  panelOrder,
   pressedForm,
   runSaveChecks,
   saveDecision,
+  startsHold,
+  stillArmed,
   warningsSignature,
 } from './saveWarningRules'
 import type {
@@ -392,5 +398,162 @@ describe('createSaveGuard', () => {
     expect(state()).toMatchObject({ open: false, shown: [{ id: typo.id }] })
     guard.guard({ preventDefault: () => {} }, failing)
     expect(failing).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('match rows (`kind: match`)', () => {
+  const jane: SaveWarning = {
+    id: 'match:c_jane',
+    kind: 'match',
+    label: 'Already a client',
+    message: 'Jane Nguyen, of Bayswater, has the same name and mobile.',
+  }
+  const shared: SaveWarning = {
+    id: 'match:shared:phone:0892721234',
+    kind: 'match',
+    label: 'Shared number',
+    message: '08 9272 1234 is on 2 clients — Ray White Bayswater and 1 other.',
+  }
+
+  test('come after the fields’ own warnings, whatever order the checks answered in', () => {
+    expect(panelOrder([jane, typo, shared, area])).toEqual([
+      typo,
+      area,
+      jane,
+      shared,
+    ])
+    // Nothing to move: the same array back, so nothing is drawn again.
+    const fields = [typo, area]
+    expect(panelOrder(fields)).toBe(fields)
+    const matches = [jane, shared]
+    expect(panelOrder(matches)).toBe(matches)
+  })
+
+  test('alone, the form’s own foot; mixed with the fields’, today’s', () => {
+    // Given the rows themselves, so the form's foot can name their fix.
+    const foot = (rows: ReadonlyArray<{ kind?: string }>) =>
+      rows.length === 1
+        ? 'Use it, or press Book anyway to add a new client.'
+        : 'Use one…'
+    expect(panelFooter([jane], 'Book anyway', foot)).toBe(
+      'Use it, or press Book anyway to add a new client.',
+    )
+    expect(panelFooter([jane, shared], 'Book anyway', foot)).toBe('Use one…')
+    expect(panelFooter([typo, jane], 'Book anyway', foot)).toBe(
+      'Fix them, or press Book anyway to keep them as they are.',
+    )
+    expect(panelFooter([typo], 'Save anyway')).toBe(
+      'Fix it, or press Save anyway to keep it as it is.',
+    )
+    // A form with no foot of its own says today's line for match rows too.
+    expect(panelFooter([jane], 'Save anyway')).toBe(
+      'Fix it, or press Save anyway to keep it as it is.',
+    )
+  })
+
+  test('a second fix is applied as the first is, taking every row its check gave', () => {
+    let state: SaveGuardState = IDLE_SAVE_GUARD
+    const guard = createSaveGuard((next) => (state = next))
+    const first = vi.fn()
+    const second = vi.fn()
+    guard.register('match', () => [
+      {
+        ...jane,
+        fix: { label: 'Book at 12 Wattle St', apply: first },
+        fix2: { label: 'Add 12 Watle St', apply: second },
+      },
+      shared,
+    ])
+    guard.guard({ preventDefault: () => {} }, vi.fn())
+    const row = state.shown.find((w) => w.id === jane.id)
+    if (!row) throw new Error('Jane’s row missing')
+    guard.fix(row, (change) => change(), 'fix2')
+    expect(second).toHaveBeenCalledTimes(1)
+    expect(first).not.toHaveBeenCalled()
+    // The shared number was about the caller as typed too, and the booking
+    // is now on Jane: it goes with her row.
+    expect(state.shown).toEqual([])
+  })
+
+  test('a fix that draws the same address block again, in another client mode, keeps what was confirmed there', () => {
+    let state: SaveGuardState = IDLE_SAVE_GUARD
+    const guard = createSaveGuard((next) => (state = next))
+    const save = vi.fn()
+    const press = () => guard.guard({ preventDefault: () => {} }, save)
+    const usualSuburb: SaveWarning = {
+      id: 'addr-postcode:1',
+      label: 'Postcode',
+      message: '6053 is usually Bayswater’s.',
+    }
+    const phoneTypo: SaveWarning = {
+      id: 'phone:digits',
+      label: 'Phone',
+      message: 'That has 9 digits.',
+    }
+    const useJane = vi.fn()
+    const addressCheck = () => [usualSuburb]
+    let unregisterAddress = guard.register('addr-address', addressCheck)
+    const unregisterPhone = guard.register('phone', () => [phoneTypo])
+    let unregisterMatch = guard.register('match', () => [
+      { ...jane, fix: { label: 'Use Jane Nguyen', apply: useJane } },
+    ])
+    press()
+    expect(state.shown.map((w) => w.id).sort()).toEqual(
+      [jane.id, phoneTypo.id, usualSuburb.id].sort(),
+    )
+    const row = state.shown.find((w) => w.id === jane.id)!
+    // Use Jane Nguyen: New client's fields leave, New site for's address
+    // block comes in under the same name, as React would draw it.
+    guard.fix(row, (change) => {
+      change()
+      unregisterAddress()
+      guard.removed('addr-address')
+      unregisterPhone()
+      guard.removed('phone')
+      unregisterMatch()
+      unregisterAddress = guard.register('addr-address', addressCheck)
+      unregisterMatch = guard.register('match', () => [])
+    })
+    expect(useJane).toHaveBeenCalledTimes(1)
+    // The phone's field is gone, and its warning with it; the address is the
+    // same address, and its warning stays as it was shown.
+    expect(state.shown.map((w) => w.id)).toEqual([usualSuburb.id])
+    // So Book anyway books: nothing is asked again.
+    press()
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('arming (`stillArmed`)', () => {
+  test('a fix for 400 ms, Book for 500 ms, from the moment the list appeared or changed', () => {
+    expect(FIX_ARM_MS).toBe(400)
+    expect(SUBMIT_ARM_MS).toBe(500)
+    expect(stillArmed(null, 1_000, SUBMIT_ARM_MS)).toBe(false)
+    expect(stillArmed(1_000, 1_000, SUBMIT_ARM_MS)).toBe(true)
+    expect(stillArmed(1_000, 1_499, SUBMIT_ARM_MS)).toBe(true)
+    expect(stillArmed(1_000, 1_500, SUBMIT_ARM_MS)).toBe(false)
+    expect(stillArmed(1_000, 1_399, FIX_ARM_MS)).toBe(true)
+    expect(stillArmed(1_000, 1_400, FIX_ARM_MS)).toBe(false)
+    // A clock set back is not "still armed" for ever.
+    expect(stillArmed(1_000, 900, SUBMIT_ARM_MS)).toBe(false)
+  })
+})
+
+describe('what starts the hold (`startsHold`)', () => {
+  const a = { id: 'a', message: 'A' }
+  const b = { id: 'b', message: 'B' }
+  test('rows that came in or changed under a press, or anything a fix did', () => {
+    expect(startsHold([], [a], false)).toBe(true)
+    expect(startsHold([a], [a, b], false)).toBe(true)
+    expect(
+      startsHold([a], [{ id: 'a', message: 'A, said otherwise' }], false),
+    ).toBe(true)
+    expect(startsHold([a, b], [b], true)).toBe(true)
+    expect(startsHold([a], [], true)).toBe(true)
+  })
+  test('not a list that only shrank, as a field was edited or the form reset', () => {
+    expect(startsHold([a, b], [b], false)).toBe(false)
+    expect(startsHold([a], [], false)).toBe(false)
+    expect(startsHold([], [], false)).toBe(false)
   })
 })

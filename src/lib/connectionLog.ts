@@ -16,6 +16,19 @@
  * and states only: nothing anyone typed, no names, no addresses. Every read
  * and write is best-effort: storage can be missing, full or refused, and none
  * of that may cost the page anything.
+ *
+ * Matching the caller notes counts too, only when they change
+ * (`logConnectionChange`): `match-shown {same, likely, maybe, shared, live}`
+ * for a press of Book or Save that found someone the caller may be, and
+ * whether the client list it was found in was live. And how long things
+ * took, only when slower than any this page has noted (`logConnectionSlower`,
+ * `ms` as its band: 16 for 16 to 31 ms): `match-index {rows, ms}` as a match
+ * index is built (lib/useMatchIndex.ts), and `picker-filter {rows, ms}` for
+ * a picker's list that took longer than a frame to work out
+ * (lib/usePickerList.ts). So a big book on a slow phone, typed into all
+ * morning with no signal, says how slow it is in a handful of notes, not one
+ * a key, and the socket's and sign-in's notes before it are still there to
+ * send.
  */
 
 /** A note's details: short words and numbers. */
@@ -126,6 +139,56 @@ export function logConnection(event: string, details?: ConnectionNote): void {
   saveTimer ??= setTimeout(save, 1_000)
 }
 
+const lastOfEvent = new Map<string, string>()
+
+/**
+ * `logConnection`, only when `details` differ from the last note of `event`
+ * this page made: counts said each time something is found would push the
+ * connection's own notes out of the 300 kept.
+ */
+export function logConnectionChange(
+  event: string,
+  details: ConnectionNote,
+): void {
+  const said = JSON.stringify(details)
+  if (lastOfEvent.get(event) === said) return
+  lastOfEvent.set(event, said)
+  logConnection(event, details)
+}
+
+/** The slowest band of each timed event noted by this page. */
+const slowestOfEvent = new Map<string, number>()
+
+/** The longest band a time is said in: 4,096 ms and over. */
+const MS_BAND_TOP = 4_096
+
+/**
+ * How long something took, in the band a note says it in: the power of two
+ * at or under it, so 16 for 16 to 31 ms, 32 for 32 to 63, up to 4,096 for
+ * anything longer; 0 under a millisecond.
+ */
+export function msBand(ms: number): number {
+  if (!(ms >= 1)) return 0
+  return Math.min(2 ** Math.floor(Math.log2(ms)), MS_BAND_TOP)
+}
+
+/**
+ * `logConnection` for how long something took (`details.ms`), said as its
+ * band (`msBand`), and only when that is slower than any note of `event`
+ * this page has made: a time is a little different every time, so noted
+ * each time it would push the connection's own notes out of the 300 kept.
+ */
+export function logConnectionSlower(
+  event: string,
+  details: ConnectionNote & { ms: number },
+): void {
+  const band = msBand(details.ms)
+  const slowest = slowestOfEvent.get(event)
+  if (slowest !== undefined && band <= slowest) return
+  slowestOfEvent.set(event, band)
+  logConnection(event, { ...details, ms: band })
+}
+
 /** The oldest notes the server does not have yet, up to `max`, or null. */
 export function unsentConnectionLog(
   max: number,
@@ -193,6 +256,8 @@ export function deviceId(): string {
 
 /** For tests: forgets the log in memory, as a new page load would. */
 export function forgetConnectionLogForTests(): void {
+  lastOfEvent.clear()
+  slowestOfEvent.clear()
   log = null
   device = null
   listening = false

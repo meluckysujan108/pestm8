@@ -61,6 +61,34 @@ const ALL_FIELDS: ReadonlyArray<AddressField> = [
 /** What the line under the block says about the street. */
 type StreetStatus = 'checking' | 'found' | 'no-signal'
 
+type ApplyFix = (patch: Partial<AddressValue>) => void
+
+/** The block on screen for each `idPrefix`, and how it applies a fix. */
+const blocksOnScreen = new Map<string, { readonly current: ApplyFix }>()
+
+/**
+ * How a fix in the list above Save is applied: by the block on screen with
+ * these ids when it is tapped (`idPrefix`), else by this one. A row can
+ * outlive the block that made it: a fix in New Job (Use Jane Nguyen) takes
+ * the booking to another client mode, whose block, drawn with the same ids,
+ * holds the same address, and the rows about it stay as they were shown and
+ * confirmed (saveWarningRules' `fix`). Applied by the block gone from the
+ * screen, Use NT would put NT in the New client draft behind it and nothing
+ * in the fields shown.
+ */
+export function useFixOnScreen(idPrefix: string, applyFix: ApplyFix): ApplyFix {
+  const latest = useLatest(applyFix)
+  useEffect(() => {
+    blocksOnScreen.set(idPrefix, latest)
+    return () => {
+      if (blocksOnScreen.get(idPrefix) === latest) {
+        blocksOnScreen.delete(idPrefix)
+      }
+    }
+  }, [idPrefix, latest])
+  return (patch) => (blocksOnScreen.get(idPrefix) ?? latest).current(patch)
+}
+
 /**
  * The address block every form uses: Street address (with suggestions),
  * Suburb, State and Postcode, checked as they go in and again at Save
@@ -115,6 +143,7 @@ export function VerifiedAddressFields({
   showState = true,
   idPrefix,
   onCheckChange,
+  picked = false,
 }: {
   value: AddressValue
   onChange: (patch: Partial<AddressValue>) => void
@@ -131,6 +160,10 @@ export function VerifiedAddressFields({
    * `-postcode`; also the block's save checks' names. */
   idPrefix: string
   onCheckChange?: (addressCheck: AddressCheck) => void
+  /** The four fields hold a suggestion picked for them before this block
+   * was drawn (another client mode's block, carried here by a fix): still
+   * picked, so not looked up on the map again, until they change. */
+  picked?: boolean
 }) {
   const ids: Record<AddressField, string> = {
     addressLine: `${idPrefix}-street`,
@@ -145,7 +178,9 @@ export function VerifiedAddressFields({
   const saved =
     initial && (showState ? initial : { ...initial, state: workState })
 
-  const [pickedSignature, setPickedSignature] = useState<string | null>(null)
+  const [pickedSignature, setPickedSignature] = useState<string | null>(() =>
+    picked ? addressSignature(now) : null,
+  )
   /** The last offline check's issues, and the suburb|state|postcode they are
    * for. */
   const [inline, setInline] = useState<{
@@ -242,7 +277,8 @@ export function VerifiedAddressFields({
     })
   }
 
-  /** A one-tap fix, from under a field or from the list above Save. Reads the
+  /** A one-tap fix, from under a field or from the list above Save (there,
+   * by the block on screen with these ids: `useFixOnScreen`). Reads the
    * latest `onChange`: the list's fix runs long after the check that made it. */
   function applyFix(patch: Partial<AddressValue>) {
     setExactOnly(true)
@@ -250,6 +286,8 @@ export function VerifiedAddressFields({
     if ('postcode' in patch) setPostcodeErrorShown(false)
     latestOnChange.current(patch)
   }
+
+  const applyFixOnScreen = useFixOnScreen(idPrefix, applyFix)
 
   function pick(address: AddressValue) {
     const next = showState ? address : { ...address, state: workState }
@@ -272,7 +310,12 @@ export function VerifiedAddressFields({
       label: FIELD_NAMES[issue.field],
       message: issue.message,
       ...(fix
-        ? { fix: { label: fix.label, apply: () => applyFix(fix.patch) } }
+        ? {
+            fix: {
+              label: fix.label,
+              apply: () => applyFixOnScreen(fix.patch),
+            },
+          }
         : {}),
       focus: () => focusField(issue.field),
     }

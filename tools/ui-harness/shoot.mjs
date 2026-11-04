@@ -60,6 +60,76 @@ async function searchProperty(p, query, settle = 900) {
   await p.waitForTimeout(500)
 }
 
+/**
+ * New Job's New client tab, filled in as a caller gives it (`caller`'s
+ * fields, each by its label), focus left where the last one put it.
+ */
+async function typeCaller(p, caller) {
+  await p.waitForTimeout(900)
+  await p.getByRole('radio', { name: 'New client', exact: true }).click()
+  await fillCaller(p, caller)
+}
+
+/** The fields of New client, by label, in the order the form asks. */
+async function fillCaller(p, caller) {
+  const name = caller.business ? 'Company name' : 'Client name'
+  await p.getByLabel(name, { exact: true }).fill(caller.name)
+  if (caller.phone) {
+    await p
+      .getByLabel(
+        caller.business ? 'Main phone (optional)' : 'Phone (optional)',
+        {
+          exact: true,
+        },
+      )
+      .fill(caller.phone)
+  }
+  if (caller.email) {
+    await p
+      .getByLabel(
+        caller.business ? 'Main email (optional)' : 'Email (optional)',
+        {
+          exact: true,
+        },
+      )
+      .fill(caller.email)
+  }
+  if (caller.street) {
+    await p.getByLabel('Street address', { exact: true }).fill(caller.street)
+    await p.getByLabel('Suburb', { exact: true }).fill(caller.suburb)
+    await p.getByLabel('Postcode', { exact: true }).fill(caller.postcode)
+  }
+}
+
+/** Phone left for Email, as the person moves on: the line under Phone. */
+async function leavePhone(p, label = 'Email (optional)') {
+  await p.getByLabel(label, { exact: true }).focus()
+  await p.waitForTimeout(300)
+}
+
+/** A job type ticked, then Book: the rows at Book, scrolled to. `wait`
+ * short of SUBMIT_ARM_MS catches Book while it takes no press. */
+async function pressBook(p, wait = 700) {
+  await p.getByRole('button', { name: 'Job type' }).click()
+  const types = p.getByRole('dialog', { name: 'Job type' })
+  await types.getByRole('checkbox', { name: 'General Pest Control' }).click()
+  await types.getByRole('button', { name: 'Done' }).click()
+  await p.waitForTimeout(500)
+  await p.getByRole('button', { name: 'Book job' }).click()
+  await p.waitForTimeout(wait)
+  await p
+    .getByRole('heading', { name: /to check before saving/ })
+    .scrollIntoViewIfNeeded()
+}
+
+const JANE_NEW_ADDRESS = {
+  name: 'Jane Nguyen',
+  phone: '0491 570 156',
+  street: '40 Coode St',
+  suburb: 'Bayswater',
+  postcode: '6053',
+}
+
 const PLAN = {
   // Settings → Xero and My Xero (Release 1: connect), one state each.
   xero: { full: true, before: async (p) => p.waitForTimeout(500) },
@@ -775,6 +845,202 @@ const PLAN = {
     },
   },
   'clients-search-phone': { before: async (p) => p.waitForTimeout(500) },
+  // Is the caller already a client? (the matching plan's M3, 1 Nov 2026).
+  // At one of her sites: Book at 12 Wattle St.
+  'newjob-match-same-site': {
+    before: async (p) => {
+      await typeCaller(p, {
+        name: 'Jane Nguyen',
+        street: '12 Wattle St',
+        suburb: 'Bayswater',
+        postcode: '6053',
+      })
+      await pressBook(p)
+    },
+  },
+  // Her name and mobile at a new address: the line under Phone, then Use.
+  'newjob-match-same-contact': {
+    before: async (p) => {
+      await typeCaller(p, JANE_NEW_ADDRESS)
+      await pressBook(p)
+    },
+  },
+  'newjob-match-similar-name': {
+    before: async (p) => {
+      await typeCaller(p, { name: 'J Nguyen', phone: '0491 570 156' })
+      await leavePhone(p)
+      await pressBook(p)
+    },
+  },
+  // Her address under another name: Already a site, Book on Jane Nguyen.
+  'newjob-match-other-name': {
+    before: async (p) => {
+      await typeCaller(p, {
+        name: 'Tom Nguyen',
+        phone: '0491 570 199',
+        street: '12 Wattle St',
+        suburb: 'Bayswater',
+        postcode: '6053',
+      })
+      await pressBook(p)
+    },
+  },
+  // The agency's property manager from her own mobile.
+  'newjob-match-contact-person': {
+    before: async (p) => {
+      await typeCaller(p, { name: 'Sarah Lee', phone: '0491 570 110' })
+      await leavePhone(p)
+      await pressBook(p)
+    },
+  },
+  // The agency's office line, on two clients: the line under Phone only.
+  'newjob-match-shared-blur': {
+    before: async (p) => {
+      await typeCaller(p, { name: 'Kim Pham', phone: '08 7010 1234' })
+      await leavePhone(p)
+    },
+  },
+  // Mei Chen's own landline, another name: Show them, never Use.
+  'newjob-match-landline-blur': {
+    before: async (p) => {
+      await typeCaller(p, { name: 'Kim Pham', phone: '08 7010 2222' })
+      await leavePhone(p)
+    },
+  },
+  // The name alone, nothing stronger: Same name.
+  'newjob-match-name-only': {
+    before: async (p) => {
+      await typeCaller(p, {
+        name: 'Lisa Tran',
+        phone: '0491 570 199',
+        street: '9 Banksia Rd',
+        suburb: 'Morley',
+        postcode: '6062',
+      })
+      await pressBook(p)
+    },
+  },
+  // A new number and a street like hers: Book at 12 Wattle St, or Add.
+  'newjob-match-near-address': {
+    before: async (p) => {
+      await typeCaller(p, {
+        name: 'Jane Nguyen',
+        phone: '0491 570 199',
+        street: '12 Watle St',
+        suburb: 'Bayswater',
+        postcode: '6053',
+      })
+      await pressBook(p)
+    },
+  },
+  // New site for Jane Nguyen at the address she has: Book at this site.
+  'newjob-match-site-mode-own': {
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p
+        .getByRole('button', { name: 'New site for an existing client' })
+        .click()
+      await p.getByRole('button', { name: 'New site for' }).click()
+      await p
+        .getByRole('textbox', {
+          name: 'Search by name, phone, email or suburb',
+        })
+        .fill('Jane Nguyen')
+      await p
+        .getByRole('button', { name: /^Jane Nguyen/ })
+        .first()
+        .click()
+      await p.waitForTimeout(500)
+      await p.getByLabel('Street address', { exact: true }).fill('12 Wattle St')
+      await p.getByLabel('Suburb', { exact: true }).fill('Bayswater')
+      await p.getByLabel('Postcode', { exact: true }).fill('6053')
+      await pressBook(p)
+    },
+  },
+  // With no signal, from the copy on the phone: when it was last right.
+  'newjob-match-offline-asof': {
+    before: async (p) => {
+      await typeCaller(p, JANE_NEW_ADDRESS)
+      await pressBook(p)
+    },
+  },
+  'newjob-match-capped': {
+    before: async (p) => {
+      await typeCaller(p, JANE_NEW_ADDRESS)
+      await pressBook(p)
+    },
+  },
+  // A field's warning and a match row: the field's first, the usual foot.
+  'newjob-match-mixed': {
+    before: async (p) => {
+      await typeCaller(p, { ...JANE_NEW_ADDRESS, email: 'jane@gmial.com' })
+      await pressBook(p)
+    },
+  },
+  // A tenth of a second after the press: Book takes no press yet.
+  'newjob-match-armed': {
+    before: async (p) => {
+      await typeCaller(p, JANE_NEW_ADDRESS)
+      await pressBook(p, 100)
+    },
+  },
+  // Her email under another name, at a new address: Same email, Show them
+  // only, so the foot says to check who it is, not to use one.
+  'newjob-match-show-only': {
+    before: async (p) => {
+      await typeCaller(p, {
+        name: 'Tom Nguyen',
+        phone: '0491 570 737',
+        email: 'jane.nguyen@example.com',
+        street: '40 Coode St',
+        suburb: 'Bayswater',
+        postcode: '6053',
+      })
+      await pressBook(p)
+    },
+  },
+  // Name left before any address: Choose Jane Nguyen’s site.
+  'newjob-match-name-line': {
+    before: async (p) => {
+      await typeCaller(p, { name: 'Jane Nguyen' })
+      await leavePhone(p, 'Phone (optional)')
+    },
+  },
+  // Clients → New client: the line under Phone, then Open Jane Nguyen.
+  'newproperty-match-open-client': {
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await fillCaller(p, { name: 'Jane Nguyen', phone: '0491 570 156' })
+      await leavePhone(p)
+      await p.getByLabel('Street address', { exact: true }).fill('40 Coode St')
+      await p.getByLabel('Suburb', { exact: true }).fill('Bayswater')
+      await p.getByLabel('Postcode', { exact: true }).fill('6053')
+      await p.getByRole('button', { name: 'Save client' }).click()
+      await p.waitForTimeout(700)
+      await p
+        .getByRole('heading', { name: /to check before saving/ })
+        .scrollIntoViewIfNeeded()
+    },
+  },
+  // Add property on an address the client has: Already has this site.
+  'clientsheet-addsite-own-dup': {
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Add property' }).click()
+      await p.waitForTimeout(700)
+      await p
+        .getByRole('heading', { name: /to check before saving/ })
+        .scrollIntoViewIfNeeded()
+    },
+  },
+  // New client in the order a caller gives it: phone and email first.
+  'newclient-order': {
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('radio', { name: 'Commercial', exact: true }).click()
+      await p.waitForTimeout(300)
+    },
+  },
   // Timing only: the picker over 10,000 clients, searched by a number. The
   // console has each commit's time (`TenKTimings`).
   'newjob-picker-10k': {

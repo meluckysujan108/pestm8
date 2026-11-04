@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { hookHarness } from './offline/hooks.fixtures'
-import { usePickerList } from './usePickerList'
+import { logConnectionSlower } from './connectionLog'
+import { SLOW_FILTER_MS, usePickerList } from './usePickerList'
 import { withSearchKeys } from './searchMatch'
 import type * as React from 'react'
 import type {
@@ -13,6 +14,9 @@ vi.mock('react', async (importOriginal) => ({
   ...(await importOriginal<typeof React>()),
   ...(await import('./offline/hooks.fixtures')).hookHarness.hooks,
 }))
+
+// The phone's own notes, as the list says what it cost.
+vi.mock('./connectionLog', () => ({ logConnectionSlower: vi.fn() }))
 
 /**
  * A picker's list over its opening and closing (`usePickerList`): worked out
@@ -49,6 +53,8 @@ function mount(props: Props) {
 
 afterEach(() => {
   hookHarness.mount(() => null)
+  vi.restoreAllMocks()
+  vi.mocked(logConnectionSlower).mockClear()
 })
 
 describe('a picker’s list, open and closed', () => {
@@ -133,5 +139,34 @@ describe('a picker’s list, open and closed', () => {
       'p-jane',
       'p-bob',
     ])
+  })
+})
+
+describe('what a list costs, in the phone’s own notes (§2.12)', () => {
+  test('one slower than a frame is noted, counts only: how many rows, how long', () => {
+    // Started at 1,000 ms, done 40 ms later.
+    vi.spyOn(performance, 'now')
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(1_040)
+    mount({ open: true, rows: SITES, query: 'nguyen', allowCustom: false })
+    expect(logConnectionSlower).toHaveBeenCalledTimes(1)
+    expect(logConnectionSlower).toHaveBeenCalledWith('picker-filter', {
+      rows: 2,
+      ms: 40,
+    })
+  })
+
+  test('one within a frame, or a closed picker, notes nothing', () => {
+    vi.spyOn(performance, 'now')
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(1_000 + SLOW_FILTER_MS)
+    const list = mount({
+      open: true,
+      rows: SITES,
+      query: 'nguyen',
+      allowCustom: false,
+    })
+    list.set({ open: false })
+    expect(logConnectionSlower).not.toHaveBeenCalled()
   })
 })

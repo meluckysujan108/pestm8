@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'vitest'
 import {
   holdersFirst,
+  namedClient,
   noMatchRoute,
   propertyListEnd,
   queryHolders,
   queryShape,
   siteLessFound,
+  siteLessNamed,
 } from './clientSearch'
 import { clientOptions } from './propertyOptions'
 import { NO_OURS, buildMatchIndex } from '../../convex/lib/clientMatch'
@@ -345,5 +347,161 @@ describe('a client with no site yet, whom the Property picker has no row for', (
       kind: 'several',
       count: 2,
     })
+  })
+})
+
+describe('a client named in full, sites or not', () => {
+  // "Choose Jane Nguyen’s site", the line under Name, opens the Property
+  // picker with her name: her sites, then a new one for her, never "New
+  // client" (the matching plan's §2.6).
+  const end = (query: string) =>
+    propertyListEnd(queryHolders(INDEX, query), [], namedClient(INDEX, query))
+
+  test('ends the list with New site for them', () => {
+    expect(namedClient(INDEX, 'Jane Nguyen')).toBe('c-jane')
+    expect(namedClient(INDEX, '  jane   NGUYEN ')).toBe('c-jane')
+    expect(end('Jane Nguyen')).toEqual({ kind: 'one', clientId: 'c-jane' })
+    expect(end('Ray White Bayswater')).toEqual({
+      kind: 'one',
+      clientId: 'c-agency',
+    })
+  })
+
+  test('not for part of a name, a name two clients have, a placeholder, or a number', () => {
+    expect(namedClient(INDEX, 'Jane')).toBeNull()
+    expect(end('Jane')).toBeNull()
+    const twins = buildMatchIndex(
+      {
+        clients: [
+          { _id: client('c-1'), name: 'John Smith', kind: 'person' },
+          { _id: client('c-2'), name: 'John Smith', kind: 'person' },
+          { _id: client('c-3'), name: 'The Owner', kind: 'person' },
+        ],
+        sites: [],
+        contacts: [],
+      },
+      { areaCode: '08', ours: NO_OURS },
+    )
+    expect(namedClient(twins, 'John Smith')).toBeNull()
+    expect(namedClient(twins, 'The Owner')).toBeNull()
+    // A number is found by who holds it, as ever.
+    expect(namedClient(INDEX, '0491 570 156')).toBeNull()
+    expect(end('0491 570 156')).toEqual({ kind: 'one', clientId: 'c-sam' })
+  })
+  test('a client with no site the words find comes first: the end row is the only way to them', () => {
+    // "Sam", one word, with a site at 9 Oak St; "Sam Wu" with none yet; and
+    // two Smiths with none.
+    const book = buildMatchIndex(
+      {
+        clients: [
+          { _id: client('c-sam1'), name: 'Sam', kind: 'person' },
+          { _id: client('c-samwu'), name: 'Sam Wu', kind: 'person' },
+          { _id: client('c-smith'), name: 'Smith', kind: 'person' },
+          { _id: client('c-ann'), name: 'Ann Smith', kind: 'person' },
+          { _id: client('c-bob'), name: 'Bob Smith', kind: 'person' },
+        ],
+        sites: [
+          {
+            _id: site('p-sam1'),
+            clientId: client('c-sam1'),
+            addressLine: '9 Oak St',
+            suburb: 'Morley',
+            postcode: '6062',
+          },
+          {
+            _id: site('p-smith'),
+            clientId: client('c-smith'),
+            addressLine: '3 Elm St',
+            suburb: 'Morley',
+            postcode: '6062',
+          },
+        ],
+        contacts: [],
+      },
+      { areaCode: '08', ours: NO_OURS },
+    )
+    const siteLess = clientOptions([
+      { _id: 'c-samwu', name: 'Sam Wu', sites: [] },
+      { _id: 'c-ann', name: 'Ann Smith', sites: [] },
+      { _id: 'c-bob', name: 'Bob Smith', sites: [] },
+    ])
+    // As New Job's Property picker ends its list.
+    const endOf = (query: string) => {
+      const named = namedClient(book, query)
+      const found = siteLessFound(query, queryHolders(book, query), siteLess)
+      return propertyListEnd(
+        queryHolders(book, query),
+        named === null ? found : siteLessNamed(book, query, found),
+        named,
+      )
+    }
+    // "Sam" names Sam in full, whose site is listed above: Sam Wu, whom the
+    // list can't show, is the end row, as before there was a Name line.
+    expect(namedClient(book, 'Sam')).toBe('c-sam1')
+    expect(endOf('Sam')).toEqual({ kind: 'one', clientId: 'c-samwu' })
+    // So too several: a way to choose among them.
+    expect(namedClient(book, 'Smith')).toBe('c-smith')
+    expect(endOf('Smith')).toEqual({ kind: 'several', count: 2 })
+    // Nobody with no site found: the one named.
+    expect(endOf('Sam Wu')).toEqual({ kind: 'one', clientId: 'c-samwu' })
+    expect(propertyListEnd(null, [], namedClient(book, 'Sam'))).toEqual({
+      kind: 'one',
+      clientId: 'c-sam1',
+    })
+  })
+
+  test('not a client with no site the words are only inside, or found by a contact: they are someone else', () => {
+    // Choose Tom Lee’s site, from the line under Name: his site, then New
+    // site for Tom Lee, never a row for Lee Tomkins and a strata whose
+    // contact is Tom Leeming.
+    const directory: MatchDirectory = {
+      clients: [
+        { _id: client('c-tom'), name: 'Tom Lee', kind: 'person' },
+        { _id: client('c-lt'), name: 'Lee Tomkins', kind: 'person' },
+        {
+          _id: client('c-strata'),
+          name: 'Harbourside Strata',
+          kind: 'business',
+        },
+      ],
+      sites: [
+        {
+          _id: site('p-tom'),
+          clientId: client('c-tom'),
+          addressLine: '8 Oak St',
+          suburb: 'Morley',
+          postcode: '6062',
+        },
+      ],
+      contacts: [
+        {
+          _id: contact('k-tl'),
+          clientId: client('c-strata'),
+          name: 'Tom Leeming',
+        },
+      ],
+    }
+    const book = buildMatchIndex(directory, { areaCode: '08', ours: NO_OURS })
+    const siteLess = clientOptions([
+      { _id: 'c-lt', name: 'Lee Tomkins', sites: [] },
+      {
+        _id: 'c-strata',
+        name: 'Harbourside Strata',
+        sites: [],
+        kind: 'business',
+        contacts: [{ name: 'Tom Leeming' }],
+      },
+    ])
+    const found = siteLessFound('Tom Lee', null, siteLess)
+    // The words find both.
+    expect([...found].sort()).toEqual(['c-lt', 'c-strata'])
+    expect(siteLessNamed(book, 'Tom Lee', found)).toEqual([])
+    expect(
+      propertyListEnd(
+        null,
+        siteLessNamed(book, 'Tom Lee', found),
+        namedClient(book, 'Tom Lee'),
+      ),
+    ).toEqual({ kind: 'one', clientId: 'c-tom' })
   })
 })

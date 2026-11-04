@@ -5,7 +5,9 @@ import {
   deviceId,
   forgetConnectionLogForTests,
   logConnection,
+  logConnectionSlower,
   markConnectionLogSent,
+  msBand,
   unsentConnectionLog,
 } from './connectionLog'
 
@@ -131,5 +133,39 @@ describe('connectionLog', () => {
     const name = deviceId()
     forgetConnectionLogForTests()
     expect(deviceId()).toBe(name)
+  })
+  it('says how long something took in bands: the power of two at or under it', () => {
+    expect(
+      [0.4, 1, 15.9, 16, 31.9, 32, 40, 63, 64, 1_000, 9_000].map(msBand),
+    ).toEqual([0, 1, 8, 16, 16, 32, 32, 32, 64, 512, 4_096])
+    expect(msBand(Number.NaN)).toBe(0)
+  })
+
+  it('notes a time only when it is slower than any of that kind noted on this page', () => {
+    vi.setSystemTime(1_000)
+    logConnection('ws-open')
+    // A big book on a slow phone with no signal, typed into all morning:
+    // each key a little slower or faster than the last.
+    for (let key = 0; key < 270; key++) {
+      logConnectionSlower('picker-filter', { rows: 8_000, ms: 40 + (key % 9) })
+    }
+    logConnectionSlower('picker-filter', { rows: 8_000, ms: 70 })
+    logConnectionSlower('picker-filter', { rows: 8_000, ms: 50 })
+    logConnectionSlower('match-index', { rows: 8_000, ms: 90.4 })
+    logConnectionSlower('match-index', { rows: 8_010, ms: 96 })
+    expect(unsentConnectionLog(KEPT_NOTES)!.entries).toEqual([
+      { t: 1_000, e: 'ws-open' },
+      { t: 1_000, e: 'picker-filter', d: { rows: 8_000, ms: 32 } },
+      { t: 1_000, e: 'picker-filter', d: { rows: 8_000, ms: 64 } },
+      { t: 1_000, e: 'match-index', d: { rows: 8_000, ms: 64 } },
+    ])
+    // A new page load says it afresh.
+    forgetConnectionLogForTests()
+    logConnectionSlower('picker-filter', { rows: 8_000, ms: 41 })
+    expect(unsentConnectionLog(KEPT_NOTES)!.entries.at(-1)).toEqual({
+      t: 1_000,
+      e: 'picker-filter',
+      d: { rows: 8_000, ms: 32 },
+    })
   })
 })
