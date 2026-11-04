@@ -12,6 +12,7 @@ import { QUIET_LINE_MS } from '#/lib/socketWatch'
 import {
   keepStartPage,
   keepStartPageIfMissing,
+  onPageKept,
   purgeOtherBusinessPages,
 } from './keptPages'
 import {
@@ -59,6 +60,7 @@ import type { LineState } from '#/lib/convexClient'
 import type { Warmable } from '#/lib/routeQueries'
 import type { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
+import type { PageKept } from './keptPages'
 import type { KeptFn, KeptWindow } from './keptSet'
 import type { KeptOwner, KeptRow } from './keptStore'
 
@@ -231,9 +233,15 @@ export class Keeper {
   // Each entry's dataUpdatedAt as the HTML brought it, which no push
   // changes: what the server drew the note's time from (`htmlAsOf`).
   private readonly htmlAt = new Map<string, number>()
-  // When the server drew this page load's HTML (`pageRenderedAt`): what each
-  // row written here is marked with, and what a row is judged newer against.
+  // When the server drew this page load's HTML (`pageRenderedAt`): what a
+  // row is judged newer against.
   private pageRenderedAt: number | null = null
+  // What each row written now is marked with: this page's time, or a later
+  // page's that this page load kept for the worker (`notePageKept`).
+  private writtenAs: number | null = null
+  // Pages this page load kept, drawn later than `writtenAs`, until the server
+  // has spoken since each was kept (`catchUpWrittenAs`).
+  private laterPages: Array<PageKept> = []
   private readonly pinned = new Map<string, Warmable>()
   // This business's keys from a week gone by, dropped once nothing shows them.
   private readonly leaving = new Map<string, QueryKey>()
@@ -290,6 +298,9 @@ export class Keeper {
     this.qc = qc
     this.convex = convex
     this.pageRenderedAt = pageRenderedAt()
+    this.writtenAs = this.pageRenderedAt
+    this.laterPages = []
+    const stopPages = onPageKept((kept) => this.notePageKept(kept))
     const cache = qc.getQueryCache()
     for (const query of cache.getAll()) this.noteAdded(query)
     const stopCache = cache.subscribe((event) => this.onCacheEvent(event))
@@ -343,6 +354,7 @@ export class Keeper {
 
     const detach = () => {
       stopCache()
+      stopPages()
       stopConnection()
       stopWiped()
       doc?.removeEventListener('visibilitychange', onVisibility)
@@ -1348,6 +1360,56 @@ export class Keeper {
     this.scheduleWrite()
   }
 
+  /**
+   * A page this page load has put in the worker's cache (`onPageKept`).
+   * One drawn after this page is what a cold open with no signal shows now,
+   * and a row marked with this page's time counts as older than it however
+   * much later it was written (`keptIsNewer`). So once the server has spoken
+   * since it was kept, rows are marked with its time instead, and every
+   * live answer is written again (`catchUpWrittenAs`): the start page kept
+   * at the first claim, or every kept page fetched again after a deploy,
+   * would otherwise leave everything kept for the rest of the visit unseen.
+   */
+  private notePageKept(kept: PageKept): void {
+    if (this.writtenAs !== null && kept.renderedAt <= this.writtenAs) return
+    this.laterPages.push(kept)
+  }
+
+  /**
+   * Moves `writtenAs` on to each later page kept that the server has spoken
+   * since: what the socket holds then takes in everything the server sent
+   * before it spoke, which on a line that works is everything up to that
+   * page being drawn. Not before, so a socket that stopped answering before
+   * the page was kept never passes off what it held as newer than that
+   * page, fetched fresh. True when it moved.
+   */
+  private catchUpWrittenAs(): boolean {
+    const heard = this.lastServerMessageAt()
+    if (heard === null || this.laterPages.length === 0) return false
+    let moved = false
+    this.laterPages = this.laterPages.filter((kept) => {
+      if (heard <= kept.at) return true
+      if (this.writtenAs === null || kept.renderedAt > this.writtenAs) {
+        this.writtenAs = kept.renderedAt
+        moved = true
+      }
+      return false
+    })
+    return moved
+  }
+
+  /** Every live kept answer written again with the next write, as it stands. */
+  private rewriteLive(): void {
+    const qc = this.qc
+    if (!qc) return
+    for (const query of qc.getQueryCache().getAll()) {
+      const fn = keptFnOf(query.queryKey)
+      if (fn === null || !this.isLiveHash(query.queryHash)) continue
+      this.written.delete(query.queryHash)
+      if (!this.dirty.has(query.queryHash)) this.markDirty(query.queryHash, fn)
+    }
+  }
+
   private dueOf(d: Dirty): number {
     const wait =
       d.fn === 'clients:directory'
@@ -1432,6 +1494,7 @@ export class Keeper {
       this.dirty.clear()
       return
     }
+    if (this.catchUpWrittenAs()) this.rewriteLive()
     const now = Date.now()
     const put: Array<KeptRow> = []
     for (const [hash, d] of this.dirty) {
@@ -1457,9 +1520,7 @@ export class Keeper {
         lens: claim.lens,
         data,
         savedAt: src.asOf,
-        ...(this.pageRenderedAt === null
-          ? {}
-          : { renderedAt: this.pageRenderedAt }),
+        ...(this.writtenAs === null ? {} : { renderedAt: this.writtenAs }),
         shape: KEPT_SHAPE,
         build: APP_VERSION,
       })
@@ -1532,6 +1593,8 @@ export class Keeper {
     const claim = this.claim
     const owner = this.owner
     if (!KEPT_ENABLED || this.writesStopped || !claim || !owner) return
+    // Written again first, and stamped once that has landed.
+    if (this.catchUpWrittenAs()) this.rewriteLive()
     if (!visible() || this.dirty.size > 0 || this.writing) return
     if (this.entered?._id !== claim.businessId || this.pinned.size === 0) {
       return

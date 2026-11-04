@@ -364,6 +364,43 @@ async function homeKept(page: Page): Promise<string | null> {
     .catch(() => null)
 }
 
+/**
+ * Until the start page is kept with the home marker naming it, as a page
+ * load does at its first claim when the marker isn't there yet
+ * (keptPages.ts `keepStartPage`): a copy drawn a moment after the page on
+ * screen, which the worker serves from then on. The keeper is told of it
+ * before the marker is written.
+ */
+async function waitForStartPageKept(page: Page, slug: string) {
+  await expect
+    .poll(() => homeKept(page), { timeout: KEEP_TIMEOUT })
+    .toBe(`/${encodeURIComponent(slug)}/schedule`)
+}
+
+/**
+ * When the server drew the page on screen, and the start page the worker
+ * keeps: the time the head script leaves on `window` (RENDERED_AT_KEY,
+ * src/lib/offline/keptSet.ts), which the kept page's HTML holds too.
+ */
+async function drawnAt(
+  page: Page,
+  slug: string,
+): Promise<{ onScreen: number | null; kept: number | null }> {
+  return page.evaluate(async (businessSlug) => {
+    const drawn: unknown = Reflect.get(window, '__pestm8RenderedAt')
+    const kept = await (
+      await caches.open('pages')
+    ).match(`/${encodeURIComponent(businessSlug)}/schedule`, {
+      ignoreVary: true,
+    })
+    const at = /__pestm8RenderedAt=(\d+)/.exec((await kept?.text()) ?? '')
+    return {
+      onScreen: typeof drawn === 'number' ? drawn : null,
+      kept: at ? Number(at[1]) : null,
+    }
+  }, slug)
+}
+
 /** A business with today's job, signed in, its page and copy kept. */
 async function keptBusiness(page: Page, label: string) {
   const s = await ownerWithBusiness(label)
@@ -619,12 +656,15 @@ test('a change kept after the page was, and clearly later, shows on the next ope
   )
   await signInViaUi(page, s.owner.email)
   await openSchedule(page, s.slug)
-  // The last page load the worker keeps, with the job as it was.
+  // The last page load the worker keeps, with the job as it was, and the
+  // start page as that page load may keep it again, before the job changes.
   await keepPageInWorker(page)
   await waitForKeptCopy(page, s.businessId)
+  await waitForStartPageKept(page, s.slug)
 
-  // More than two minutes on by the phone's clock (KEPT_UPGRADE_MARGIN_MS),
-  // the office changes the job, and the open page keeps the change.
+  // The phone's clock moved on (PAGE_AGE_MS), so the page the worker serves
+  // next counts as its own copy; the office changes the job, and the open
+  // page keeps the change.
   await page.clock.setSystemTime(Date.now() + PAGE_AGE_MS)
   await s.owner.client.mutation(api.jobs.update, {
     businessId: s.businessId,
@@ -639,6 +679,67 @@ test('a change kept after the page was, and clearly later, shows on the next ope
   try {
     // The worker's page still says General Pest Control; the copy, kept
     // clearly later, takes its place as the page hydrates.
+    await page.reload()
+    await expect(newJobButton(page)).toBeEnabled()
+    await expect(
+      page.getByRole('button', { name: /Termite Inspection/ }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: /General Pest Control/ }),
+    ).toHaveCount(0)
+  } finally {
+    await context.setOffline(false)
+  }
+})
+
+test('a change kept after the start page was drawn again in the background shows on the next open with no signal', async ({
+  page,
+  context,
+}) => {
+  const s = await ownerWithBusiness('kept-upgrade-later-page')
+  const today = perthDay(0)
+  const jobId = await book(
+    s.owner,
+    s.businessId,
+    s.ownerMembershipId,
+    'Arthur Wellard',
+    today,
+    'General Pest Control',
+  )
+  await signInViaUi(page, s.owner.email)
+  await openSchedule(page, s.slug)
+  await keepPageInWorker(page)
+  await waitForKeptCopy(page, s.businessId)
+  await waitForStartPageKept(page, s.slug)
+
+  // As on a phone's first sign-in: with no marker, the next page load keeps
+  // the start page again at its first claim, drawn after the page on screen,
+  // and that is the page the worker serves from then on.
+  await page.evaluate(async () =>
+    (await caches.open('pages')).delete('/__pestm8/home'),
+  )
+  await page.reload()
+  await expect(newJobButton(page)).toBeEnabled()
+  await waitForKeptCopy(page, s.businessId)
+  await waitForStartPageKept(page, s.slug)
+  const drawn = await drawnAt(page, s.slug)
+  expect(drawn.onScreen).not.toBeNull()
+  expect(drawn.kept ?? 0).toBeGreaterThan(drawn.onScreen ?? Infinity)
+
+  await page.clock.setSystemTime(Date.now() + PAGE_AGE_MS)
+  await s.owner.client.mutation(api.jobs.update, {
+    businessId: s.businessId,
+    jobId,
+    jobType: 'Termite Inspection',
+  })
+  await expect
+    .poll(() => keptDay(page, today), { timeout: KEEP_TIMEOUT })
+    .toContain('Termite Inspection')
+
+  await context.setOffline(true)
+  try {
+    // The worker's page, drawn before the change, gives way to the copy the
+    // page on screen kept after it, though that page was drawn earlier still.
     await page.reload()
     await expect(newJobButton(page)).toBeEnabled()
     await expect(

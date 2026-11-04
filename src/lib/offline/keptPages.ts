@@ -1,6 +1,7 @@
 import { logConnection } from '#/lib/connectionLog'
 import { isOffline } from '#/lib/online'
 import { signedInUserId } from '#/lib/rootState'
+import { renderedAtInHtml } from './keptSet'
 import {
   HOME_MARKER,
   PAGES_CACHE,
@@ -165,6 +166,42 @@ async function openForKeeping(): Promise<Keeping | null> {
   return { cache, samePerson: () => signedInUserId() === who }
 }
 
+/** A page this page load put in 'pages', as `onPageKept` tells of it. */
+export type PageKept = {
+  /** When the server drew it (`renderedAtInHtml`). */
+  renderedAt: number
+  /** When it was put, by this phone's clock. */
+  at: number
+}
+
+const pageKeptListeners = new Set<(kept: PageKept) => void>()
+
+/**
+ * Calls `listener` with each page this page load puts in 'pages' once it is
+ * there, if its HTML says when it was drawn: for the keeper, which tells
+ * what it writes apart from the page a cold open shows by when each was
+ * drawn (keeper.ts `notePageKept`). Returns the way to stop.
+ */
+export function onPageKept(listener: (kept: PageKept) => void): () => void {
+  pageKeptListeners.add(listener)
+  return () => {
+    pageKeptListeners.delete(listener)
+  }
+}
+
+/** Tells `onPageKept` of a page put at `at`, from its HTML. Never throws. */
+async function tellKept(html: Promise<string>, at: number): Promise<void> {
+  const renderedAt = renderedAtInHtml(await html)
+  if (renderedAt === null) return
+  for (const listener of [...pageKeptListeners]) {
+    try {
+      listener({ renderedAt, at })
+    } catch {
+      // Best-effort, as above.
+    }
+  }
+}
+
 /**
  * Steps 4 to 6: fetches `url`, and puts it into the cache `keeping` opened
  * if `take` says so. 'stopped' when there is no signal, the fetch fails or
@@ -179,7 +216,15 @@ async function keepPage(
   try {
     const res = await fetch(url, FETCH_TO_KEEP)
     if (!take(res) || !keeping.samePerson()) return 'refused'
+    // Read beside the put, which takes the body; a redirect has none.
+    const html = opensAsPage(res)
+      ? res
+          .clone()
+          .text()
+          .catch(() => '')
+      : null
     await keeping.cache.put(url, res)
+    if (html) await tellKept(html, Date.now())
     return 'kept'
   } catch {
     return 'stopped'

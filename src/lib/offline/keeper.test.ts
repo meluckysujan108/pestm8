@@ -32,6 +32,7 @@ import type { QueryKey, QueryState } from '@tanstack/react-query'
 import type { ConvexReactClient } from 'convex/react'
 import type { Access } from '#/lib/access'
 import type { Id } from '../../../convex/_generated/dataModel'
+import type { PageKept } from './keptPages'
 import type * as KeptSet from './keptSet'
 import type { KeptPeek, KeptRow } from './keptStore'
 
@@ -54,12 +55,22 @@ vi.hoisted(() => {
 const who = vi.hoisted((): { id: string | null } => ({ id: 'u1' }))
 vi.mock('#/lib/rootState', () => ({ signedInUserId: () => who.id }))
 vi.mock('#/lib/connectionLog', () => ({ logConnection: vi.fn() }))
+const pagesKept = vi.hoisted(() => new Set<(kept: PageKept) => void>())
 vi.mock('./keptPages', () => ({
   keepStartPage: vi.fn(async () => {}),
   // As if the start page were kept already, unless a test says otherwise.
   keepStartPageIfMissing: vi.fn(async () => false),
+  onPageKept: (listener: (kept: PageKept) => void) => {
+    pagesKept.add(listener)
+    return () => pagesKept.delete(listener)
+  },
   purgeOtherBusinessPages: vi.fn(async () => {}),
 }))
+
+/** A page put in the worker's cache just now, drawn at `renderedAt`. */
+function pageKept(renderedAt: number) {
+  for (const listener of pagesKept) listener({ renderedAt, at: Date.now() })
+}
 
 const B = 'b1' as Id<'businesses'>
 const B2 = 'b2' as Id<'businesses'>
@@ -1715,6 +1726,66 @@ describe('upgrading what the HTML drew', () => {
       h.convex.answer(day(TODAY), [job('live')])
       await vi.advanceTimersByTimeAsync(KEPT_WRITE_DELAY_MS + 10)
       expect(h.row(day(TODAY))?.renderedAt).toBe(drawn)
+    } finally {
+      Reflect.deleteProperty(window, RENDERED_AT_KEY)
+    }
+  })
+
+  test('once it keeps a later page for the worker, what it writes after the server has spoken says that page’s time', async () => {
+    // The start page kept again at the first claim, or after a deploy: drawn
+    // after the page on screen, and what a cold open with no signal shows.
+    // Marked with this page's time, the rest of the visit's changes would
+    // count as older than it, and never show.
+    const drawn = NOW - 60_000
+    const later = drawn + 5_000
+    Reflect.set(window, RENDERED_AT_KEY, drawn)
+    try {
+      const h = harness(await phoneKeeps([]))
+      await claimed(h)
+      // Drawn no later than this page: nothing to tell apart.
+      pageKept(drawn)
+      h.convex.answer(day(TODAY), [job('before')])
+      await vi.advanceTimersByTimeAsync(500)
+      // Kept while the day waits to be written, with nothing heard since.
+      pageKept(later)
+      await vi.advanceTimersByTimeAsync(KEPT_WRITE_DELAY_MS)
+      expect(h.row(day(TODAY))).toMatchObject({
+        data: [job('before')],
+        renderedAt: drawn,
+      })
+
+      h.convex.answer(day(TODAY), [job('after')])
+      await vi.advanceTimersByTimeAsync(KEPT_WRITE_DELAY_MS + 10)
+      expect(h.row(day(TODAY))).toMatchObject({
+        data: [job('after')],
+        renderedAt: later,
+      })
+    } finally {
+      Reflect.deleteProperty(window, RENDERED_AT_KEY)
+    }
+  })
+
+  test('and what it wrote before is written again with that time, though nothing changed, once the server has spoken since', async () => {
+    const drawn = NOW - 60_000
+    const later = drawn + 5_000
+    Reflect.set(window, RENDERED_AT_KEY, drawn)
+    try {
+      page()
+      const h = harness(await phoneKeeps([]))
+      await claimed(h)
+      h.convex.answer(day(TODAY), [job('same')])
+      await vi.advanceTimersByTimeAsync(KEPT_WRITE_DELAY_MS + 10)
+      pageKept(later)
+      // A socket that stopped answering before the page was kept: what it
+      // holds is never passed off as newer than that page.
+      await vi.advanceTimersByTimeAsync(KEPT_STAMP_MS * 2)
+      expect(h.row(day(TODAY))?.renderedAt).toBe(drawn)
+
+      await pinging(h, KEPT_STAMP_MS + KEPT_WRITE_DELAY_MS + 10)
+      expect(h.row(day(TODAY))).toMatchObject({
+        data: [job('same')],
+        renderedAt: later,
+      })
     } finally {
       Reflect.deleteProperty(window, RENDERED_AT_KEY)
     }

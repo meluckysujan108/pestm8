@@ -272,15 +272,35 @@ export function pageRenderedAt(): number | null {
   return typeof at === 'number' && Number.isFinite(at) ? at : null
 }
 
+const RENDERED_AT_IN_HTML = new RegExp(`window\\.${RENDERED_AT_KEY}=(\\d+)`)
+
+/**
+ * When the server drew a page, read from its HTML (the head script's
+ * RENDERED_AT_KEY), or null: for a page kept for the worker without being
+ * opened (keptPages.ts `onPageKept`).
+ */
+export function renderedAtInHtml(html: string): number | null {
+  const at = RENDERED_AT_IN_HTML.exec(html)?.[1]
+  return at === undefined ? null : Number(at)
+}
+
 /**
  * Whether a kept row is newer than the answer a page's HTML brought.
  *
- * By the server's clock alone where the row says which page load wrote it.
- * Every row is written from answers the server pushed after that page was
- * drawn, so a row written under this page, or under one drawn since, is at
- * least as new as this page's HTML. However soon after: a caller booked a
- * minute after the app opened, the phone locked, the app reopened with no
- * signal on the page the service worker kept from that opening.
+ * By the server's clock alone where the row says when a page was drawn.
+ * Every row is written from answers the server pushed after the page whose
+ * page load wrote it was drawn, so a row written under this page, or under
+ * one drawn since, is at least as new as this page's HTML. However soon
+ * after: a caller booked a minute after the app opened, the phone locked,
+ * the app reopened with no signal on the page the service worker kept from
+ * that opening.
+ *
+ * A page load that keeps a page for the worker in the background (the start
+ * page at its first claim, every kept page after a deploy) puts in a page
+ * drawn after its own, which a cold open with no signal then shows. What it
+ * writes once the server has spoken since says that page's time instead
+ * (keeper.ts `notePageKept`): otherwise everything it kept for the rest of
+ * the visit counted as older than that page, and never showed.
  *
  * Otherwise (a row that doesn't say, or a page whose head script didn't
  * run) by the phone's time for the row against the server's for the page,
