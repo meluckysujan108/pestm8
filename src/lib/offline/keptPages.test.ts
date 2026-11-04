@@ -5,17 +5,20 @@ import { signedInUserId } from '#/lib/rootState'
 import {
   keepStartPage,
   keepStartPageIfMissing,
+  onPageKept,
   pagesToPurge,
   pagesToRefresh,
   purgeOtherBusinessPages,
   refreshKeptPages,
 } from './keptPages'
+import { RENDERED_AT_KEY } from './keptSet'
 import {
   HOME_MARKER,
   PAGES_CACHE,
   homeFromMarker,
   opensAsPage,
 } from './pagesCache'
+import type { PageKept } from './keptPages'
 
 /**
  * The pages kept for opening with no signal: which are fetched again after a
@@ -441,6 +444,96 @@ describe('keepStartPageIfMissing', () => {
       '/acme/schedule',
       '/acme/schedule',
     ])
+  })
+})
+
+describe('onPageKept', () => {
+  /** A page as the server draws it, saying when (the head script's). */
+  const drawn = (renderedAt: number, body = 'schedule') =>
+    page(
+      `<html><head><script>window.${RENDERED_AT_KEY}=${renderedAt};</script></head><body>${body}</body></html>`,
+    )
+
+  function listen() {
+    const told: Array<PageKept> = []
+    const stop = onPageKept((one) => told.push(one))
+    return { told, stop }
+  }
+
+  test('tells of each page put, with when the server drew it and when it was put', async () => {
+    const { told, stop } = listen()
+    // Whether the marker was there yet as each was told.
+    const marked: Array<boolean> = []
+    const stopMarked = onPageKept(() =>
+      marked.push(
+        storage.named.get(PAGES_CACHE)?.entries.has(at(HOME_MARKER)) ?? false,
+      ),
+    )
+    try {
+      answers.set('/acme/schedule', () => drawn(1_793_547_350_025))
+      const before = Date.now()
+      await keepStartPage('acme')
+      expect(told).toEqual([
+        { renderedAt: 1_793_547_350_025, at: expect.any(Number) },
+      ])
+      expect(told[0]?.at).toBeGreaterThanOrEqual(before)
+      // Told before the marker is written, so a marker naming the start page
+      // means the keeper knows of it; and the page is kept whole.
+      expect(marked).toEqual([false])
+      expect(await storage.text(PAGES_CACHE, HOME_MARKER)).toBe(
+        '/acme/schedule',
+      )
+      expect(await storage.text(PAGES_CACHE, '/acme/schedule')).toContain(
+        '<body>schedule</body>',
+      )
+    } finally {
+      stop()
+      stopMarked()
+    }
+  })
+
+  test('not of a redirect, a page that does not say, nor one not put', async () => {
+    const { told, stop } = listen()
+    try {
+      await kept('/', '/acme/schedule', '/acme/clients', '/acme/job/j1')
+      await markHome('/acme/schedule')
+      answers.set('/', opaqueRedirect)
+      answers.set('/acme/schedule', () => page('no head script'))
+      answers.set(
+        '/acme/clients',
+        () => new Response(`window.${RENDERED_AT_KEY}=1;`, { status: 404 }),
+      )
+      answers.set('/acme/job/j1', () => {
+        vi.mocked(signedInUserId).mockReturnValue('u2')
+        return drawn(2)
+      })
+      await refreshKeptPages()
+      expect(told).toEqual([])
+    } finally {
+      stop()
+    }
+  })
+
+  test('a listener that throws keeps nothing from being kept, and one stopped hears no more', async () => {
+    const stopThrowing = onPageKept(() => {
+      throw new Error('listener')
+    })
+    const { told, stop } = listen()
+    try {
+      answers.set('/acme/schedule', () => drawn(5))
+      await keepStartPage('acme')
+      expect(told).toEqual([{ renderedAt: 5, at: expect.any(Number) }])
+      expect(await storage.text(PAGES_CACHE, HOME_MARKER)).toBe(
+        '/acme/schedule',
+      )
+
+      stop()
+      await keepStartPage('acme')
+      expect(told).toHaveLength(1)
+    } finally {
+      stopThrowing()
+      stop()
+    }
   })
 })
 

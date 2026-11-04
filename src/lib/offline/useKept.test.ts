@@ -27,7 +27,7 @@ import {
   useReadableAll,
   waitSince,
 } from './useKept'
-import { RENDERED_AT_KEY, pageRenderedAt } from './keptSet'
+import { RENDERED_AT_KEY, pageRenderedAt, renderedAtInHtml } from './keptSet'
 import type { ReactElement } from 'react'
 import type { BehindLatch, KeptMode, KeptNoteTone, NoteLatch } from './useKept'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -148,6 +148,16 @@ describe('the head script that marks a kept page', () => {
     expect(run(drawn, drawn + 3_000)).toBeUndefined()
     expect(run(drawn, drawn + KEPT_PAGE_AGE_MS)).toBeUndefined()
     expect(run(drawn, drawn + 3_000, false)).toBeUndefined()
+  })
+
+  test('leaves its time where a page kept without being opened can be read for it', () => {
+    // As the server writes it into <head>, rounded to the millisecond.
+    expect(
+      renderedAtInHtml(
+        `<head><script class="$tsr">${keptInitScript(1_793_547_350_025.4)}</script></head>`,
+      ),
+    ).toBe(1_793_547_350_025)
+    expect(renderedAtInHtml('<head></head>')).toBeNull()
   })
 
   test('leaves when the page was drawn for the keeper, fresh or kept', () => {
