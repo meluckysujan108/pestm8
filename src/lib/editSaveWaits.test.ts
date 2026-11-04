@@ -53,6 +53,7 @@ describe.each([
   ['components/schedule/JobDetailSheet.tsx', 'JobEditForm', 'job'],
   ['components/clients/ClientEditForm.tsx', 'ClientEditForm', 'client'],
   ['components/clients/ClientSheet.tsx', 'PropertyEditForm', 'property'],
+  ['components/clients/PropertyEditMode.tsx', 'PropertyEditMode', 'property'],
 ])('%s %s', (file, name, thing) => {
   const form = functionText(source(file), name)
 

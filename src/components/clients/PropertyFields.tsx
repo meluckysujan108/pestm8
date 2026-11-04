@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import { FormField } from '#/components/forms/FormField'
 import { PhoneInput } from '#/components/forms/PhoneInput'
 import { VerifiedAddressFields } from '#/components/forms/VerifiedAddressFields'
 import type { AddressCheck } from '#/components/forms/VerifiedAddressFields'
@@ -17,8 +18,10 @@ export type PropertyFieldsValue = {
 /**
  * One property's address, and its site contact for a business client — the
  * same fields for editing a property and adding another, so the two cannot
- * drift. Placeholders stand in for labels in this small card, so each field
- * is also named by an aria-label.
+ * drift. In the client sheet's small card, placeholders stand in for
+ * labels, so each field is also named by an aria-label. A whole-sheet form
+ * (the job sheet's Edit → Property details) gives them visible labels, since
+ * a filled field has no placeholder left to name it.
  *
  * The address is VerifiedAddressFields: checked as it goes in and again at
  * Save, against the business's own state. `initial` is what the property has
@@ -33,6 +36,7 @@ export function PropertyFields({
   businessState,
   onCheckChange,
   picked,
+  labels = 'placeholders',
 }: {
   value: PropertyFieldsValue
   onChange: (patch: Partial<PropertyFieldsValue>) => void
@@ -44,8 +48,11 @@ export function PropertyFields({
   /** The address is a suggestion picked before this was drawn (in Clients
    * → New client): still picked, until it is changed. */
   picked?: boolean
+  labels?: 'visible' | 'placeholders'
 }) {
   const id = useId()
+  const nameId = `${id}-site-name`
+  const phoneId = `${id}-site-phone`
   return (
     <>
       <VerifiedAddressFields
@@ -55,35 +62,73 @@ export function PropertyFields({
         workState={businessState}
         initial={initial}
         size="md"
-        labels="placeholders"
+        labels={labels}
         onCheckChange={onCheckChange}
         picked={picked}
       />
-      {clientKind === 'business' && (
-        <>
-          <TextInput
-            value={value.siteContactName}
-            onChange={(siteContactName) => onChange({ siteContactName })}
-            placeholder="Site contact name"
-            ariaLabel="Site contact name"
-          />
-          {/* In a box of its own, so its message lines sit under it rather
-              than a card's gap away. */}
-          <div>
-            <PhoneInput
-              id={`${id}-site-phone`}
-              value={value.siteContactPhone}
-              onChange={(siteContactPhone) => onChange({ siteContactPhone })}
-              initial={initial?.siteContactPhone}
-              businessState={businessState}
+      {clientKind === 'business' &&
+        (labels === 'visible' ? (
+          // Spaced as VerifiedAddressFields spaces its labelled fields.
+          <>
+            <FormField
+              id={nameId}
+              label="Site contact name (optional)"
               size="md"
-              placeholder="Site contact number"
-              ariaLabel="Site contact number"
-              name="Site contact number"
+              className="mt-4"
+            >
+              {(control) => (
+                <input
+                  {...control}
+                  type="text"
+                  value={value.siteContactName}
+                  onChange={(e) =>
+                    onChange({ siteContactName: e.target.value })
+                  }
+                />
+              )}
+            </FormField>
+            <FormField
+              id={phoneId}
+              label="Site contact number (optional)"
+              size="md"
+              className="mt-4"
+            >
+              <PhoneInput
+                id={phoneId}
+                value={value.siteContactPhone}
+                onChange={(siteContactPhone) => onChange({ siteContactPhone })}
+                initial={initial?.siteContactPhone}
+                businessState={businessState}
+                size="md"
+                name="Site contact number"
+              />
+            </FormField>
+          </>
+        ) : (
+          <>
+            <TextInput
+              value={value.siteContactName}
+              onChange={(siteContactName) => onChange({ siteContactName })}
+              placeholder="Site contact name"
+              ariaLabel="Site contact name"
             />
-          </div>
-        </>
-      )}
+            {/* In a box of its own, so its message lines sit under it rather
+                than a card's gap away. */}
+            <div>
+              <PhoneInput
+                id={phoneId}
+                value={value.siteContactPhone}
+                onChange={(siteContactPhone) => onChange({ siteContactPhone })}
+                initial={initial?.siteContactPhone}
+                businessState={businessState}
+                size="md"
+                placeholder="Site contact number"
+                ariaLabel="Site contact number"
+                name="Site contact number"
+              />
+            </div>
+          </>
+        ))}
     </>
   )
 }

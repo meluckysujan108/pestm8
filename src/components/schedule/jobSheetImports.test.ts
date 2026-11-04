@@ -79,7 +79,9 @@ function heavyIn(modules: Set<string>): Array<string> {
 
 describe('the forms the job sheet edits a client and a property with', () => {
   test.each([
+    'components/schedule/JobRecordEdit.tsx',
     'components/clients/ClientEditForm.tsx',
+    'components/clients/PropertyEditMode.tsx',
     'components/clients/PropertyFields.tsx',
   ])('%s brings none of the client sheet, its notes or its reports', (root) => {
     const modules = reached(root)
@@ -95,6 +97,35 @@ describe('the forms the job sheet edits a client and a property with', () => {
         'components/clients/ClientSheet.tsx',
         'components/notes/ClientNotesSection.tsx',
       ]),
+    )
+  })
+})
+
+describe('the job sheet', () => {
+  const sheet = 'components/schedule/JobDetailSheet.tsx'
+  const text = readFileSync(resolve(SRC, sheet), 'utf8')
+
+  test('imports nothing from the clients, the notes or the reports to draw it: those come when the job opens', () => {
+    const fromThere = [
+      ...text.matchAll(
+        /^(?:import\s+(?!type\b)|export\s+[*{])[^'"]*?\sfrom\s+'([^']+)'/gm,
+      ),
+    ]
+      .map((m) => m[1])
+      .filter((spec) =>
+        /components\/(?:clients|notes)\/|reports\/InlineReports/.test(spec),
+      )
+    expect(fromThere).toEqual([])
+    expect(text).toContain("import('./JobRecordEdit')")
+  })
+
+  test('brings none of the client sheet, the notes or the reports with it', () => {
+    const modules = reached(sheet)
+    expect(modules.size).toBeGreaterThan(20)
+    expect(heavyIn(modules)).toEqual([])
+    // The forms it edits a client and a property with come only when asked.
+    expect([...modules].map((file) => relative(SRC, file))).not.toEqual(
+      expect.arrayContaining(['components/schedule/JobRecordEdit.tsx']),
     )
   })
 })
