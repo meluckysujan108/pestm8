@@ -1,0 +1,100 @@
+// @vitest-environment node
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, relative, resolve } from 'node:path'
+import { describe, expect, test } from 'vitest'
+
+/**
+ * The job sheet loads with the Schedule's first chunk, and lazy-loads the
+ * client sheet's notes and reports (the note editor alone is about 411 KB),
+ * which took the Schedule's hydration from ~0.7 s to ~70 ms. The forms it
+ * edits a client and a property with came out of `ClientSheet.tsx` for that
+ * reason: a static import that reaches back to the notes or reports would
+ * bring them into whatever loads the form. There is no bundle in these
+ * tests, so this follows the static imports in the source instead.
+ */
+const SRC = resolve(import.meta.dirname, '../..')
+
+/** What a form the job sheet loads must never bring with it. */
+const HEAVY = [
+  'ClientSheet',
+  'ClientJobsTab',
+  'ClientNotesSection',
+  'InlineNotes',
+  'InlineReports',
+  'NoteEditor',
+]
+
+/**
+ * Each module `file` imports for its values, as a path under src: `import
+ * type` is left out (it is gone once compiled), as is `import('…')`, which
+ * loads only when called. Packages, and modules outside src, are not
+ * followed.
+ */
+function valueImports(file: string): Array<string> {
+  const text = readFileSync(file, 'utf8')
+  const specs = [
+    ...text.matchAll(
+      /^(?:import\s+(?!type\b)|export\s+[*{])[^'"]*?\sfrom\s+'([^']+)'/gm,
+    ),
+  ].map((m) => m[1])
+  return specs.flatMap((spec) => {
+    const base = spec.startsWith('#/')
+      ? resolve(SRC, spec.slice(2))
+      : spec.startsWith('.')
+        ? resolve(dirname(file), spec)
+        : null
+    if (base === null || !base.startsWith(SRC)) return []
+    const found = ['', '.ts', '.tsx', '/index.ts', '/index.tsx']
+      .map((ext) => base + ext)
+      .find((path) => /\.tsx?$/.test(path) && existsSync(path))
+    return found ? [found] : []
+  })
+}
+
+/** Every module `root` brings with it, itself included. */
+function reached(root: string): Set<string> {
+  const seen = new Set<string>()
+  const queue = [resolve(SRC, root)]
+  while (queue.length > 0) {
+    const file = queue.pop()!
+    if (seen.has(file)) continue
+    seen.add(file)
+    queue.push(...valueImports(file))
+  }
+  return seen
+}
+
+function heavyIn(modules: Set<string>): Array<string> {
+  return [...modules]
+    .filter((file) =>
+      HEAVY.includes(
+        file
+          .split('/')
+          .at(-1)!
+          .replace(/\.tsx?$/, ''),
+      ),
+    )
+    .map((file) => relative(SRC, file))
+}
+
+describe('the forms the job sheet edits a client and a property with', () => {
+  test.each([
+    'components/clients/ClientEditForm.tsx',
+    'components/clients/PropertyFields.tsx',
+  ])('%s brings none of the client sheet, its notes or its reports', (root) => {
+    const modules = reached(root)
+    // Followed, not stopped at the first import: a scan that read nothing
+    // would find nothing heavy either.
+    expect(modules.size).toBeGreaterThan(3)
+    expect(heavyIn(modules)).toEqual([])
+  })
+
+  test('the scan finds the client sheet’s notes when they are there', () => {
+    expect(heavyIn(reached('components/clients/ClientSheet.tsx'))).toEqual(
+      expect.arrayContaining([
+        'components/clients/ClientSheet.tsx',
+        'components/notes/ClientNotesSection.tsx',
+      ]),
+    )
+  })
+})
