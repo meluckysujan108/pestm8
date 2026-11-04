@@ -1,4 +1,14 @@
-import { Suspense, lazy, useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  Component,
+  Suspense,
+  lazy,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+import type { ErrorInfo, ReactNode, Ref, RefObject } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
@@ -45,6 +55,12 @@ import { OutboxItemBody } from './OutboxItemSheet'
 import { useOutboxReadable } from '#/lib/outbox/useOutbox'
 import { INVOICED_LOCKED, SOMEONE_ELSES_JOB } from '#/lib/offline/keptJob'
 import { useHandOverBody } from '#/lib/offline/useKept'
+import { useLineDown } from '#/lib/offline/useLineDown'
+import { editSaveWaits } from '#/lib/editSaveWaits'
+import { editTriggerLabel, jobEditChoices } from '#/lib/jobEditChoices'
+import type { JobEditTarget } from '#/lib/jobEditChoices'
+import { JobEditChooser } from './JobEditChooser'
+import type { JobRecordEdit, RecordEditTarget } from './JobRecordEdit'
 import { JobTimeFields, useJobTimes } from './JobTimeFields'
 import { PropertyHistory } from './PropertyHistory'
 import { nextVisit } from '#/lib/jobHistory'
@@ -117,6 +133,29 @@ const InlineReportsSection = lazy(() =>
 const StartReportButtons = lazy(() =>
   loadReports().then((m) => ({ default: m.StartReportButtons })),
 )
+
+/**
+ * Edit → Client details and Property details: the client sheet's own forms
+ * (JobRecordEdit), loaded on demand for the same reason, and asked for as a
+ * job opens so they are in hand by the time a row is chosen.
+ */
+const loadRecordEdit = () => import('./JobRecordEdit')
+const LazyJobRecordEdit = lazy(() =>
+  loadRecordEdit().then((m) => ({ default: m.JobRecordEdit })),
+)
+
+/**
+ * What the job sheet is editing: the job, or its client or property as they
+ * were when chosen. `fromChooser`: chosen in the Edit sheet, so its title
+ * takes focus. `codeReady`: the form's code was in hand then, so it is drawn
+ * straight away rather than through `lazy`, which waits a render even with
+ * the code there — and keeps that way, since swapping one for the other
+ * would draw the form afresh and lose what was typed.
+ */
+type EditTarget = ({ what: 'job' } | RecordEditTarget) & {
+  fromChooser?: boolean
+  codeReady?: boolean
+}
 
 /**
  * Saving an edit is two writes: the job's own fields, then — if the person
@@ -271,17 +310,111 @@ function JobDetailBody({
   const [confirmDelete, setConfirmDelete] = useState<'job' | 'series' | null>(
     null,
   )
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState<EditTarget | null>(null)
+  const [chooserOpen, setChooserOpen] = useState(false)
+  // The client and property forms, once their code is in.
+  const [RecordEdit, setRecordEdit] = useState<typeof JobRecordEdit | null>(
+    null,
+  )
   const [statusOpen, setStatusOpen] = useState(false)
   const statusButton = useRef<HTMLButtonElement>(null)
+  const editButton = useRef<HTMLButtonElement>(null)
+  const editTitle = useRef<HTMLHeadingElement>(null)
+  const sheetTitle = useRef<HTMLHeadingElement>(null)
+  // A row was chosen in the Edit sheet: its form's title, not Edit, is where
+  // focus goes as the sheet finishes closing. Reset each time it opens.
+  const chose = useRef(false)
+  // A form was left by Cancel or Save: focus goes back to Edit.
+  const backToEdit = useRef(false)
+  // Read as the Edit sheet finishes closing (SheetShell), not when it was
+  // told to close. With Edit gone meanwhile (the job invoiced from the
+  // office, or deleted), to the sheet's title.
+  const chooserReturn = useMemo<RefObject<HTMLElement | null>>(
+    () => ({
+      get current() {
+        return (
+          (chose.current && editTitle.current) ||
+          editButton.current ||
+          sheetTitle.current
+        )
+      },
+    }),
+    [],
+  )
   const hydrated = useHydrated()
+
+  // Asked for as the job opens, and again at Edit should that have failed;
+  // a failure is said by the form's own boundary, once a row is chosen.
+  const loadRecordForms = () => {
+    loadRecordEdit().then(
+      (m) => setRecordEdit(() => m.JobRecordEdit),
+      () => {},
+    )
+  }
 
   // The notes and reports sections render only once `job` has arrived. Asking
   // for their code now lets it load alongside the job rather than after it.
   useEffect(() => {
     void loadNotes()
     void loadReports()
+    loadRecordForms()
   }, [])
+
+  // What Edit offers: the job, its client, its property (lib/jobEditChoices).
+  const choices = job ? jobEditChoices(job) : []
+  // Gone from under it (the job invoiced from the office, say), the Edit
+  // sheet closes, as Edit itself goes.
+  if (chooserOpen && choices.length < 2) setChooserOpen(false)
+
+  const openEdit = () => {
+    loadRecordForms()
+    if (choices.length > 1) {
+      chose.current = false
+      setChooserOpen(true)
+    } else {
+      setEditing({ what: 'job' })
+    }
+  }
+
+  /** The record a row edits, as it is now: kept as it was from here on. */
+  const targetOf = (target: JobEditTarget): EditTarget | null => {
+    const property = job?.property
+    if (target === 'job') return { what: 'job' }
+    if (target === 'client') {
+      return property?.client
+        ? {
+            what: 'client',
+            client: property.client,
+            contactPerson: job?.contactPerson?.name ?? '',
+          }
+        : null
+    }
+    if (!property) return null
+    const { client, ...site } = property
+    return { what: 'property', property: site, clientKind: client?.kind ?? 'person' }
+  }
+
+  const choose = (target: JobEditTarget) => {
+    const next = targetOf(target)
+    chose.current = next !== null
+    setChooserOpen(false)
+    if (next) {
+      setEditing({ ...next, fromChooser: true, codeReady: RecordEdit !== null })
+    }
+  }
+
+  const leaveEdit = () => {
+    backToEdit.current = true
+    setEditing(null)
+  }
+  // Back from a form, focus goes to Edit; with Edit gone (the job invoiced
+  // meanwhile), to the sheet's title.
+  useEffect(() => {
+    if (editing !== null || !backToEdit.current) return
+    backToEdit.current = false
+    const to = editButton.current ?? sheetTitle.current
+    to?.focus()
+  }, [editing])
 
   // None of these close the sheet on success — a status change from the
   // status sheet is a quick in-place toggle, not a "finish and leave"
@@ -375,34 +508,90 @@ function JobDetailBody({
     (siteContact !== null || Boolean(contactPerson?.phone)) &&
     Boolean(client?.phone || client?.email)
 
-  if (job && editing) {
+  // The Edit sheet, first in whatever is drawn below, so it is one instance
+  // through the swap to a form and slides away over the form it opened.
+  const chooser = job ? (
+    <JobEditChooser
+      key="edit-chooser"
+      open={chooserOpen && choices.length > 1}
+      onClose={() => setChooserOpen(false)}
+      description={
+        job.jobNumber !== undefined
+          ? `Job #${job.jobNumber} · ${job.jobType}`
+          : job.jobType
+      }
+      choices={choices}
+      onChoose={choose}
+      returnFocusRef={chooserReturn}
+    />
+  ) : null
+
+  if (job && editing?.what === 'job') {
     // Edit mode is the form and nothing else, its Save and Cancel pinned
     // below it, and the sheet locked against a swipe (useSheetLock).
     return (
-      <JobEditForm
-        businessId={businessId}
-        timezone={timezone}
-        job={job}
-        canReassign={canReassign}
-        onDone={() => setEditing(false)}
-        header={
-          <>
-            <p className="section-label mb-0.5 mr-10">
-              {job.jobNumber !== undefined
-                ? `Editing job #${job.jobNumber}`
-                : 'Editing job'}
-            </p>
-            <Drawer.Title className="mr-10 text-sheet-title text-ink">
-              {job.jobType}
-            </Drawer.Title>
-          </>
-        }
-      />
+      <>
+        {chooser}
+        <JobEditForm
+          businessId={businessId}
+          timezone={timezone}
+          job={job}
+          canReassign={canReassign}
+          onDone={leaveEdit}
+          header={
+            <>
+              <p className="section-label mb-0.5 mr-10">
+                {job.jobNumber !== undefined
+                  ? `Editing job #${job.jobNumber}`
+                  : 'Editing job'}
+              </p>
+              <Drawer.Title
+                ref={editTitle}
+                tabIndex={-1}
+                className="mr-10 text-sheet-title text-ink outline-none"
+              >
+                {job.jobType}
+              </Drawer.Title>
+            </>
+          }
+        />
+      </>
+    )
+  }
+
+  if (job && editing && editing.what !== 'job') {
+    // Its client or property: the client sheet's own form, carried on with
+    // the record as chosen whatever happens to the job meanwhile (only a job
+    // gone takes it down). Taken down, its lock would go, and what was typed
+    // with it, without "Discard your changes?".
+    const header = <RecordEditHeader target={editing} titleRef={editTitle} />
+    const props = {
+      businessId,
+      target: editing,
+      header,
+      titleRef: editTitle,
+      focusTitle: editing.fromChooser,
+      onDone: leaveEdit,
+    }
+    return (
+      <>
+        {chooser}
+        <EditLoadBoundary header={header} onCancel={leaveEdit}>
+          {editing.codeReady && RecordEdit ? (
+            <RecordEdit {...props} />
+          ) : (
+            <Suspense fallback={<SheetPending title={header} />}>
+              <LazyJobRecordEdit {...props} />
+            </Suspense>
+          )}
+        </EditLoadBoundary>
+      </>
     )
   }
 
   return (
     <>
+      {chooser}
       {job ? (
         <div
           ref={body.ref}
@@ -416,13 +605,15 @@ function JobDetailBody({
             {job.jobNumber !== undefined && (
               <p className="section-label mb-0.5">Job #{job.jobNumber}</p>
             )}
-            {job.canEdit &&
-              job.status !== 'invoiced' &&
-              !editing && (
+            {job.canEdit && job.status !== 'invoiced' && (
               <button
+                ref={editButton}
                 type="button"
-                aria-label="Edit job details"
-                onClick={() => setEditing(true)}
+                // Always "Edit job…": what else it offers comes after.
+                aria-label={editTriggerLabel(choices)}
+                aria-haspopup={choices.length > 1 ? 'dialog' : undefined}
+                disabled={!hydrated}
+                onClick={openEdit}
                 className="relative tap-target mr-8 flex items-center gap-1 text-caption font-semibold text-blue"
               >
                 <Pencil size={13} strokeWidth={2} />
@@ -430,7 +621,11 @@ function JobDetailBody({
               </button>
             )}
           </div>
-          <Drawer.Title className="text-sheet-title text-ink">
+          <Drawer.Title
+            ref={sheetTitle}
+            tabIndex={-1}
+            className="text-sheet-title text-ink outline-none"
+          >
             {job.jobType}
           </Drawer.Title>
 
@@ -888,7 +1083,12 @@ function JobDetailBody({
         </div>
       ) : job === null ? (
         <div className="px-4 py-10">
-          <Drawer.Title className="text-sheet-title text-ink">
+          {/* Where focus goes should the Edit sheet close as the job goes. */}
+          <Drawer.Title
+            ref={sheetTitle}
+            tabIndex={-1}
+            className="text-sheet-title text-ink outline-none"
+          >
             Not found
           </Drawer.Title>
           <p className="mt-1 text-body text-muted">
@@ -931,6 +1131,93 @@ function JobDetailBody({
       )}
     </>
   )
+}
+
+/**
+ * The heading of a client's or property's edit from the job sheet: what is
+ * being edited, its name, and how far the change reaches. The same over the
+ * form, its loading and its could-not-load, so the sheet keeps its title and
+ * focus has somewhere to land in each.
+ */
+function RecordEditHeader({
+  target,
+  titleRef,
+}: {
+  target: RecordEditTarget
+  titleRef: Ref<HTMLHeadingElement>
+}) {
+  const client = target.what === 'client' ? target.client : null
+  return (
+    <>
+      <p className="section-label mb-0.5 mr-10 tabular-nums">
+        {client === null
+          ? 'Editing property'
+          : client.clientNumber !== undefined
+            ? `Editing client #${client.clientNumber}`
+            : 'Editing client'}
+      </p>
+      <Drawer.Title
+        ref={titleRef}
+        tabIndex={-1}
+        className="mr-10 text-sheet-title text-ink outline-none"
+      >
+        {client?.name ??
+          (target.what === 'property' ? target.property.addressLine : '')}
+      </Drawer.Title>
+      <p className="mr-10 mt-1 text-caption text-ink-2">
+        {client === null
+          ? 'Changes every job at this property, not just this one — its notes, history and recurring services stay with it. Booked at the wrong property? Cancel, and change Property in Job details.'
+          : `Changes ${client.name} on all ${client.kind === 'business' ? 'its' : 'their'} jobs, not just this one. Finalised reports keep what they printed.`}
+      </p>
+    </>
+  )
+}
+
+/**
+ * The client or property form's code not arriving — no signal before the
+ * app had kept it, or a deploy since this page loaded that replaced it.
+ * React.lazy remembers the failure, so only a reload tries again.
+ */
+class EditLoadBoundary extends Component<
+  { header: ReactNode; onCancel: () => void; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false }
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true }
+  }
+
+  componentDidCatch(error: unknown, info: ErrorInfo) {
+    console.error(
+      'The client or property form failed to load',
+      error,
+      info.componentStack,
+    )
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children
+    return (
+      <>
+        <div className={`${SHEET_BODY_ABOVE_FOOTER} pt-3`}>
+          {this.props.header}
+          <p role="alert" className="mt-3 text-caption text-amber-ink">
+            Could not open this form. Reload PestM8 when you have signal.
+          </p>
+        </div>
+        <div className={SHEET_FOOTER}>
+          <button
+            type="button"
+            onClick={this.props.onCancel}
+            className={`${SECONDARY_BUTTON_COMPACT} w-full`}
+          >
+            Cancel
+          </button>
+        </div>
+      </>
+    )
+  }
 }
 
 /**
@@ -1125,7 +1412,6 @@ function JobEditForm({
     alsoGoingChanged ||
     workOrder.trim() !== openedWorkOrder ||
     repeats
-  useSheetLock(changed)
 
   const convexUpdate = useConvexMutation(api.jobs.update)
   const convexConvert = useConvexMutation(api.recurrences.convertJobToRecurring)
@@ -1164,6 +1450,11 @@ function JobEditForm({
     },
     onSuccess: onDone,
   })
+  // Not "Discard your changes?" while it saves: a save waiting for signal
+  // still lands, so they would not be discarded. ✕ just closes the sheet.
+  useSheetLock(changed && !save.isPending)
+  const lineDown = useLineDown()
+  const lineDownId = useId()
 
   return (
     <>
@@ -1429,6 +1720,11 @@ function JobEditForm({
           ) : (
             <FormAlert error={save.error} copy={EDIT_ERROR_COPY} />
           ))}
+      {lineDown && (
+        <p id={lineDownId} className="text-caption text-ink-2">
+          {editSaveWaits('job')[lineDown]}
+        </p>
+      )}
       <div className="flex gap-2">
       <button
         type="button"
@@ -1444,6 +1740,7 @@ function JobEditForm({
         type="submit"
         form={formId}
         disabled={save.isPending || !hydrated || intervalIncomplete}
+        aria-describedby={lineDown ? lineDownId : undefined}
         className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
       >
         {save.isPending ? 'Saving…' : 'Save'}

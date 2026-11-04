@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import {
+  EDIT_TRIGGER,
   FIXTURE_PASSWORD,
   api,
   chooseProperty,
@@ -551,9 +552,7 @@ test('with no signal, the schedule and New Job open from the copy kept on the ph
     await expect(
       job.getByRole('button', { name: 'Call Arthur Wellard' }),
     ).toBeVisible()
-    await expect(
-      job.getByRole('button', { name: 'Edit job details' }),
-    ).toHaveCount(0)
+    await expect(job.getByRole('button', { name: EDIT_TRIGGER })).toHaveCount(0)
   } finally {
     await context.setOffline(false)
   }

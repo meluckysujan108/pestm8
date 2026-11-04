@@ -346,6 +346,14 @@ const JobDetail = jobDetail('j2')
 const JobDetailServices = jobDetail('j1')
 /** A business job with a contact person and no site contact. */
 const JobDetailContact = jobDetail('j5')
+/** The job with no signal: Edit → Client details says the save waits. */
+function JobDetailNoSignal() {
+  return (
+    <NoSignal>
+      <JobDetail />
+    </NoSignal>
+  )
+}
 
 function JobDetailLoading() {
   return (
@@ -3191,6 +3199,7 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   jobtimes: JobTimes,
   'jobdetail-services': JobDetailServices,
   'jobdetail-contact': JobDetailContact,
+  'jobdetail-no-signal': JobDetailNoSignal,
   'jobdetail-loading': JobDetailLoading,
   client: Client,
   clientbusy: ClientBusy,

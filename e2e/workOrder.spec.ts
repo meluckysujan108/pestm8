@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { Locator } from '@playwright/test'
 import {
+  EDIT_TRIGGER,
   FIXTURE_PASSWORD,
   api,
   chooseJobTypes,
@@ -8,6 +9,7 @@ import {
   signInViaUi,
   signUpActor,
   uniqueEmail,
+  openEdit,
 } from './fixtures'
 
 /**
@@ -121,19 +123,17 @@ test('a business client’s work order is asked for, saved, shown, and can be co
   await expect(section).toContainText('WO-448120')
 
   // A reschedule leaves it out of what is sent.
-  await detail.getByRole('button', { name: 'Edit job details' }).click()
+  await openEdit(page, detail)
   await detail.getByLabel('Start').fill('09:15')
   await detail.getByRole('button', { name: 'Save' }).click()
-  await expect(
-    detail.getByRole('button', { name: 'Edit job details' }),
-  ).toBeVisible()
+  await expect(detail.getByRole('button', { name: EDIT_TRIGGER })).toBeVisible()
   await expect.poll(() => updates.length).toBe(1)
   expect(updates[0]).not.toContain('workOrder')
   await expect(section).toContainText('WO-448120')
 
   // The office changes it while the form is open elsewhere; this form's
   // unrelated save does not put the old one back.
-  await detail.getByRole('button', { name: 'Edit job details' }).click()
+  await openEdit(page, detail)
   await expect(detail.getByLabel('Work order')).toHaveValue('WO-448120')
   await s.owner.client.mutation(api.jobs.update, {
     businessId: s.businessId,
@@ -154,12 +154,12 @@ test('a business client’s work order is asked for, saved, shown, and can be co
   expect(updates[1]).not.toContain('workOrder')
 
   // Corrected, then cleared: a business client with none says so.
-  await detail.getByRole('button', { name: 'Edit job details' }).click()
+  await openEdit(page, detail)
   await detail.getByLabel('Work order').fill('WO-448121')
   await detail.getByRole('button', { name: 'Save' }).click()
   await expect(section).toContainText('WO-448121')
 
-  await detail.getByRole('button', { name: 'Edit job details' }).click()
+  await openEdit(page, detail)
   await detail.getByLabel('Work order').fill('')
   await detail.getByRole('button', { name: 'Save' }).click()
   await expect(section).toContainText('None recorded')

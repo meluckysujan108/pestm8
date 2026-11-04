@@ -205,7 +205,7 @@ describe('a job from its day', () => {
       /<span aria-hidden="true" class="invisible mr-8[^"]*">.*Edit<\/span>/,
     )
     expect(editable).toMatch(/class="lucide lucide-chevron-down invisible"/)
-    expect(editable).not.toContain('Edit job details')
+    expect(editable).not.toMatch(/aria-label="Edit job/)
     // A job too old for a number still has Edit's row.
     const old = render(job({ jobNumber: undefined }), 'no-signal')
     expect(old).not.toContain('Job #')
