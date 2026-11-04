@@ -6,15 +6,23 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { dayKeyOf } from '../../../convex/lib/dates'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  addDaysToKey,
+  dayKeyOf,
+  startOfWeekKey,
+} from '../../../convex/lib/dates'
+import { todayKey as businessToday } from '#/lib/format'
 import { isOffline } from '#/lib/online'
+import { rq } from '#/lib/routeQueries'
 import { keeper } from './keeper'
 import { RENDERED_AT_KEY } from './keptSet'
 import { NEWER_CLIENTS_WITH_SIGNAL } from './keptClients'
 import type { CSSProperties } from 'react'
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 import type { LineDown } from './keeper'
+import type { Id } from '../../../convex/_generated/dataModel'
+import type { HeldOpenWork, OpenWork } from '#/lib/siteWorkRows'
 
 /**
  * The keeper (keeper.ts) for React: whether a page can show an answer,
@@ -660,5 +668,139 @@ export function useKeptNote(
     tone,
     asOf,
     asOfToday: asOf !== null && dayKeyOf(asOf, tz) === todayKey,
+  }
+}
+
+/** A `jobs.openWork` answer New Job's check can read (`useOpenWork`). */
+export type OpenWorkHeld = HeldOpenWork & {
+  queryKey: QueryKey
+  /** In memory, rather than only in the phone's copy. */
+  inMemory: boolean
+}
+
+function isOpenWork(data: unknown): data is OpenWork {
+  if (typeof data !== 'object' || data === null) return false
+  const { rows, series } = data as Record<string, unknown>
+  return Array.isArray(rows) && Array.isArray(series)
+}
+
+/**
+ * The answers New Job's check can read, newest first, from what is held
+ * for each week (`useOpenWork`): this week's in memory (`asked`, the page's
+ * own read of it), else the phone's copy of it; and last week's, from the
+ * phone's copy or memory. The phone's copy of this week's counts too: the
+ * keeper answers from it only while the server is slower, so a refusal at
+ * load (INVALID_WEEK, a phone whose clock runs a few minutes behind the
+ * server's Monday) would otherwise leave nothing to check from, though the
+ * copy covers the date.
+ */
+export function openWorkHeld(at: {
+  thisWeek: { startKey: string; queryKey: QueryKey }
+  lastWeek: { startKey: string; queryKey: QueryKey }
+  /** The page's own read of this week's (`useQuery`). */
+  asked: unknown
+  /** This week's with nothing from PestM8 (`keeper.answerOnPhone`). */
+  thisOnPhone: unknown
+  /** Last week's, likewise, or from memory. */
+  last: unknown
+  /** Whether a key has an answer in memory. */
+  inMemory: (queryKey: QueryKey) => boolean
+}): Array<OpenWorkHeld> {
+  const held: Array<OpenWorkHeld> = []
+  const mine = at.asked ?? at.thisOnPhone
+  if (isOpenWork(mine)) {
+    held.push({
+      startKey: at.thisWeek.startKey,
+      work: mine,
+      queryKey: at.thisWeek.queryKey,
+      inMemory: at.inMemory(at.thisWeek.queryKey),
+    })
+  }
+  if (isOpenWork(at.last)) {
+    held.push({
+      startKey: at.lastWeek.startKey,
+      work: at.last,
+      queryKey: at.lastWeek.queryKey,
+      inMemory: at.inMemory(at.lastWeek.queryKey),
+    })
+  }
+  return held
+}
+
+/**
+ * What is booked at each site (`jobs.openWork`), as New Job's check at Book
+ * reads it: this week's answer, asked for with this week's Monday in the
+ * business's time zone (the one the server answers for), which the phone's
+ * copy answers when the server is slower or out of reach (`keeper.wrap`),
+ * or has refused it; and last week's, never asked for, from memory or the
+ * phone's copy, until the keeper lets it go once this week's has come.
+ * Newest first, only those with an answer (`held`): the check takes the
+ * newest whose days cover the booking (`pickOpenWork`), so a Monday opened
+ * with no signal checks from Friday's. `coming`: this week's has no answer
+ * yet and is being asked for, neither refused nor answered from the
+ * phone's copy, so a press with nothing held can wait a moment for it.
+ */
+export function useOpenWork(
+  businessId: Id<'businesses'>,
+  timezone: string,
+): { held: Array<OpenWorkHeld>; coming: boolean } {
+  const monday = startOfWeekKey(businessToday(timezone))
+  const thisWeek = rq.openWork(businessId, monday)
+  const lastWeek = rq.openWork(businessId, addDaysToKey(monday, -7))
+  const { data, status, fetchStatus } = useQuery(thisWeek)
+  const queryClient = useQueryClient()
+  const subscribeBoth = useCallback(
+    (listener: () => void) => {
+      const stopKeeper = keeper.subscribe(listener)
+      const stopCache = queryClient.getQueryCache().subscribe(listener)
+      return () => {
+        stopKeeper()
+        stopCache()
+      }
+    },
+    [queryClient],
+  )
+  const thisKey = thisWeek.queryKey
+  const thisOnPhone = useSyncExternalStore(
+    subscribeBoth,
+    () => keeper.answerOnPhone(thisKey),
+    () => undefined,
+  )
+  const lastKey = lastWeek.queryKey
+  const last = useSyncExternalStore(
+    subscribeBoth,
+    () => keeper.answerOnPhone(lastKey) ?? queryClient.getQueryData(lastKey),
+    () => undefined,
+  )
+  return {
+    held: openWorkHeld({
+      thisWeek: { startKey: monday, queryKey: thisKey },
+      lastWeek: { startKey: lastKey[2].startKey, queryKey: lastKey },
+      asked: data,
+      thisOnPhone,
+      last,
+      inMemory: (key) => queryClient.getQueryData(key) !== undefined,
+    }),
+    coming:
+      data === undefined && status === 'pending' && fetchStatus === 'fetching',
+  }
+}
+
+/**
+ * How current an answer New Job's check read is, asked as its rows appear:
+ * whether it may be missing something newer (`mayBeBehind`, or the server
+ * has refused it since), and when it was last known right.
+ */
+export function openWorkStanding(held: OpenWorkHeld): {
+  behind: boolean
+  asOf: number | null
+} {
+  if (!held.inMemory) {
+    return { behind: true, asOf: keeper.phoneAsOf(held.queryKey) }
+  }
+  return {
+    behind:
+      answerMayBeBehind(held.queryKey) || keeper.refusedNow(held.queryKey),
+    asOf: keeper.asOf([held.queryKey]),
   }
 }

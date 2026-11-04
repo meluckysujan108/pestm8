@@ -151,6 +151,16 @@ export function getContext() {
   ]) {
     queryClient.setQueryDefaults(['convexQuery', name], { gcTime: Infinity })
   }
+  // And what is booked at each site, for New Job's check at Book: kept for
+  // as long as the app is open, so a Monday with no signal still checks
+  // from what Friday had. Never retried: a week the server doesn't answer
+  // for yet (INVALID_WEEK, the minutes before its week turns) is answered
+  // by its own subscription once it does (keeper.ts, `askAfterRefusal`),
+  // and three tries with backoff would only be refused three times.
+  queryClient.setQueryDefaults(['convexQuery', 'jobs:openWork'], {
+    gcTime: Infinity,
+    retry: false,
+  })
 
   // The queries this phone keeps a copy of (lib/offline/keptSet.ts) are
   // asked even when the phone says it has no signal. React-query's default

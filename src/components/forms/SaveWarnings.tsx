@@ -101,6 +101,14 @@ export type SaveWarningsController = {
    * waiting on its checks. */
   reset: () => void
   /**
+   * Takes the warnings of `source` that `which` picks off the list, and
+   * only those, as an edit of what they were about does: for a change that
+   * was about some of its rows alone, where `useSaveCheck`'s deps would
+   * take every one. New Job's match rows that named the work near a date
+   * since moved go; those that named none stay, shown and confirmed.
+   */
+  drop: (source: string, which: (warning: SaveWarning) => boolean) => void
+  /**
    * The button takes no press now: the list came in or changed, or a fix
    * was taken, less than SUBMIT_ARM_MS ago, in a form made with `arm`. For
    * its `aria-disabled` (and `HELD_BUTTON`); `guard` ignores the press
@@ -210,6 +218,11 @@ export function useSaveWarnings({
     [core],
   )
 
+  const drop = useCallback<SaveWarningsController['drop']>(
+    (source, which) => core.edited(source, which),
+    [core],
+  )
+
   const { shown, open, checking } = state
   const visible = open && shown.length > 0
 
@@ -227,6 +240,7 @@ export function useSaveWarnings({
       checking,
       warnings: visible ? shown : [],
       reset: core.reset,
+      drop,
       armed,
       isArmed,
       fixArmed: arm && fixArmed,
@@ -240,6 +254,7 @@ export function useSaveWarnings({
       checking,
       visible,
       shown,
+      drop,
       armed,
       isArmed,
       fixArmed,
@@ -344,14 +359,16 @@ export function useLatest<T>(value: T): { readonly current: T } {
  * says (`focusAfter`), or on what is left to read.
  *
  * Rows for clients the caller may already be (`kind: 'match'`) come after
- * the fields' own: when the panel pushes the button down, its top lands
- * under the thumb, so the rows nearest that spot are the ones whose tap only
- * puts the cursor in a field.
+ * the fields' own, and rows for work already booked at the site (`kind:
+ * 'site'`) after those: when the panel pushes the button down, its top
+ * lands under the thumb, so the rows nearest that spot are the ones whose
+ * tap only puts the cursor in a field.
  */
 export function SaveWarningsPanel({
   className,
   anywayLabel = 'Save anyway',
   matchFooter,
+  siteFooter,
   note,
 }: {
   className?: string
@@ -362,9 +379,13 @@ export function SaveWarningsPanel({
    * anyway to add a new client."), given those rows, so it can name the
    * fix that is there. */
   matchFooter?: (rows: ReadonlyArray<SaveWarning>) => string
-  /** A last line, after the foot's: where what the match rows were found in
-   * may be behind ("From the clients on this phone, updated 9:42am."). The
-   * form decides it once, as the rows appear. */
+  /** The foot's line when every row is about work already booked at the
+   * site ("Open it, or press Book anyway to book this one as well."). */
+  siteFooter?: (rows: ReadonlyArray<SaveWarning>) => string
+  /** A last line, after the foot's: where what the rows were found in may
+   * be behind ("From the clients on this phone, updated 9:42am."), or what
+   * couldn't be checked ("Other bookings at this site can’t be checked on
+   * this phone."). The form decides it once, as the rows appear. */
   note?: ReactNode
 }) {
   const controller = useContext(ControllerContext)
@@ -398,6 +419,12 @@ export function SaveWarningsPanel({
     // Just appeared, or just changed, under the thumb: a second tap of a
     // double tap is not a choice.
     if (controller.fixIgnored()) return
+    // It opens something, and the row stays (`keepsRow`): so does focus,
+    // for whatever opens to take and give back.
+    if (w[which]?.keepsRow) {
+      controller.fields.fix(w as SourcedWarning, which)
+      return
+    }
     const form = pressed.closest('form')
     const focusAfter = w[which]?.focusAfter
     // Takes this row off, only: the field's other warnings were not what
@@ -475,7 +502,7 @@ export function SaveWarningsPanel({
         ))}
       </ul>
       <p className="pb-1 text-grey-ink">
-        {panelFooter(warnings, anywayLabel, matchFooter)}
+        {panelFooter(warnings, anywayLabel, matchFooter, siteFooter)}
       </p>
       {note && <p className="pb-1 text-grey-ink">{note}</p>}
     </section>

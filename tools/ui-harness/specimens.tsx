@@ -23,6 +23,12 @@ import { propertyOptions } from '#/lib/propertyOptions'
 import { Combobox } from '#/components/primitives/Combobox'
 import { useMatchIndex } from '#/lib/useMatchIndex'
 import { MATCH_BIZ, MATCH_CAPPED_BIZ, TEN_K_BIZ } from './matchFixtures'
+import {
+  SITE_BIZ,
+  SITE_OTHER_BIZ,
+  SITE_STREET_BIZ,
+  SITE_UNCHECKED_BIZ,
+} from './siteWorkFixtures'
 import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
 import { clientCountLabel, directoryCount } from '#/lib/offline/keptClients'
 import { ScheduleNotKept } from '#/components/schedule/ScheduleNotKept'
@@ -667,6 +673,52 @@ function NewJobMatchCapped() {
   return (
     <LineLive>
       <NewJobOver businessId={MATCH_CAPPED_BIZ} />
+    </LineLive>
+  )
+}
+
+/**
+ * Is this site already booked? (the matching plan's M5). New
+ * Job over the small book with work booked at its sites
+ * (`siteWorkFixtures.ts`): the shoot plan chooses a site, or types a
+ * caller, then presses Book.
+ */
+function NewJobSiteWork() {
+  return (
+    <LineLive>
+      <NewJobOver businessId={SITE_BIZ} />
+    </LineLive>
+  )
+}
+
+/** 12 Wattle St booked by someone else: the row says its date alone. */
+function NewJobSiteWorkOther() {
+  return (
+    <LineLive>
+      <NewJobOver businessId={SITE_OTHER_BIZ} />
+    </LineLive>
+  )
+}
+
+/** A new client typed on the street of a site booked tomorrow, which no
+ * match row names: the site's own row, with Book at 3/12 Ocean Pde,
+ * Cottesloe and Open #123, and its foot, "Book there, or …". */
+function NewJobSiteWorkStreet() {
+  return (
+    <LineLive>
+      <NewJobOver businessId={SITE_STREET_BIZ} />
+    </LineLive>
+  )
+}
+
+/** Nothing of what is booked at each site on the phone: a row of the
+ * panel says the site couldn't be checked, so the first press says so,
+ * once Book has waited a moment (OPEN_WORK_WAIT_MS) for the answer with
+ * signal. */
+function NewJobSiteWorkUnchecked() {
+  return (
+    <LineLive>
+      <NewJobOver businessId={SITE_UNCHECKED_BIZ} />
     </LineLive>
   )
 }
@@ -3184,6 +3236,14 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'newjob-match-armed': NewJobMatch,
   'newjob-match-show-only': NewJobMatch,
   'newjob-match-name-line': NewJobMatch,
+  'newjob-already-booked': NewJobSiteWork,
+  'newjob-already-booked-series': NewJobSiteWork,
+  'newjob-already-booked-other-member': NewJobSiteWorkOther,
+  'newjob-already-booked-by-address': NewJobSiteWork,
+  'newjob-already-booked-street': NewJobSiteWorkStreet,
+  'newjob-already-repeats': NewJobSiteWork,
+  'newjob-sitework-unchecked': NewJobSiteWorkUnchecked,
+  'newjob-picker-detail-booked': NewJobSiteWork,
   'newproperty-match-open-client': NewPropertyMatch,
   'clientsheet-addsite-own-dup': ClientSheetAddSiteOwnDup,
   'newclient-order': NewPropertyMatch,

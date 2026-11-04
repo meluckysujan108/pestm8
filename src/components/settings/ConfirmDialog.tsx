@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import { AlertDialog } from 'radix-ui'
 import type { ReactNode } from 'react'
 import {
+  HELD_BUTTON,
   PRIMARY_BUTTON_COMPACT,
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
@@ -33,6 +34,7 @@ export function ConfirmDialog({
   pendingLabel,
   error,
   closeOnConfirm = true,
+  held = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -56,6 +58,13 @@ export function ConfirmDialog({
   /** False keeps the dialog open after the tap, for an action whose outcome
    * the dialog itself has to report (it closes itself on success). */
   closeOnConfirm?: boolean
+  /**
+   * It has just come up under a tap that may still be landing (a sheet's
+   * "Discard your changes?" asked by a button inside it, `useSheetClose`):
+   * neither button takes a tap meanwhile, `aria-disabled` and held pressed
+   * in (`HELD_BUTTON`), so the second tap of a double tap is no choice.
+   */
+  held?: boolean
 }) {
   const opener = useRef<HTMLElement | null>(null)
   const confirmed = useRef(false)
@@ -64,11 +73,17 @@ export function ConfirmDialog({
     <button
       type="button"
       disabled={pending}
-      onClick={() => {
+      aria-disabled={held || undefined}
+      onClick={(event) => {
+        // Stopped here, Radix's own close (AlertDialog.Action) doesn't run.
+        if (held) {
+          event.preventDefault()
+          return
+        }
         confirmed.current = true
         onConfirm()
       }}
-      className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
+      className={`${PRIMARY_BUTTON_COMPACT} ${HELD_BUTTON} flex-1`}
     >
       {pending && pendingLabel ? pendingLabel : confirm}
     </button>
@@ -111,7 +126,11 @@ export function ConfirmDialog({
             <AlertDialog.Cancel asChild>
               <button
                 type="button"
-                className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
+                aria-disabled={held || undefined}
+                onClick={(event) => {
+                  if (held) event.preventDefault()
+                }}
+                className={`${SECONDARY_BUTTON_COMPACT} ${HELD_BUTTON} flex-1`}
               >
                 {cancel}
               </button>

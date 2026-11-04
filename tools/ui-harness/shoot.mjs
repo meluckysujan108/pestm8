@@ -122,6 +122,31 @@ async function pressBook(p, wait = 700) {
     .scrollIntoViewIfNeeded()
 }
 
+/** New Job's Property picker with `query` typed, and the site `option`
+ * names chosen from its list. */
+async function chooseSite(p, query, option) {
+  await searchProperty(p, query)
+  await p
+    .getByRole('dialog')
+    .filter({
+      has: p.getByRole('textbox', {
+        name: 'Search by name, address, phone or email',
+      }),
+    })
+    .getByRole('button', { name: option })
+    .first()
+    .click()
+  await p.waitForTimeout(500)
+}
+
+/** New Job made a Recurring Job, every `count` `unit`s. */
+async function repeatEvery(p, count, unit) {
+  await p.getByRole('radio', { name: 'Recurring Job', exact: true }).click()
+  await p.getByLabel('Repeat every', { exact: true }).fill(count)
+  await p.getByLabel('Repeat unit', { exact: true }).selectOption(unit)
+  await p.waitForTimeout(300)
+}
+
 const JANE_NEW_ADDRESS = {
   name: 'Jane Nguyen',
   phone: '0491 570 156',
@@ -1004,6 +1029,84 @@ const PLAN = {
     before: async (p) => {
       await typeCaller(p, { name: 'Jane Nguyen' })
       await leavePhone(p, 'Phone (optional)')
+    },
+  },
+  // Is this site already booked? (the matching plan's M5).
+  // Jane Nguyen's 12 Wattle St, booked tomorrow: Open #123.
+  'newjob-already-booked': {
+    before: async (p) => {
+      await chooseSite(p, 'Jane Nguyen', /12 Wattle St/)
+      await pressBook(p)
+    },
+  },
+  // Tom Lee's 7 Rose Ave, a visit of his monthly Recurring Job in two
+  // days: Open the visit.
+  'newjob-already-booked-series': {
+    before: async (p) => {
+      await chooseSite(p, 'Rose Ave', /7 Rose Ave/)
+      await pressBook(p)
+    },
+  },
+  // Someone else's job there: its date, and nothing to open.
+  'newjob-already-booked-other-member': {
+    before: async (p) => {
+      await chooseSite(p, 'Jane Nguyen', /12 Wattle St/)
+      await pressBook(p)
+    },
+  },
+  // Her address under another name: the match row names her job (FW13).
+  'newjob-already-booked-by-address': {
+    before: async (p) => {
+      await typeCaller(p, {
+        name: 'Tom Nguyen',
+        phone: '0491 570 199',
+        street: '12 Wattle St',
+        suburb: 'Bayswater',
+        postcode: '6053',
+      })
+      await pressBook(p)
+    },
+  },
+  // A new client typed on the street of Ray White Bayswater's 3/12 Ocean
+  // Pde, Cottesloe (booked tomorrow, #123), in Peppermint Grove: no match
+  // row names it, so the site's own row carries both fixes, Book at
+  // 3/12 Ocean Pde, Cottesloe and Open #123, over "Book there, or …".
+  'newjob-already-booked-street': {
+    before: async (p) => {
+      await typeCaller(p, {
+        name: 'Arthur Wellard',
+        phone: '0491 570 199',
+        street: '3/12 Ocean Pde',
+        suburb: 'Peppermint Grove',
+        postcode: '6011',
+      })
+      await pressBook(p)
+    },
+  },
+  // A second quarterly Recurring Job where one runs: Already repeats.
+  'newjob-already-repeats': {
+    before: async (p) => {
+      await chooseSite(p, 'Ocean Pde', /3\/12 Ocean Pde/)
+      await repeatEvery(p, '3', 'month')
+      await pressBook(p)
+    },
+  },
+  // Her site chosen, and nothing of what is booked on the phone to check
+  // it by: a row of its own, so the first press says so. With signal, Book
+  // waits OPEN_WORK_WAIT_MS (2 s, "Checking…") for an answer that never
+  // comes here, first.
+  'newjob-sitework-unchecked': {
+    before: async (p) => {
+      await chooseSite(p, 'Jane Nguyen', /12 Wattle St/)
+      await pressBook(p, 2700)
+    },
+  },
+  // The Property picker's rows say what each site has.
+  'newjob-picker-detail-booked': {
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Property' }).click()
+      await p.waitForTimeout(700)
     },
   },
   // Clients → New client: the line under Phone, then Open Jane Nguyen.

@@ -148,8 +148,9 @@ function tagWord(client: MatchClient | undefined): string | null {
 }
 
 /** " Amy Lo is archived.", after a sentence that names an archived or
- * inactive client only as a possessive; '' for anyone else. */
-function tagSentence(client: MatchClient | undefined): string {
+ * inactive client only as a possessive; '' for anyone else. The site's rows
+ * at Book say it too (lib/siteWorkRows.ts). */
+export function tagSentence(client: MatchClient | undefined): string {
   const tag = tagWord(client)
   return client && tag ? ` ${client.name} is ${tag}.` : ''
 }

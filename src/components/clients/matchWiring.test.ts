@@ -95,9 +95,157 @@ describe('New Job, once a line’s fix is taken', () => {
       source('../schedule/NewJobSheet.tsx'),
       'NewJobForm',
     )
-    // Held from the tap that took the fix, before it changes the form.
+    // Held from the tap that took the fix, before it changes the form; the
+    // site's work its row named, and the rows about that site beside it,
+    // marked seen first (FW13), and what the panel said couldn't be
+    // checked beside it read, so the press after it isn't asked about any
+    // of it again.
     expect(sheet).toMatch(
-      /const panelFix = \(fix: MatchFix\): SaveWarningFix => \(\{\s+label: fix\.label,\s+apply: \(\) => \{\s+lineFixHold\.taken\(\)\s+latestApplyMatchFix\.current\(fix\)/,
+      /const panelFix = \(\s+fix: MatchFix,\s+sees: Shows \| undefined,\s+beside: ReadonlyArray<string>,\s+\): SaveWarningFix => \(\{\s+label: fix\.label,\s+apply: \(\) => \{\s+lineFixHold\.taken\(\)\s+if \(sees\) setSeen\(\(s\) => withSeen\(s, sees\)\)\s+seeUnchecked\(beside, workDay\)\s+latestApplyMatchFix\.current\(fix\)/,
+    )
+    expect(sheet).toMatch(
+      /const beside = uncheckedKeysOf\(\s+checks\.site\?\.unchecked \?\? \[\],\s+checks\.site\?\.targets \?\? \[\],\s+\)[\s\S]*?\.\.\.\(row\.fix\s+\? \{ fix: panelFix\(row\.fix, fixSees\.get\(row\.id\), beside\) \}\s+: \{\}\),\s+\.\.\.\(row\.fix2\s+\? \{ fix2: panelFix\(row\.fix2, fixSees\.get\(row\.id\), beside\) \}\s+: \{\}\),/,
+    )
+  })
+})
+
+describe('New Job’s check at Book, is this site already booked (M5)', () => {
+  const sheet = () =>
+    functionText(source('../schedule/NewJobSheet.tsx'), 'NewJobForm')
+
+  test('Book at from an “Already booked” row books past every row the panel showed of the site’s work, and the work a match row named there, before the fix moves the form, so the press after it books (FW13)', () => {
+    expect(sheet()).toMatch(
+      /const siteFix = \(\s*fix: SiteFix,\s*shown: ReadonlyArray<SiteRow>,\s*named: ReadonlyMap<string, ReadonlyArray<OpenWorkRow>>,\s*read: ReadonlyArray<string>,?\s*\): SaveWarningFix =>[\s\S]*?: \{\s+label: fix\.label,\s+apply: \(\) => \{\s+lineFixHold\.taken\(\)\s+setSeen\(\(s\) =>\s+withSeenAll\(s, bookAtSees\(fix\.propertyId, shown, named\)\),?\s+\)\s+seeUnchecked\(read, workDay\)\s+latestApplyMatchFix\.current\(fix\)\s+\},\s+focusAfter: \(\) => latestFocusAfterMatchFix\.current\(\),/,
+    )
+    // Every row of the panel's, not the one tapped alone, and what the
+    // match rows of the same press named.
+    expect(sheet()).toMatch(
+      /const \{ named, site \} = checks[\s\S]*?const read = site \? uncheckedKeysOf\(site\.unchecked, site\.targets\) : \[\]\s+return rows\.map\(\(row\) => \(\{[\s\S]*?\.\.\.\(row\.fix \? \{ fix: siteFix\(row\.fix, rows, named, read\) \} : \{\}\),\s+\.\.\.\(row\.fix2 \? \{ fix2: siteFix\(row\.fix2, rows, named, read\) \} : \{\}\),/,
+    )
+  })
+
+  test('what couldn’t be checked, said beside a fix, isn’t said again on the press after it while the date and repeat are as they were; a client mode changed by hand forgets it', () => {
+    expect(sheet()).toMatch(
+      /const seeUnchecked = \(keys: ReadonlyArray<string>, readFor: string\) => \{\s+if \(keys\.length === 0\) return\s+setUncheckedSeen\(\(s\) => \(\{\s+workDay: readFor,\s+keys: new Set\(\[\.\.\.\(s\.workDay === readFor \? s\.keys : \[\]\), \.\.\.keys\]\),\s+\}\)\)\s+\}/,
+    )
+    expect(sheet()).toMatch(
+      /const work = bookingWork\(\{[\s\S]*?\},\s+uncheckedSeen:\s+uncheckedSeen\.workDay === workDay \? uncheckedSeen\.keys : undefined,\s+\}\)/,
+    )
+    expect(sheet()).toMatch(
+      /function switchMode\([\s\S]*?setSeen\(NOTHING_SEEN\)\s+setUncheckedSeen\(\{ workDay: '', keys: new Set\(\) \}\)[\s\S]*?setMode\(next\)\s+\}/,
+    )
+  })
+
+  test('in New site for, the rows book only at the chosen client’s own sites (`bookFor`)', () => {
+    expect(sheet()).toMatch(
+      /const work = bookingWork\(\{[\s\S]*?typedAddress: typed\.addressLine\.trim\(\),\s+(?:\/\/.*\s+)*\.\.\.\(mode === 'site' \? \{ bookFor: siteClient\?\._id \?\? null \} : \{\}\),/,
+    )
+  })
+
+  test('what couldn’t be checked is a row of the panel, after the work found, wherever there is a site to check, with an answer or none', () => {
+    // The sites are found first, so a phone with nothing of what is
+    // booked still knows there is a site it couldn't check; both checks
+    // read the one answer (`bookingWork`).
+    expect(sheet()).toMatch(
+      /function bookingChecks\(\) \{[\s\S]*?const targets =[\s\S]*?const work = bookingWork\(\{\s+held: openWork\.held,\s+dayKey: when\.dayKey,\s+matchRows,[\s\S]*?targets,[\s\S]*?site: \{ \.\.\.work, today, targets \},/,
+    )
+    expect(sheet()).toMatch(
+      /function siteWarnings\([\s\S]*?\): Array<SaveWarning> \{[\s\S]*?const rows = site \? \[\.\.\.found, \.\.\.site\.unchecked\] : \[\][\s\S]*?return rows\.map\(\(row\) => \(\{\s+id: row\.id,\s+kind: 'site',/,
+    )
+  })
+
+  test('with signal and nothing of it on the phone yet, both checks wait a moment for it, once, as one', () => {
+    // Not again once a wait has run out, until what is held or coming
+    // changes (`createWorkWait`, NewJobSheet.test.tsx).
+    expect(sheet()).toMatch(
+      /function waitsForWork\([\s\S]*?\): boolean \{\s+return \(\s+checks\.site\?\.pick === 'none' &&\s+checks\.site\.targets\.length > 0 &&\s+openWork\.coming &&\s+!workWait\.ranOut\(\) &&\s+lineDown === null &&\s+!isOffline\(\)\s+\)/,
+    )
+    // Let go as it comes, or once it plainly isn't coming.
+    expect(sheet()).toMatch(
+      /const \[workWait\] = useState\(createWorkWait\)\s+const workSettled = openWork\.held\.length > 0 \|\| !openWork\.coming\s+useEffect\(\(\) => \{\s+if \(workSettled\) workWait\.settle\(\)\s+\}, \[workWait, workSettled\]\)\s+useEffect\(\(\) => \{\s+workWait\.reset\(\)\s+\}, \[workWait, openWork\.held\.length, openWork\.coming\]\)/,
+    )
+    // One wait for a press, its time cut short of the guard's.
+    expect(sheet()).toMatch(
+      /function untilWorkHeld\(\): Promise<void> \{\s+return workWait\.until\(\)\s+\}/,
+    )
+    for (const [source_, warnings] of [
+      ['new-job-client-match', 'latestMatchWarnings'],
+      ['new-job-site-work', 'latestSiteWarnings'],
+    ]) {
+      expect(sheet()).toMatch(
+        new RegExp(
+          `useSaveCheck\\(\\s+'${source_}',[\\s\\S]*?const checks = bookingChecks\\(\\)\\s+return waitsForWork\\(checks\\)\\s+\\? untilWorkHeld\\(\\)\\.then\\(\\(\\) => ${warnings}\\.current\\(\\)\\)`,
+        ),
+      )
+    }
+  })
+
+  test('Open #123 leaves its row while “Discard your changes?” asks (`keepsRow`)', () => {
+    expect(sheet()).toMatch(
+      /fix\.kind === 'openJob'\s+\? \{\s+label: fix\.label,\s+apply: \(\) => latestOpenJob\.current\(fix\),[\s\S]*?keepsRow: true,\s+\}/,
+    )
+  })
+
+  test('a client mode changed by hand forgets what a fix booked past: the booking is another, and is told of that work again', () => {
+    expect(sheet()).toMatch(
+      /function switchMode\([\s\S]*?\) \{\s+saveWarnings\.reset\(\)[\s\S]*?setSeen\(NOTHING_SEEN\)[\s\S]*?setMode\(next\)\s+\}/,
+    )
+  })
+
+  test('the site’s rows go with the date, the repeat and what is seen; a match row only where it named the site’s work (M3’s rows stay as they were)', () => {
+    const deps = (source_: string, name: string) => {
+      // The check's own registration, not another mention of its name.
+      const at = source_.search(new RegExp(`useSaveCheck\\(\\s+'${name}',`))
+      expect(at).toBeGreaterThan(-1)
+      const list = source_.slice(at).match(/\n {4}\[\n([\s\S]*?)\n {4}\],/)
+      return (list?.[1] ?? '')
+        .replace(/\/\/.*$/gm, '')
+        .split(/,\n/)
+        .map((d) => d.replace(/\s+/g, ' ').replace(/,$/, '').trim())
+        .filter((d) => d !== '')
+    }
+    const site = deps(sheet(), 'new-job-site-work')
+    expect(site).toEqual(
+      expect.arrayContaining(['workDay', 'seen', 'uncheckedSeen']),
+    )
+    // The day the rows are about: a series' first visit's, which the time
+    // can move by a whole interval (`workDayOf`), not the form's.
+    expect(site).not.toContain('day')
+    expect(sheet()).toMatch(
+      /const workDay = workDayOf\(bookingWhen\(\)\?\.dayKey \?\? day, chosenInterval\)/,
+    )
+    const match = deps(sheet(), 'new-job-client-match')
+    for (const dep of [
+      'day',
+      'chosenInterval?.count',
+      'chosenInterval?.unit',
+      'seen',
+    ]) {
+      expect(match).not.toContain(dep)
+    }
+    // Not the date at all: a dependency takes every row the check gave,
+    // and a row that named no work stays as the date moves under it (M3).
+    expect(match.join(', ')).not.toMatch(/namedWorkMoved|workDay/)
+    // Only the rows that named the work go, once the date or repeat moves.
+    expect(sheet()).toMatch(
+      /const matchNamesWork = saveWarnings\.warnings\.some\(\s+\(w\) => w\.kind === 'match' && siteShown\.named\.has\(w\.id\),\s+\)\s+const namedMoved = namedWorkMoved\(\{\s+naming: matchNamesWork,\s+workDay,\s+readFor: siteShown\.readFor,\s+\}\)\s+const namedRows = siteShown\.named\s+const dropRows = saveWarnings\.drop\s+useEffect\(\(\) => \{\s+if \(namedMoved === null\) return\s+dropRows\('new-job-client-match', \(w\) => namedRows\.has\(w\.id\)\)\s+\}, \[dropRows, namedMoved, namedRows\]\)/,
+    )
+    // Read for the day as it was at the press.
+    expect(sheet()).toMatch(
+      /setSiteShown\(\{[\s\S]*?named: new Set\(named\.keys\(\)\),\s+readFor: workDay,\s+\}\)/,
+    )
+  })
+
+  test('on the Schedule, Open #123 opens the job as the page does: the view kept, and the day moved to as picking it moves (`openJobScroll`)', () => {
+    const schedule = source('../../routes/$businessSlug/schedule.tsx')
+    expect(schedule).toMatch(
+      /const openJobOnDay = \(id: string, dayKey: string\) => \{\s+const \{ resetScroll, focusWeek \} = openJobScroll\(\s+activeView,\s+requestedKey,\s+dayKey,\s+\)\s+if \(focusWeek\) setWeekFocusTick\(\(tick\) => tick \+ 1\)\s+navigate\(\{\s+search: \(prev\) => \(\{\s+\.\.\.prev,\s+date: dayKey,\s+jobId: id,\s+outboxId: undefined,\s+\}\),\s+replace: true,\s+resetScroll,\s+\}\)/,
+    )
+    expect(schedule).toMatch(
+      /<NewJobSheet\s[\s\S]*?\sonOpenJob=\{openJobOnDay\}[\s\S]*?\/>/,
+    )
+    expect(sheet()).toMatch(
+      /closeSheet\(\(\) => \{\s+if \(onOpenJob\) \{\s+onOpenJob\(fix\.jobId, fix\.dayKey\)\s+return\s+\}/,
     )
   })
 })

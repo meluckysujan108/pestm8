@@ -37,6 +37,7 @@ function controller(
     checking: false,
     warnings,
     reset: nothing,
+    drop: nothing,
     armed: false,
     isArmed: () => false,
     fixArmed,

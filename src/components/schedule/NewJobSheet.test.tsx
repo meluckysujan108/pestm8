@@ -5,9 +5,12 @@ import {
   BOOKING_WAITS,
   NEW_JOB_NOT_ON_PHONE,
   NewJobNotOnPhone,
+  OPEN_WORK_WAIT_MS,
   bookingCaption,
+  createWorkWait,
   newJobBody,
 } from './NewJobSheet'
+import { SAVE_CHECK_TIMEOUT_MS } from '#/components/forms/saveWarningRules'
 import type { ReactNode } from 'react'
 
 // New Job reaches who is signed in (lib/rootState.ts), whose server
@@ -103,5 +106,59 @@ describe('what the sheet holds (`newJobBody`)', () => {
     expect(newJobBody({ open: true, onPhone: false, formUp: true })).toBe(
       'form',
     )
+  })
+})
+
+describe('a press of Book waiting for what is booked at each site', () => {
+  test('waits less than any check at Book is given, so the row saying the site couldn’t be checked is still said if it never comes', () => {
+    expect(OPEN_WORK_WAIT_MS).toBe(2000)
+    expect(OPEN_WORK_WAIT_MS).toBeLessThan(SAVE_CHECK_TIMEOUT_MS)
+  })
+
+  test('one wait for both checks of a press, let go as the answer comes', async () => {
+    vi.useFakeTimers()
+    try {
+      const wait = createWorkWait()
+      const match = wait.until()
+      expect(wait.until()).toBe(match)
+      let done = false
+      void match.then(() => {
+        done = true
+      })
+      await vi.advanceTimersByTimeAsync(500)
+      expect(done).toBe(false)
+      wait.settle()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(done).toBe(true)
+      // It came: nothing ran out, and the next press would wait anew.
+      expect(wait.ranOut()).toBe(false)
+      expect(wait.until()).not.toBe(match)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('a wait that ran out isn’t waited again by the press after it (the Book anyway confirming “Not checked”), until what is held or coming changes', async () => {
+    vi.useFakeTimers()
+    try {
+      const wait = createWorkWait()
+      let done = false
+      void wait.until().then(() => {
+        done = true
+      })
+      await vi.advanceTimersByTimeAsync(OPEN_WORK_WAIT_MS - 1)
+      expect(done).toBe(false)
+      expect(wait.ranOut()).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(done).toBe(true)
+      // The sheet's `waitsForWork` reads this: the next press says what it
+      // can at once.
+      expect(wait.ranOut()).toBe(true)
+      // The answer comes, or is asked for afresh: a press may wait again.
+      wait.reset()
+      expect(wait.ranOut()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

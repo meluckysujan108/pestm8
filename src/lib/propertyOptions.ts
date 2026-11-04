@@ -1,8 +1,11 @@
 import { siteContactOf } from '../../convex/lib/siteContact'
 import { dayKeyOf } from '../../convex/lib/dates'
+import { describeRepeat } from '../../convex/lib/recurrence'
+import { isOpenStatus } from '../../convex/lib/siteWork'
 import { formatJobDate } from '#/lib/format'
 import { withSearchKeys } from '#/lib/searchMatch'
 import type { ComboboxOption } from '#/components/primitives/Combobox'
+import type { OpenWork } from '#/lib/siteWorkRows'
 
 /**
  * "Added recently" at the top of a client or property picker: the newest
@@ -362,4 +365,100 @@ function clientOption(client: PickableClient): ComboboxOption {
       contactsText(client.kind, client.contacts),
     ].join(' '),
   })
+}
+
+/**
+ * What is booked at each site, by site, for the Property picker's lines
+ * (`siteWorkDetail`): built once per answer, so a picker deciding a hundred
+ * rows as they first show reads each row of the answer once, not once a
+ * row.
+ */
+export type SiteWorkIndex = {
+  rows: ReadonlyMap<string, ReadonlyArray<OpenWork['rows'][number]>>
+  /** Each site's Recurring Jobs of the person's own (with an interval). */
+  series: ReadonlyMap<string, ReadonlyArray<OpenWork['series'][number]>>
+  /** Each Recurring Job of the person's own, by its id. */
+  seriesById: ReadonlyMap<string, OpenWork['series'][number]>
+}
+
+export function siteWorkIndex(work: OpenWork): SiteWorkIndex {
+  const rows = new Map<string, Array<OpenWork['rows'][number]>>()
+  for (const row of work.rows) {
+    const here = rows.get(row.propertyId)
+    if (here) here.push(row)
+    else rows.set(row.propertyId, [row])
+  }
+  const series = new Map<string, Array<OpenWork['series'][number]>>()
+  const seriesById = new Map<string, OpenWork['series'][number]>()
+  for (const each of work.series) {
+    if (each.intervalCount === undefined || each.intervalUnit === undefined) {
+      continue
+    }
+    seriesById.set(each._id, each)
+    const here = series.get(each.propertyId)
+    if (here) here.push(each)
+    else series.set(each.propertyId, [each])
+  }
+  return { rows, series, seriesById }
+}
+
+/**
+ * What a site's row in the Property picker says of the work there
+ * (Combobox's `detailOf`, decided as the row first shows), from what is
+ * booked at each site (`jobs.openWork`, by site: `siteWorkIndex`):
+ * - its next job or visit still open from today: "Booked Thu 30 Oct"; or,
+ *   where that is a visit of a Recurring Job of the person's own,
+ *   "Repeats every 3 months, next Mon 12 Jan";
+ * - nothing coming, but a Recurring Job of theirs running there: "Repeats
+ *   every 3 months";
+ * - else their own last visit there, done in the four weeks the answer
+ *   reaches back: "Last visit Wed 15 Oct". A warranty callback is common,
+ *   and is no reason for the check at Book to warn.
+ * Someone else's work, by its date alone (C5). Undefined for a site with
+ * none of these.
+ */
+export function siteWorkDetail(
+  work: SiteWorkIndex,
+  propertyId: string,
+  at: { timezone: string; today: string },
+): string | undefined {
+  const date = (ts: number) =>
+    formatJobDate(dayKeyOf(ts, at.timezone), at.today)
+  const here = work.rows.get(propertyId) ?? []
+  const next = here
+    .filter(
+      (row) =>
+        (!('jobId' in row) || isOpenStatus(row.status)) &&
+        dayKeyOf(row.scheduledAt, at.timezone) >= at.today,
+    )
+    .sort((a, b) => a.scheduledAt - b.scheduledAt)
+    .at(0)
+  const repeatOf = (series: OpenWork['series'][number] | undefined) =>
+    series?.intervalCount !== undefined && series.intervalUnit !== undefined
+      ? describeRepeat({
+          count: series.intervalCount,
+          unit: series.intervalUnit,
+        })
+      : null
+  if (next) {
+    const repeat =
+      'jobId' in next && next.recurrenceId !== undefined
+        ? repeatOf(work.seriesById.get(next.recurrenceId))
+        : null
+    return repeat
+      ? `${repeat}, next ${date(next.scheduledAt)}`
+      : `Booked ${date(next.scheduledAt)}`
+  }
+  const running = repeatOf(work.series.get(propertyId)?.[0])
+  if (running) return running
+  const done = here
+    .filter(
+      (row) =>
+        'jobId' in row &&
+        !isOpenStatus(row.status) &&
+        dayKeyOf(row.scheduledAt, at.timezone) <= at.today,
+    )
+    .sort((a, b) => b.scheduledAt - a.scheduledAt)
+    .at(0)
+  return done ? `Last visit ${date(done.scheduledAt)}` : undefined
 }
