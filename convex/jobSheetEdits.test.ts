@@ -102,9 +102,7 @@ describe('a subcontractor on the job, from its Edit', () => {
     await s.kevin.as.mutation(api.clients.update, {
       businessId: s.businessId,
       clientId: s.clientId,
-      // The form always sends the type and name.
-      kind: 'business',
-      name: 'Mahal Mart',
+      // Only what changed (src/components/clients/clientEditArgs.ts).
       phone: '0412 345 678',
       email: 'accounts@mahalmart.com.au',
     })

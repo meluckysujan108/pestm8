@@ -337,7 +337,9 @@ function ClientBody({
         businessId={businessId}
         businessState={businessState}
         client={client}
-        contactPerson={contactPerson ?? ''}
+        // Not yet known while the contacts load: the form takes them as
+        // they come.
+        contactPerson={contacts && (contactPerson ?? '')}
         canRenumber={canRenumber}
         onDone={() => setEditing(false)}
         header={

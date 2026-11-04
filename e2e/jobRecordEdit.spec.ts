@@ -29,7 +29,8 @@ function perthDayKey(ts: number) {
 }
 
 /** The fixture business, with Kevin also going on the owner's job at J.
- * Nguyen's, 12 Wattle Street. */
+ * Nguyen's, 12 Wattle Street. `at` is the job's own time, which says its
+ * day: a fresh `Date.now()` could fall after Perth's midnight. */
 async function kevinOnTheJob(label: string) {
   const s = await setupBusinessWithSub(label)
   await s.owner.client.mutation(api.jobs.update, {
@@ -47,7 +48,7 @@ async function kevinOnTheJob(label: string) {
       businessId: s.businessId,
       clientId,
     })
-  return { ...s, clientId, client }
+  return { ...s, clientId, client, at: job!.scheduledAt }
 }
 
 /**
@@ -57,7 +58,7 @@ async function kevinOnTheJob(label: string) {
 async function openLiveJob(
   page: Page,
   slug: string,
-  at = Date.now(),
+  at: number,
   name: RegExp = /Termite Inspection/,
   { everyone = false } = {},
 ) {
@@ -104,7 +105,7 @@ test('Kevin puts the client’s new mobile and email right from the job', async 
 }) => {
   const s = await kevinOnTheJob('edit-client')
   await signInViaUi(page, s.sub.email)
-  const sheet = await openLiveJob(page, s.slug)
+  const sheet = await openLiveJob(page, s.slug, s.at)
   await expect(
     sheet.getByRole('button', { name: 'Call J. Nguyen' }),
   ).toHaveCount(0)
@@ -133,7 +134,7 @@ test('Kevin puts the client’s new mobile and email right from the job', async 
   expect((await s.client())?.email).toBe('jan.nguyen@outlook.com')
 })
 
-test('the office changes the email while Kevin’s form is open; his new phone doesn’t put the old one back', async ({
+test('the office changes the name and email while Kevin’s form is open; his new phone doesn’t put the old ones back', async ({
   page,
 }) => {
   const s = await kevinOnTheJob('edit-client-race')
@@ -143,7 +144,7 @@ test('the office changes the email while Kevin’s form is open; his new phone d
     email: 'jan@nguyen.test',
   })
   await signInViaUi(page, s.sub.email)
-  const sheet = await openLiveJob(page, s.slug)
+  const sheet = await openLiveJob(page, s.slug, s.at)
 
   await openEdit(page, sheet, 'client')
   await expect(sheet.getByLabel('Email (optional)')).toHaveValue(
@@ -153,19 +154,57 @@ test('the office changes the email while Kevin’s form is open; his new phone d
   await s.owner.client.mutation(api.clients.update, {
     businessId: s.businessId,
     clientId: s.clientId,
+    name: 'Jenny Nguyen',
     email: 'accounts@nguyen.test',
   })
   await sheet.getByRole('button', { name: 'Save' }).click()
   await expect(sheet.getByText(/^Editing client/)).toHaveCount(0)
 
   await expect.poll(async () => (await s.client())?.phone).toBe('0412 345 678')
-  expect((await s.client())?.email).toBe('accounts@nguyen.test')
+  expect(await s.client()).toMatchObject({
+    name: 'Jenny Nguyen',
+    email: 'accounts@nguyen.test',
+  })
+})
+
+test('a homeowner made a business from the job: their hidden contact person is back in the field', async ({
+  page,
+}) => {
+  const s = await kevinOnTheJob('edit-client-contact')
+  // Once a business with Jan Morris as its contact person, now a homeowner:
+  // Jan is hidden, not gone, and the job has no contact person.
+  await s.owner.client.mutation(api.clients.update, {
+    businessId: s.businessId,
+    clientId: s.clientId,
+    kind: 'business',
+    contactPerson: 'Jan Morris',
+  })
+  await s.owner.client.mutation(api.clients.update, {
+    businessId: s.businessId,
+    clientId: s.clientId,
+    kind: 'person',
+  })
+  await signInViaUi(page, s.sub.email)
+  const sheet = await openLiveJob(page, s.slug, s.at)
+
+  await openEdit(page, sheet, 'client')
+  await sheet.getByRole('radio', { name: 'Commercial' }).click()
+  await expect(sheet.getByLabel('Contact person (optional)')).toHaveValue(
+    'Jan Morris',
+  )
+  // Typed over, the line says what becomes of Jan.
+  await sheet.getByLabel('Contact person (optional)').fill('Priya Shah')
+  await expect(
+    sheet.getByText(
+      'Priya Shah becomes the contact person. Jan Morris stays in Contacts.',
+    ),
+  ).toBeVisible()
 })
 
 test('Kevin corrects the address, and the job follows', async ({ page }) => {
   const s = await kevinOnTheJob('edit-property')
   await signInViaUi(page, s.sub.email)
-  const sheet = await openLiveJob(page, s.slug)
+  const sheet = await openLiveJob(page, s.slug, s.at)
 
   await openEdit(page, sheet, 'property')
   await expect(sheet.getByText('Editing property')).toBeVisible()
@@ -248,7 +287,7 @@ test('the rows say what each changes, and Done goes back to Edit', async ({
 }) => {
   const s = await kevinOnTheJob('edit-rows')
   await signInViaUi(page, s.sub.email)
-  const sheet = await openLiveJob(page, s.slug)
+  const sheet = await openLiveJob(page, s.slug, s.at)
   const edit = sheet.getByRole('button', { name: EDIT_TRIGGER })
   await expect(edit).toHaveAccessibleName('Edit job, client or property')
 
@@ -281,7 +320,7 @@ test('the rows say what each changes, and Done goes back to Edit', async ({
 test('a row puts focus on its form’s title', async ({ page }) => {
   const s = await kevinOnTheJob('edit-focus')
   await signInViaUi(page, s.sub.email)
-  const sheet = await openLiveJob(page, s.slug)
+  const sheet = await openLiveJob(page, s.slug, s.at)
 
   await openEdit(page, sheet, 'client')
   await expect(
@@ -297,8 +336,12 @@ test('no Edit on a colleague’s job Kevin may only read', async ({ page }) => {
     membershipId: s.subMembershipId,
     canViewAllJobs: true,
   })
+  const job = await s.owner.client.query(api.jobs.get, {
+    businessId: s.businessId,
+    jobId: s.ownerJobId,
+  })
   await signInViaUi(page, s.sub.email)
-  const sheet = await openLiveJob(page, s.slug, Date.now(), undefined, {
+  const sheet = await openLiveJob(page, s.slug, job!.scheduledAt, undefined, {
     everyone: true,
   })
 
@@ -317,7 +360,7 @@ test('with no signal, the new number waits and says so, and ✕ closes without a
   test.skip(testInfo.project.name === 'mobile', 'the line, not the layout')
   const s = await kevinOnTheJob('edit-no-signal')
   await signInViaUi(page, s.sub.email)
-  const sheet = await openLiveJob(page, s.slug)
+  const sheet = await openLiveJob(page, s.slug, s.at)
   await openEdit(page, sheet, 'client')
 
   await context.setOffline(true)

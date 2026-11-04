@@ -123,17 +123,22 @@ async function pressBook(p, wait = 700) {
 }
 
 /** The job sheet's Edit, then its row (Job details, Client details or
- * Property details) when it asks which. */
+ * Property details) when it asks which. Gone from the page before the next
+ * step: its rows ("…property…") would otherwise answer to the form's names. */
 async function openJobEdit(p, row = 'Job details') {
   const edit = p.getByRole('button', { name: /^Edit job/ })
   const asks = (await edit.getAttribute('aria-haspopup')) === 'dialog'
   await edit.click()
   if (asks) {
+    const chooser = p.getByRole('dialog', { name: 'Edit', exact: true })
     await p.waitForTimeout(500)
+    await chooser.getByRole('button', { name: new RegExp(`^${row}`) }).click()
+    // By its markup, not its role: closing, it leaves the accessibility tree
+    // before it leaves the page.
     await p
-      .getByRole('dialog', { name: 'Edit', exact: true })
-      .getByRole('button', { name: new RegExp(`^${row}`) })
-      .click()
+      .locator('[role="dialog"]')
+      .filter({ has: p.locator('h2', { hasText: /^Edit$/ }) })
+      .waitFor({ state: 'detached' })
   }
   await p.waitForTimeout(600)
 }
@@ -1137,7 +1142,7 @@ const PLAN = {
     before: async (p) => {
       await p.waitForTimeout(900)
       await openJobEdit(p)
-      await p.getByRole('button', { name: 'Property' }).click()
+      await p.getByRole('button', { name: 'Property', exact: true }).click()
       await p.waitForTimeout(700)
     },
   },

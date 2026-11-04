@@ -24,7 +24,7 @@ import { Segmented } from '#/components/primitives/Segmented'
 import { useHydrated } from '#/lib/useHydrated'
 import { useLineDown } from '#/lib/offline/useLineDown'
 import { editSaveWaits } from '#/lib/editSaveWaits'
-import { abnDigits, formatAbn } from '../../../convex/lib/abn'
+import { formatAbn } from '../../../convex/lib/abn'
 import { isNameCorrection, sameName } from '../../../convex/lib/contactNames'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { ErrorCopy } from '#/components/forms/describeError'
@@ -43,7 +43,12 @@ import type { ClientStatus } from '../../../convex/lib/clientRecord'
 import { KIND_CHOICES } from '#/lib/clientFilters'
 import type { ClientKind } from '#/lib/clientFilters'
 import { TextInput, WrappedField } from '#/components/clients/clientFormFields'
-import { changed, edited } from '#/components/clients/clientEdits'
+import { changed } from '#/components/clients/clientEdits'
+import { clientEditArgs } from '#/components/clients/clientEditArgs'
+import type {
+  ClientEditArgs,
+  ClientEditBase,
+} from '#/components/clients/clientEditArgs'
 
 /**
  * A client's own details, edited: the client sheet's Edit, and the job
@@ -53,7 +58,7 @@ import { changed, edited } from '#/components/clients/clientEdits'
 export function ClientEditForm({
   businessId,
   businessState,
-  client,
+  client: openedWith,
   contactPerson: prefilledContactPerson,
   canRenumber,
   onDone,
@@ -67,25 +72,17 @@ export function ClientEditForm({
   /** Where the business works: suggestions lean there, an address elsewhere
    * is pointed out, and a number missing its area code gets this state's. */
   businessState: string
-  client: {
-    _id: Id<'clients'>
-    kind: ClientKind
-    name: string
-    phone?: string
-    email?: string
-    addressLine?: string
-    suburb?: string
-    state?: string
-    postcode?: string
-    abn?: string
-    clientNumber?: number
-    status?: ClientStatus
-    tags?: Array<string>
-  }
-  /** The primary contact's name, or '' when there is none. */
-  contactPerson: string
+  client: ClientEditBase & { status?: ClientStatus }
+  /** The primary contact's name, '' when there is none, or undefined while
+   * the client's contacts are still on their way. */
+  contactPerson: string | undefined
   onDone: () => void
 }) {
+  // The client as the form opened it, which every field is compared with:
+  // the client sheet passes the live record, and a field the office changes
+  // meanwhile, left alone here, would otherwise read as changed here and be
+  // put back by Save.
+  const [client] = useState(openedWith)
   const [kind, setKind] = useState<ClientKind>(client.kind)
   const [name, setName] = useState(client.name)
   const [phone, setPhone] = useState(client.phone ?? '')
@@ -100,11 +97,20 @@ export function ClientEditForm({
     postcode: client.postcode ?? '',
   })
   const [abn, setAbn] = useState(client.abn ? formatAbn(client.abn) : '')
-  const [contactPerson, setContactPerson] = useState(prefilledContactPerson)
-  // What the field opened with, not the live primary: if the contacts arrive
-  // after the form opened, the field starts blank, and comparing with the
-  // live name would read that as clearing it and take the star off.
-  const [contactPersonBefore] = useState(prefilledContactPerson)
+  const [contactPerson, setContactPerson] = useState(
+    prefilledContactPerson ?? '',
+  )
+  // What the field opened with, not the live primary: a contact person
+  // changed elsewhere meanwhile isn't read as one changed here.
+  const [knownBefore, setKnownBefore] = useState(prefilledContactPerson)
+  // Contacts that arrive after the form opened are what it opened with, and
+  // fill the field unless something was typed there first. Until then (no
+  // signal, say), the field starts blank.
+  if (knownBefore === undefined && prefilledContactPerson !== undefined) {
+    setKnownBefore(prefilledContactPerson)
+    if (contactPerson === '') setContactPerson(prefilledContactPerson)
+  }
+  const contactPersonBefore = knownBefore ?? ''
   const [numberText, setNumberText] = useState(
     client.clientNumber === undefined ? '' : String(client.clientNumber),
   )
@@ -136,69 +142,29 @@ export function ClientEditForm({
 
   const convexUpdate = useConvexMutation(api.clients.update)
   const save = useMutation({
-    mutationFn: (args: {
-      businessId: Id<'businesses'>
-      clientId: Id<'clients'>
-      kind: ClientKind
-      name: string
-      phone?: string
-      email?: string
-      addressLine?: string
-      suburb?: string
-      state?: string
-      postcode?: string
-      abn?: string
-      contactPerson?: string
-      tags?: Array<string>
-      clientNumber?: number
-    }) => convexUpdate(args),
+    mutationFn: (args: ClientEditArgs) => convexUpdate(args),
     onSuccess: onDone,
   })
 
-  const args = () => {
-    const hasAddress = [
-      address.addressLine,
-      address.suburb,
-      address.postcode,
-    ].some((part) => part.trim() !== '')
-    return {
+  // Each field only when changed (clientEditArgs).
+  const args = () =>
+    clientEditArgs({
       businessId,
-      clientId: client._id,
-      kind,
-      name,
-      // Each only when changed, and blank clears it (clients.update).
-      // Untouched fields are left out, so a save that changes nothing
-      // writes nothing.
-      ...edited('phone', phone, client.phone),
-      ...edited('email', email, client.email),
-      ...(tags.join('\n') !== (client.tags ?? []).join('\n') && { tags }),
-      // The owner's alone to change (clients.update refuses anyone else).
-      ...(canRenumber &&
-        wantedNumber !== null &&
-        wantedNumber !== client.clientNumber && {
-          clientNumber: wantedNumber,
-        }),
-      // Omitted (not cleared) when kind isn't business: `clients.update`
-      // skips undefined args, so toggling to person just stops showing
-      // the address rather than wiping it — same "hidden, not deleted"
-      // treatment as clientContacts when kind flips away from business.
-      // The ABN and contact person are left alone the same way.
-      ...(kind === 'business' && {
-        ...edited('addressLine', address.addressLine, client.addressLine),
-        ...edited('suburb', address.suburb, client.suburb),
-        // A state on its own is not an address: with no street, suburb
-        // or postcode it is cleared, which also mends a lone "ACT".
-        ...edited('state', hasAddress ? address.state : '', client.state),
-        ...edited('postcode', address.postcode, client.postcode),
-        ...((abnDigits(abn) ?? abn.trim()) !== (client.abn ?? '') && {
-          abn: abn.trim(),
-        }),
-        // The server makes the name the primary contact, and blank takes
-        // the star off (nobody is deleted).
-        ...edited('contactPerson', contactPerson, contactPersonBefore),
-      }),
-    }
-  }
+      client,
+      value: {
+        kind,
+        name,
+        phone,
+        email,
+        address,
+        abn,
+        contactPerson,
+        tags,
+        clientNumber: wantedNumber,
+      },
+      contactPersonBefore,
+      canRenumber,
+    })
   // Read when the save goes, which can be after the checks at Save have
   // answered: what is in the fields then, not when Save was pressed.
   const latestArgs = useLatest(args)

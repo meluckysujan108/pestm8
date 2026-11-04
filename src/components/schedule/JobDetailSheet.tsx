@@ -327,11 +327,16 @@ function JobDetailBody({
   // A form was left by Cancel or Save: focus goes back to Edit.
   const backToEdit = useRef(false)
   // Read as the Edit sheet finishes closing (SheetShell), not when it was
-  // told to close.
+  // told to close. With Edit gone meanwhile (the job invoiced from the
+  // office, or deleted), to the sheet's title.
   const chooserReturn = useMemo<RefObject<HTMLElement | null>>(
     () => ({
       get current() {
-        return (chose.current && editTitle.current) || editButton.current
+        return (
+          (chose.current && editTitle.current) ||
+          editButton.current ||
+          sheetTitle.current
+        )
       },
     }),
     [],
@@ -1078,7 +1083,12 @@ function JobDetailBody({
         </div>
       ) : job === null ? (
         <div className="px-4 py-10">
-          <Drawer.Title className="text-sheet-title text-ink">
+          {/* Where focus goes should the Edit sheet close as the job goes. */}
+          <Drawer.Title
+            ref={sheetTitle}
+            tabIndex={-1}
+            className="text-sheet-title text-ink outline-none"
+          >
             Not found
           </Drawer.Title>
           <p className="mt-1 text-body text-muted">
