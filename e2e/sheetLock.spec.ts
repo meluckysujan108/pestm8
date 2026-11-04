@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test'
-import { api, clickUntil, setupBusinessWithSub, signInViaUi } from './fixtures'
+import {
+  api,
+  clickUntil,
+  setupBusinessWithSub,
+  signInViaUi,
+  openEdit,
+} from './fixtures'
 import type { Locator, Page } from '@playwright/test'
 
 /**
@@ -40,7 +46,7 @@ test('editing a job: Escape and ✕ ask before a change is thrown away', async (
   await signInViaUi(page, s.owner.email)
   const detail = await openJob(page, s.slug)
 
-  await detail.getByRole('button', { name: 'Edit job details' }).click()
+  await openEdit(page, detail)
   // Edit mode is the form alone: the rest of the job steps aside.
   await expect(detail.getByText('Editing job #')).toBeVisible()
   await expect(detail.getByRole('button', { name: 'Delete job' })).toHaveCount(
@@ -78,11 +84,47 @@ test('editing a job with nothing changed closes without asking', async ({
   const s = await setupBusinessWithSub('lock-clean')
   await signInViaUi(page, s.owner.email)
   const detail = await openJob(page, s.slug)
-  await detail.getByRole('button', { name: 'Edit job details' }).click()
+  await openEdit(page, detail)
   await expect(detail.getByText('Editing job #')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(discard(page)).toHaveCount(0)
+})
+
+test('editing the job’s client: Escape and ✕ ask, Cancel goes straight back', async ({
+  page,
+}) => {
+  const s = await setupBusinessWithSub('lock-job-client')
+  await signInViaUi(page, s.owner.email)
+  const detail = await openJob(page, s.slug)
+  const savedName = async () =>
+    (
+      await s.owner.client.query(api.jobs.get, {
+        businessId: s.businessId,
+        jobId: s.ownerJobId,
+      })
+    )?.property?.client?.name
+
+  await openEdit(page, detail, 'client')
+  const name = detail.getByLabel('Client name')
+  await name.fill('J. Nguyen-Smith')
+  await page.keyboard.press('Escape')
+  await expect(discard(page)).toBeVisible()
+  await discard(page).getByRole('button', { name: 'Keep editing' }).click()
+  await expect(name).toHaveValue('J. Nguyen-Smith')
+
+  // Cancel is a choice, not an accident: back to the job, nothing saved.
+  await detail.getByRole('button', { name: 'Cancel' }).click()
+  await expect(detail.getByText(/^Editing client/)).toHaveCount(0)
+  expect(await savedName()).toBe('J. Nguyen')
+
+  // ✕ with a change, discarded, closes the job sheet as job edit does.
+  await openEdit(page, detail, 'client')
+  await name.fill('J. Nguyen-Smith')
+  await detail.getByRole('button', { name: 'Close' }).click()
+  await discard(page).getByRole('button', { name: 'Discard' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(await savedName()).toBe('J. Nguyen')
 })
 
 test('the phone’s Back asks before leaving a job with unsaved changes', async ({
@@ -101,7 +143,7 @@ test('the phone’s Back asks before leaving a job with unsaved changes', async 
   await clickUntil(page.getByText('Termite Inspection').first(), () =>
     expect(detail).toBeVisible({ timeout: 2_000 }),
   )
-  await detail.getByRole('button', { name: 'Edit job details' }).click()
+  await openEdit(page, detail)
   const end = await changeEnd(detail)
 
   await page.goBack()

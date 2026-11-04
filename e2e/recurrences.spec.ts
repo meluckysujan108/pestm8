@@ -10,6 +10,7 @@ import {
   signInViaUi,
   signUpActor,
   uniqueEmail,
+  openEdit,
 } from './fixtures'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -501,7 +502,7 @@ test('editing a one-off job into a recurring one, then stopping it, from its own
   await expect(detail.getByText('One-off')).toBeVisible()
 
   // Edit the job and turn it into a monthly series.
-  await detail.getByRole('button', { name: 'Edit job details' }).click()
+  await openEdit(page, detail)
   await detail.getByRole('radio', { name: 'Recurring Job' }).click()
   await detail.getByLabel('Repeat every').fill('1')
   await detail.getByLabel('Repeat unit').selectOption('month')

@@ -1,7 +1,9 @@
 import { expect } from '@playwright/test'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../convex/_generated/api'
+import { EDIT_ROW, EDIT_TRIGGER } from '../src/lib/jobEditChoices'
 import type { Locator, Page } from '@playwright/test'
+import type { JobEditTarget } from '../src/lib/jobEditChoices'
 import type { Id } from '../convex/_generated/dataModel'
 
 /**
@@ -347,6 +349,35 @@ export async function chooseStatus(
 }
 
 /**
+ * Opens one of a job sheet's edit forms, as a person does: Edit, then, with
+ * more than the job to edit, its row in the Edit sheet. Waits for that sheet
+ * to go, so a later `getByRole('dialog')` means the job's sheet again. With
+ * only the job to edit, Edit opens its form at once.
+ */
+export async function openEdit(
+  page: Page,
+  sheet: Locator,
+  what: JobEditTarget = 'job',
+) {
+  const edit = sheet.getByRole('button', { name: EDIT_TRIGGER })
+  const asks = (await edit.getAttribute('aria-haspopup')) === 'dialog'
+  await edit.click()
+  if (!asks) {
+    expect(what, 'Edit offers only the job here').toBe('job')
+    return
+  }
+  await page
+    .getByRole('dialog', { name: 'Edit', exact: true })
+    .getByRole('button', { name: EDIT_ROW[what] })
+    .click()
+  await expect(
+    page.locator('[role="dialog"]').filter({
+      has: page.locator('h2', { hasText: /^Edit$/ }),
+    }),
+  ).toHaveCount(0)
+}
+
+/**
  * Sets an open New Job sheet's (or job edit form's) services to exactly these,
  * in this order. A job can be for several, and New Job starts on General Pest
  * Control, so whatever is ticked is unticked first. A service the list does
@@ -476,6 +507,9 @@ export async function expectRejected(
 }
 
 export { api }
+
+/** The job sheet's Edit, whichever rows it offers (lib/jobEditChoices.ts). */
+export { EDIT_TRIGGER }
 
 /**
  * Gives an actor a licence number on their own membership.

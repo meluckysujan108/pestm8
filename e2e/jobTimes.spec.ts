@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import {
+  EDIT_TRIGGER,
   FIXTURE_PASSWORD,
   api,
   chooseJobTypes,
@@ -8,6 +9,7 @@ import {
   signInViaUi,
   signUpActor,
   uniqueEmail,
+  openEdit,
 } from './fixtures'
 import type { Page } from '@playwright/test'
 
@@ -160,13 +162,13 @@ test('editing a job: the end follows the start until it is set by hand', async (
   await page.goto(`/${s.slug}/schedule?date=${day}`)
   await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
   const detail = page.getByRole('dialog')
-  const edit = detail.getByRole('button', { name: 'Edit job details' })
+  const edit = detail.getByRole('button', { name: EDIT_TRIGGER })
   await clickUntil(page.getByText('Termite Inspection').first(), () =>
     expect(edit).toBeVisible({ timeout: 2_000 }),
   )
 
   // Moved to the afternoon, it keeps its hour and a half.
-  await edit.click()
+  await openEdit(page, detail)
   const start = detail.getByLabel('Start', { exact: true })
   const end = detail.getByLabel('End', { exact: true })
   await expect(start).toHaveValue('10:00')
@@ -181,7 +183,7 @@ test('editing a job: the end follows the start until it is set by hand', async (
   expect((await saved())?.durationMinutes).toBe(90)
 
   // An end set by hand stays put when the start is moved after it.
-  await edit.click()
+  await openEdit(page, detail)
   await end.fill('17:00')
   await start.fill('09:00')
   await expect(end).toHaveValue('17:00')

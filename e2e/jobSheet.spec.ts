@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test'
-import { api, clickUntil, setupBusinessWithSub, signInViaUi } from './fixtures'
+import {
+  EDIT_TRIGGER,
+  api,
+  clickUntil,
+  setupBusinessWithSub,
+  signInViaUi,
+} from './fixtures'
 import { createReport } from './fixtures/reportPayloads'
 import type { Locator, Page } from '@playwright/test'
 
@@ -210,9 +216,7 @@ test('an invoiced job says why it is locked, under its status', async ({
   const sheet = await openJob(page, s.slug, Date.now(), /Termite Inspection/)
   const notice = sheet.getByText(/This job has been invoiced/)
   await expect(notice).toBeVisible()
-  await expect(
-    sheet.getByRole('button', { name: 'Edit job details' }),
-  ).toHaveCount(0)
+  await expect(sheet.getByRole('button', { name: EDIT_TRIGGER })).toHaveCount(0)
 
   // Above the property, not under everything else.
   const noticeTop = (await notice.boundingBox())!.y
