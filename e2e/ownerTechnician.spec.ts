@@ -17,6 +17,13 @@ import {
  * subcontractor books their own return visit.
  */
 
+/** The tenant's own day, not the runner's. */
+function perthToday() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Australia/Perth',
+  }).format(new Date())
+}
+
 test('a subcontractor who can see the schedule sees the owner by name', async ({
   page,
 }) => {
@@ -71,9 +78,13 @@ test('a subcontractor’s new job is theirs, with no one else to pick', async ({
 }) => {
   const { sub, businessId, slug, subMembershipId } =
     await setupBusinessWithSub('owner-book')
+  // Fixed before anything is booked, and the page opened on it: New Job books
+  // on the day the page shows, so a run that crosses Perth midnight books and
+  // checks the same day.
+  const day = perthToday()
 
   await signInViaUi(page, sub.email)
-  await page.goto(`/${slug}/schedule`)
+  await page.goto(`/${slug}/schedule?date=${day}`)
 
   const newJob = page.getByRole('button', { name: 'New job' })
   await expect(newJob).toBeEnabled()
@@ -87,12 +98,9 @@ test('a subcontractor’s new job is theirs, with no one else to pick', async ({
   await sheet.getByRole('button', { name: 'Book job' }).click()
   await expect(sheet).toBeHidden()
 
-  const today = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Australia/Perth',
-  }).format(new Date())
   const jobs = await sub.client.query(api.jobs.listDay, {
     businessId,
-    dayKey: today,
+    dayKey: day,
   })
   expect(
     jobs.some(
