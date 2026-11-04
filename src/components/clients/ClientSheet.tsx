@@ -51,6 +51,7 @@ import { loadLocalities } from '#/lib/addressVerify'
 import { todayKey } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
 import { useLineDown } from '#/lib/offline/useLineDown'
+import { editSaveWaits } from '#/lib/editSaveWaits'
 import { useHandOverBody } from '#/lib/offline/useKept'
 import type { LineDown } from '#/lib/offline/useLineDown'
 import { SheetPending } from '#/components/shell/Pending'
@@ -1410,11 +1411,8 @@ function PropertyEditForm({
   const [addressCheck, setAddressCheck] = useState<AddressCheck>('typed')
   const hydrated = useHydrated()
   const warnings = useSaveWarnings()
-  useSheetLock(
-    (Object.keys(saved) as Array<keyof PropertyFieldsValue>).some((key) =>
-      changed(value[key], saved[key]),
-    ),
-  )
+  const lineDown = useLineDown()
+  const lineDownId = useId()
 
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const convexDelete = useConvexMutation(api.bin.deleteProperty)
@@ -1441,6 +1439,13 @@ function PropertyEditForm({
     }) => convexUpdate(args),
     onSuccess: onDone,
   })
+  // Not "Discard your changes?" while it saves: a save waiting for signal
+  // still lands, so they would not be discarded. ✕ just closes the sheet.
+  useSheetLock(
+    (Object.keys(saved) as Array<keyof PropertyFieldsValue>).some((key) =>
+      changed(value[key], saved[key]),
+    ) && !save.isPending,
+  )
 
   // Read when the save goes, after any checks at Save have answered.
   const latestArgs = useLatest(() => ({
@@ -1484,6 +1489,11 @@ function PropertyEditForm({
         />
         <FormAlert error={save.isError ? save.error : null} />
         <SaveWarningsPanel />
+        {lineDown && (
+          <p id={lineDownId} className="text-caption text-ink-2">
+            {editSaveWaits('property')[lineDown]}
+          </p>
+        )}
         <div className="flex gap-2">
           <button
             type="button"
@@ -1495,6 +1505,7 @@ function PropertyEditForm({
           <button
             type="submit"
             disabled={save.isPending || !hydrated}
+            aria-describedby={lineDown ? lineDownId : undefined}
             className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
           >
             {save.isPending ? 'Saving…' : warnings.saveLabel('Save')}

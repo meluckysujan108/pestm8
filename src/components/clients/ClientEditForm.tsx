@@ -22,6 +22,8 @@ import {
 import { VerifiedAddressFields } from '#/components/forms/VerifiedAddressFields'
 import { Segmented } from '#/components/primitives/Segmented'
 import { useHydrated } from '#/lib/useHydrated'
+import { useLineDown } from '#/lib/offline/useLineDown'
+import { editSaveWaits } from '#/lib/editSaveWaits'
 import { abnDigits, formatAbn } from '../../../convex/lib/abn'
 import { isNameCorrection, sameName } from '../../../convex/lib/contactNames'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -224,7 +226,11 @@ export function ClientEditForm({
       (key) =>
         !['businessId', 'clientId', 'kind', 'name', 'state'].includes(key),
     )
-  useSheetLock(hasChanges)
+  // Not "Discard your changes?" while it saves: a save waiting for signal
+  // still lands, so they would not be discarded. ✕ just closes the sheet.
+  useSheetLock(hasChanges && !save.isPending)
+  const lineDown = useLineDown()
+  const lineDownId = useId()
 
   return (
     <SaveWarningsProvider value={warnings}>
@@ -396,6 +402,11 @@ export function ClientEditForm({
           error={save.isError ? save.error : null}
           copy={CLIENT_RECORD_COPY}
         />
+        {lineDown && (
+          <p id={lineDownId} className="text-caption text-ink-2">
+            {editSaveWaits('client')[lineDown]}
+          </p>
+        )}
         <div className="flex gap-2">
           <button
             type="button"
@@ -409,6 +420,7 @@ export function ClientEditForm({
             type="submit"
             form={formId}
             disabled={save.isPending || !hydrated}
+            aria-describedby={lineDown ? lineDownId : undefined}
             className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
           >
             {save.isPending ? 'Saving…' : warnings.saveLabel('Save')}

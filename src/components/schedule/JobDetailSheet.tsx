@@ -45,6 +45,8 @@ import { OutboxItemBody } from './OutboxItemSheet'
 import { useOutboxReadable } from '#/lib/outbox/useOutbox'
 import { INVOICED_LOCKED, SOMEONE_ELSES_JOB } from '#/lib/offline/keptJob'
 import { useHandOverBody } from '#/lib/offline/useKept'
+import { useLineDown } from '#/lib/offline/useLineDown'
+import { editSaveWaits } from '#/lib/editSaveWaits'
 import { JobTimeFields, useJobTimes } from './JobTimeFields'
 import { PropertyHistory } from './PropertyHistory'
 import { nextVisit } from '#/lib/jobHistory'
@@ -1125,7 +1127,6 @@ function JobEditForm({
     alsoGoingChanged ||
     workOrder.trim() !== openedWorkOrder ||
     repeats
-  useSheetLock(changed)
 
   const convexUpdate = useConvexMutation(api.jobs.update)
   const convexConvert = useConvexMutation(api.recurrences.convertJobToRecurring)
@@ -1164,6 +1165,11 @@ function JobEditForm({
     },
     onSuccess: onDone,
   })
+  // Not "Discard your changes?" while it saves: a save waiting for signal
+  // still lands, so they would not be discarded. ✕ just closes the sheet.
+  useSheetLock(changed && !save.isPending)
+  const lineDown = useLineDown()
+  const lineDownId = useId()
 
   return (
     <>
@@ -1429,6 +1435,11 @@ function JobEditForm({
           ) : (
             <FormAlert error={save.error} copy={EDIT_ERROR_COPY} />
           ))}
+      {lineDown && (
+        <p id={lineDownId} className="text-caption text-ink-2">
+          {editSaveWaits('job')[lineDown]}
+        </p>
+      )}
       <div className="flex gap-2">
       <button
         type="button"
@@ -1444,6 +1455,7 @@ function JobEditForm({
         type="submit"
         form={formId}
         disabled={save.isPending || !hydrated || intervalIncomplete}
+        aria-describedby={lineDown ? lineDownId : undefined}
         className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
       >
         {save.isPending ? 'Saving…' : 'Save'}
