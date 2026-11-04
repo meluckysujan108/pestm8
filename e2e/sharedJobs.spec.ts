@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test'
-import { api, clickUntil, setupBusinessWithSub, signInViaUi } from './fixtures'
+import {
+  EDIT_TRIGGER,
+  api,
+  clickUntil,
+  setupBusinessWithSub,
+  signInViaUi,
+  openEdit,
+} from './fixtures'
 import type { Page } from '@playwright/test'
 
 /**
@@ -24,7 +31,7 @@ test('the owner puts Kevin on his job from Edit → Also going', async ({
   await signInViaUi(page, s.owner.email)
   const detail = await openJob(page, s.slug)
 
-  await detail.getByRole('button', { name: 'Edit job details' }).click()
+  await openEdit(page, detail)
   await detail.getByRole('button', { name: 'Also going' }).click()
   const picker = page.getByRole('dialog', { name: 'Also going' })
   await picker.getByRole('checkbox', { name: /Kevin/ }).click()
@@ -58,9 +65,7 @@ test('Kevin, also going, finds the job on his schedule and may work it', async (
   await expect(
     detail.getByText('This job is assigned to someone else'),
   ).toHaveCount(0)
-  await expect(
-    detail.getByRole('button', { name: 'Edit job details' }),
-  ).toBeVisible()
+  await expect(detail.getByRole('button', { name: EDIT_TRIGGER })).toBeVisible()
 
   // And through the API, as his phone would ask: it is his to see and change.
   const job = await s.sub.client.query(api.jobs.get, {

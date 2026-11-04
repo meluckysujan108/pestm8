@@ -147,6 +147,27 @@ async function repeatEvery(p, count, unit) {
   await p.waitForTimeout(300)
 }
 
+/** The job sheet's Edit, then its row (Job details, Client details or
+ * Property details) when it asks which. Gone from the page before the next
+ * step: its rows ("…property…") would otherwise answer to the form's names. */
+async function openJobEdit(p, row = 'Job details') {
+  const edit = p.getByRole('button', { name: /^Edit job/ })
+  const asks = (await edit.getAttribute('aria-haspopup')) === 'dialog'
+  await edit.click()
+  if (asks) {
+    const chooser = p.getByRole('dialog', { name: 'Edit', exact: true })
+    await p.waitForTimeout(500)
+    await chooser.getByRole('button', { name: new RegExp(`^${row}`) }).click()
+    // By its markup, not its role: closing, it leaves the accessibility tree
+    // before it leaves the page.
+    await p
+      .locator('[role="dialog"]')
+      .filter({ has: p.locator('h2', { hasText: /^Edit$/ }) })
+      .waitFor({ state: 'detached' })
+  }
+  await p.waitForTimeout(600)
+}
+
 const JANE_NEW_ADDRESS = {
   name: 'Jane Nguyen',
   phone: '0491 570 156',
@@ -566,8 +587,7 @@ const PLAN = {
     spec: 'jobdetail-services',
     before: async (p) => {
       await p.waitForTimeout(900)
-      await p.getByRole('button', { name: 'Edit job details' }).click()
-      await p.waitForTimeout(500)
+      await openJobEdit(p)
       await p
         .getByRole('button', { name: 'Also going' })
         .scrollIntoViewIfNeeded()
@@ -578,8 +598,7 @@ const PLAN = {
     spec: 'jobdetail-services',
     before: async (p) => {
       await p.waitForTimeout(900)
-      await p.getByRole('button', { name: 'Edit job details' }).click()
-      await p.waitForTimeout(500)
+      await openJobEdit(p)
       await p.getByRole('button', { name: 'Also going' }).click()
       await p.waitForTimeout(700)
     },
@@ -705,8 +724,62 @@ const PLAN = {
     spec: 'jobdetail',
     before: async (p) => {
       await p.waitForTimeout(900)
-      await p.getByRole('button', { name: 'Edit job details' }).click()
-      await p.waitForTimeout(500)
+      await openJobEdit(p)
+    },
+  },
+  // Edit asks which: the job, its client or its property (4 Nov 2026).
+  'jobdetail-edit-chooser': {
+    spec: 'jobdetail',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: /^Edit job/ }).click()
+      await p.waitForTimeout(700)
+    },
+  },
+  'jobdetail-edit-chooser-person': {
+    spec: 'jobdetail-services',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: /^Edit job/ }).click()
+      await p.waitForTimeout(700)
+    },
+  },
+  // The client's own form, from the job: a business, then a homeowner.
+  'jobdetail-edit-client': {
+    spec: 'jobdetail-contact',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await openJobEdit(p, 'Client details')
+    },
+  },
+  'jobdetail-edit-client-person': {
+    spec: 'jobdetail-services',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await openJobEdit(p, 'Client details')
+    },
+  },
+  // The property's: a business site has a site contact, a home doesn't.
+  'jobdetail-edit-property': {
+    spec: 'jobdetail',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await openJobEdit(p, 'Property details')
+    },
+  },
+  'jobdetail-edit-property-person': {
+    spec: 'jobdetail-services',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await openJobEdit(p, 'Property details')
+    },
+  },
+  // With no signal, the line above Save says the change waits.
+  'jobdetail-edit-client-no-signal': {
+    spec: 'jobdetail-no-signal',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await openJobEdit(p, 'Client details')
     },
   },
   // Its date, start and end, and the length said back under them.
@@ -714,8 +787,7 @@ const PLAN = {
     spec: 'jobdetail',
     before: async (p) => {
       await p.waitForTimeout(900)
-      await p.getByRole('button', { name: 'Edit job details' }).click()
-      await p.waitForTimeout(500)
+      await openJobEdit(p)
       await p.getByLabel('End', { exact: true }).fill('13:30')
       await p.getByLabel('Date', { exact: true }).scrollIntoViewIfNeeded()
       await p.waitForTimeout(300)
@@ -1162,7 +1234,7 @@ const PLAN = {
     spec: 'jobdetail',
     before: async (p) => {
       await p.waitForTimeout(900)
-      await p.getByRole('button', { name: 'Edit job details' }).click()
+      await openJobEdit(p)
       await p.getByRole('button', { name: 'Job type' }).click()
       await p.getByRole('checkbox', { name: 'Rodents' }).click()
       await p.waitForTimeout(700)
@@ -1172,8 +1244,8 @@ const PLAN = {
     spec: 'jobdetail',
     before: async (p) => {
       await p.waitForTimeout(900)
-      await p.getByRole('button', { name: 'Edit job details' }).click()
-      await p.getByRole('button', { name: 'Property' }).click()
+      await openJobEdit(p)
+      await p.getByRole('button', { name: 'Property', exact: true }).click()
       await p.waitForTimeout(700)
     },
   },

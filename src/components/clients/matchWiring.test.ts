@@ -48,9 +48,9 @@ describe('Add property opened from Clients → New client', () => {
       /useState<AddressCheck>\(\s*initial\?\.addressCheck \?\? 'typed',?\s*\)/,
     )
     expect(form).toContain("picked={initial?.addressCheck === 'picked'}")
-    expect(functionText(source('./ClientSheet.tsx'), 'PropertyFields')).toMatch(
-      /<VerifiedAddressFields[^>]*\spicked=\{picked\}/,
-    )
+    expect(
+      functionText(source('./PropertyFields.tsx'), 'PropertyFields'),
+    ).toMatch(/<VerifiedAddressFields[^>]*\spicked=\{picked\}/)
   })
 })
 
