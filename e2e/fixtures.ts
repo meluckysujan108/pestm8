@@ -1,6 +1,7 @@
-import { expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../convex/_generated/api'
+import { dayKeyOf } from '../convex/lib/dates'
 import { EDIT_ROW, EDIT_TRIGGER } from '../src/lib/jobEditChoices'
 import type { Locator, Page } from '@playwright/test'
 import type { JobEditTarget } from '../src/lib/jobEditChoices'
@@ -209,13 +210,14 @@ export async function setupBusinessWithSub(label: string) {
     licenceNumber: 'TECH-8821',
   })
 
+  const ownerJobAt = Date.now()
   const ownerJobId = await owner.client.mutation(api.jobs.create, {
     businessId,
     propertyId,
     assignedMembershipId: ownerMembershipId,
     jobType: 'Termite Inspection',
     price: 38000,
-    scheduledAt: Date.now(),
+    scheduledAt: ownerJobAt,
     durationMinutes: 90,
   })
 
@@ -230,7 +232,28 @@ export async function setupBusinessWithSub(label: string) {
     ownerMembershipId,
     subMembershipId,
     ownerJobId,
+    // When the owner's job is, and its day in Perth: the day to open the
+    // Schedule on (`?date=`). A bare /schedule opens on the day it is when
+    // the page loads, which past Perth's midnight is the day after the job's.
+    ownerJobAt,
+    ownerJobDay: dayKeyOf(ownerJobAt, 'Australia/Perth'),
   }
+}
+
+/**
+ * Skips the running test if Perth's midnight could pass before it ends: for
+ * a page that works out "today" from its own clock, which no `?date=` pins,
+ * and so calls a job booked before midnight yesterday's after it. Called
+ * before anything is booked; `aheadMs` is how far on the test moves the
+ * page's clock, if it does.
+ */
+export function skipNearPerthMidnight(reason: string, aheadMs = 0) {
+  const now = Date.now()
+  const end = now + test.info().timeout + aheadMs
+  test.skip(
+    dayKeyOf(end, 'Australia/Perth') !== dayKeyOf(now, 'Australia/Perth'),
+    reason,
+  )
 }
 
 /**

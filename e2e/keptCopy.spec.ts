@@ -8,6 +8,7 @@ import {
   setupBusinessWithSub,
   signInViaUi,
   signUpActor,
+  skipNearPerthMidnight,
   uniqueEmail,
 } from './fixtures'
 import {
@@ -91,6 +92,17 @@ const HYDRATION_TROUBLE =
 
 test.use({ viewport: { width: 390, height: 844 } })
 test.describe.configure({ timeout: 180_000 })
+
+// The page works out today from its own clock, which no `?date=` pins here:
+// the phone opens afresh on `/`, and keeps this week and next from today.
+// Past Perth midnight, the page's clock moved on PAGE_AGE_MS included, it
+// opens on the day after the one the case booked and read.
+test.beforeEach(() =>
+  skipNearPerthMidnight(
+    'past Perth midnight the page opens on another day',
+    PAGE_AGE_MS,
+  ),
+)
 
 // ── Days ───────────────────────────────────────────────────────────────────
 

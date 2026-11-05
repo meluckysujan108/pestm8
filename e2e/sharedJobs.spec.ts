@@ -15,8 +15,10 @@ import type { Page } from '@playwright/test'
  * is also going — and finds it on his own schedule, and may work it.
  */
 
-async function openJob(page: Page, slug: string) {
-  await page.goto(`/${slug}/schedule`)
+/** The fixture's job, opened from its own day: a bare schedule opens on
+ * today, which past Perth midnight is not the day it was booked on. */
+async function openJob(page: Page, slug: string, dayKey: string) {
+  await page.goto(`/${slug}/schedule?date=${dayKey}`)
   const detail = page.getByRole('dialog')
   await clickUntil(page.getByText('Termite Inspection').first(), () =>
     expect(detail).toBeVisible({ timeout: 2_000 }),
@@ -29,7 +31,7 @@ test('the owner puts Kevin on his job from Edit → Also going', async ({
 }) => {
   const s = await setupBusinessWithSub('shared-add')
   await signInViaUi(page, s.owner.email)
-  const detail = await openJob(page, s.slug)
+  const detail = await openJob(page, s.slug, s.ownerJobDay)
 
   await openEdit(page, detail)
   await detail.getByRole('button', { name: 'Also going' }).click()
@@ -60,7 +62,7 @@ test('Kevin, also going, finds the job on his schedule and may work it', async (
   })
 
   await signInViaUi(page, s.sub.email)
-  const detail = await openJob(page, s.slug)
+  const detail = await openJob(page, s.slug, s.ownerJobDay)
   // Not the read-only notice a colleague's job gets: he is on this one.
   await expect(
     detail.getByText('This job is assigned to someone else'),
