@@ -186,6 +186,46 @@ function questionButtons(guard: Element) {
   return { keep: button('Keep editing'), discard: button('Discard') }
 }
 
+/** A component of the tree called in the render under way, as a child is. */
+function child(element: Element): Element {
+  return (element.type as (props: Props) => Element)(element.props)
+}
+
+/**
+ * A sheet open with one form in it that has changed, drawn whole: the sheet,
+ * its guard and the guard's dialog in one render, as React draws them, so
+ * the sheet is still on the page while its dialog is answered — and goes
+ * only when its page does (`pageLeft`).
+ */
+function sheetDrawnWhole() {
+  const heard: Array<string> = []
+  const view = hookHarness.mount(() => {
+    const shell = SheetShell({
+      open: true,
+      onClose: () => heard.push('closed'),
+      children: null,
+    })
+    const guard = search(shell, (props) => 'onLeaving' in props)
+    // DiscardGuard, then the Back it guards, then its dialog.
+    return { shell, dialog: guard && child(child(guard)) }
+  })
+  const register = find(
+    view.current().shell,
+    (props) => typeof props.value === 'function',
+  ).props.value as (id: string, lock: unknown) => void
+  register('form', { changed: true, discarded: () => heard.push('discarded') })
+  return {
+    heard,
+    /** The router has blocked a Back, and the guard draws again for it. */
+    backBlocked: () => {
+      blockedBack(heard)
+      view.rerender()
+    },
+    dialog: () => view.current().dialog!,
+    pageLeft: () => hookHarness.mount(() => null),
+  }
+}
+
 afterEach(() => {
   hookHarness.mount(() => null)
   route.blocker = { status: 'idle' }
@@ -200,16 +240,25 @@ describe('a confirmed Discard, as the forms in the sheet hear it', () => {
     expect(sheet.heard).toEqual(['discarded', 'closed'])
   })
 
-  test('Back: heard as it is confirmed, before the move goes on; the sheet closes once it has landed', () => {
-    const sheet = sheetWithChanges()
-    blockedBack(sheet.heard)
-    // DiscardGuard, then the Back it guards, then its dialog.
-    const dialog = draw(draw(sheet.guard()))
-    expect(dialog.props.asking).toBe(true)
-    ;(dialog.props.onDiscard as () => void)()
+  test('Back: heard as it is confirmed, before the move goes on; a sheet still on the page it landed on closes once it has landed', () => {
+    const sheet = sheetDrawnWhole()
+    sheet.backBlocked()
+    expect(sheet.dialog().props.asking).toBe(true)
+    ;(sheet.dialog().props.onDiscard as () => void)()
     expect(sheet.heard).toEqual(['discarded', 'move goes on'])
     for (const landed of route.landed) landed()
     expect(sheet.heard).toEqual(['discarded', 'move goes on', 'closed'])
+  })
+
+  test('Back to another page: the sheet went with the page it left, and is not closed again once the move has landed', () => {
+    // A job's sheet on the schedule, Back to Clients: closed, its onClose
+    // put the schedule's own address back over the one Back landed on.
+    const sheet = sheetDrawnWhole()
+    sheet.backBlocked()
+    ;(sheet.dialog().props.onDiscard as () => void)()
+    sheet.pageLeft()
+    for (const landed of route.landed) landed()
+    expect(sheet.heard).toEqual(['discarded', 'move goes on'])
   })
 
   test('Back still asked about when the lock lifts under the dialog (New Job’s booking kept on the phone meanwhile): the move goes on, nothing discarded', () => {
