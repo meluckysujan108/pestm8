@@ -151,6 +151,23 @@ test('the phone’s Back asks before leaving a job with unsaved changes', async 
   await discard(page).getByRole('button', { name: 'Keep editing' }).click()
   await expect(page).toHaveURL(new RegExp(`/${s.slug}/schedule`))
   await expect(detail.getByLabel('End', { exact: true })).toHaveValue(end)
+
+  // Discard lets Back go on, and the page it lands on stays. The job's sheet
+  // went with the schedule; closed once Back had landed, it put the
+  // schedule's address back over Clients, a moment after Clients was drawn.
+  await page.goBack()
+  await discard(page).getByRole('button', { name: 'Discard' }).click()
+  const clients = new RegExp(`/${s.slug}/clients`)
+  await expect(page).toHaveURL(clients)
+  await expect(page.getByRole('button', { name: 'New client' })).toBeEnabled()
+  await page.waitForTimeout(1_000)
+  await expect(page).toHaveURL(clients)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const job = await s.owner.client.query(api.jobs.get, {
+    businessId: s.businessId,
+    jobId: s.ownerJobId,
+  })
+  expect(job?.durationMinutes).toBe(90)
 })
 
 test('New Job asks before throwing away what was filled in, and not before', async ({

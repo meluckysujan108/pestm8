@@ -159,6 +159,19 @@ export function SheetShell({
   useEffect(() => {
     openRef.current = open
   })
+  // Nor is one that went with the page Back left. The router says a move has
+  // landed only once the page it landed on is drawn, and this sheet's
+  // onClose would then act on that page: the schedule's put its own address
+  // back over the one Back landed on. A layout effect, so it is false by
+  // then: the router hears of the landing from a layout effect of the new
+  // page, when a passive effect's cleanup need not have run.
+  const mounted = useRef(false)
+  useLayoutEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
 
   /** ✕ or Escape, while a form is open. */
   function requestClose() {
@@ -265,7 +278,7 @@ export function SheetShell({
           onLeaving={discarding}
           onLeft={() => {
             setAsking(false)
-            if (openRef.current) onClose()
+            if (mounted.current && openRef.current) onClose()
           }}
         />
       )}
