@@ -14,14 +14,16 @@ import type { Page } from '@playwright/test'
 async function ownerWithKevinsJob(label: string) {
   const setup = await setupBusinessWithSub(label)
   // The fixture's own job is the owner's Termite Inspection; this one is
-  // Kevin's, on the same day, so God view and "Just my jobs" differ.
+  // Kevin's, on the same day, so God view and "Just my jobs" differ. At the
+  // same moment, not a fresh `Date.now()`, which past Perth midnight is the
+  // next day. Each page opens on that day (`ownerJobDay`) for the same reason.
   await setup.owner.client.mutation(api.jobs.create, {
     businessId: setup.businessId,
     propertyId: setup.propertyId,
     assignedMembershipId: setup.subMembershipId,
     jobType: 'General Pest Control',
     price: 19500,
-    scheduledAt: Date.now(),
+    scheduledAt: setup.ownerJobAt,
     durationMinutes: 60,
   })
   return setup
@@ -40,10 +42,10 @@ async function choose(page: Page, item: RegExp) {
 test('God view shows everyone; "Just my jobs" shows his own and simplifies', async ({
   page,
 }) => {
-  const { owner, slug } = await ownerWithKevinsJob('view-mine')
+  const { owner, slug, ownerJobDay } = await ownerWithKevinsJob('view-mine')
 
   await signInViaUi(page, owner.email)
-  await page.goto(`/${slug}/schedule`)
+  await page.goto(`/${slug}/schedule?date=${ownerJobDay}`)
 
   // God view is the default — on the phone as on the desktop.
   await expect(ownJob(page)).toBeVisible()
@@ -73,10 +75,10 @@ test('God view shows everyone; "Just my jobs" shows his own and simplifies', asy
  * and so no way to see why.
  */
 test('changing view starts the filters over', async ({ page }) => {
-  const { owner, slug } = await ownerWithKevinsJob('view-filters')
+  const { owner, slug, ownerJobDay } = await ownerWithKevinsJob('view-filters')
 
   await signInViaUi(page, owner.email)
-  await page.goto(`/${slug}/schedule`)
+  await page.goto(`/${slug}/schedule?date=${ownerJobDay}`)
   await expect(kevinsJob(page)).toBeVisible()
   // The filter chip has no hydration guard of its own, and a click before
   // hydration is silently swallowed; the view menu's trigger does, so it is
@@ -99,10 +101,10 @@ test('the choice belongs to this device: another sign-in stays in God view', asy
   page,
   browser,
 }) => {
-  const { owner, slug } = await ownerWithKevinsJob('view-device')
+  const { owner, slug, ownerJobDay } = await ownerWithKevinsJob('view-device')
 
   await signInViaUi(page, owner.email)
-  await page.goto(`/${slug}/schedule`)
+  await page.goto(`/${slug}/schedule?date=${ownerJobDay}`)
   await choose(page, /Just my jobs/)
   await expect(kevinsJob(page)).toBeHidden()
 
@@ -111,7 +113,7 @@ test('the choice belongs to this device: another sign-in stays in God view', asy
   try {
     const desk = await office.newPage()
     await signInViaUi(desk, owner.email)
-    await desk.goto(`/${slug}/schedule`)
+    await desk.goto(`/${slug}/schedule?date=${ownerJobDay}`)
     await expect(kevinsJob(desk)).toBeVisible()
     await expect(ownJob(desk)).toBeVisible()
   } finally {
@@ -126,7 +128,8 @@ test('the choice belongs to this device: another sign-in stays in God view', asy
 test('working in Kevin’s account is one pick away, and so is coming back', async ({
   page,
 }) => {
-  const { owner, businessId, slug } = await ownerWithKevinsJob('view-account')
+  const { owner, businessId, slug, ownerJobDay } =
+    await ownerWithKevinsJob('view-account')
 
   await signInViaUi(page, owner.email)
 
@@ -150,7 +153,7 @@ test('working in Kevin’s account is one pick away, and so is coming back', asy
     page.getByRole('main').getByText('Work in another account'),
   ).toHaveCount(0)
 
-  await page.goto(`/${slug}/schedule`)
+  await page.goto(`/${slug}/schedule?date=${ownerJobDay}`)
   await choose(page, /Kevin/)
   const banner = page.getByText(/Working in .*’s account/)
   await expect(banner).toBeVisible()

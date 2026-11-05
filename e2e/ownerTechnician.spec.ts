@@ -27,7 +27,7 @@ function perthToday() {
 test('a subcontractor who can see the schedule sees the owner by name', async ({
   page,
 }) => {
-  const { owner, sub, businessId, slug, subMembershipId } =
+  const { owner, sub, businessId, slug, subMembershipId, ownerJobDay } =
     await setupBusinessWithSub('owner-visible')
 
   // The fixture's job is the owner's; a subcontractor only has it in view once
@@ -44,7 +44,9 @@ test('a subcontractor who can see the schedule sees the owner by name', async ({
   })
 
   await signInViaUi(page, sub.email)
-  await page.goto(`/${slug}/schedule`)
+  // On the job's own day: the phone's staff filter lists who has a job on
+  // the day shown, and a bare schedule past Perth midnight shows the next.
+  await page.goto(`/${slug}/schedule?date=${ownerJobDay}`)
   // The staff filter is in the server-rendered markup, so a tap on it before
   // hydration is swallowed and the popover never opens (see clickUntil in
   // fixtures.ts). New job stays disabled until the page has hydrated.

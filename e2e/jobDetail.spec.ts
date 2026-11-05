@@ -346,7 +346,9 @@ test('cancelling a job from its status pill asks for confirmation first, with a 
   const slug = businesses.find((b) => b.businessId === s.businessId)!.slug
 
   await signInViaUi(page, s.owner.email)
-  await page.goto(`/${slug}/schedule`)
+  // On the job's own day: a bare schedule opens on today, which past Perth
+  // midnight is not the day the fixture booked it on.
+  await page.goto(`/${slug}/schedule?date=${s.ownerJobDay}`)
 
   const detail = page.getByRole('dialog')
   await clickUntil(page.getByText('Termite Inspection').first(), () =>

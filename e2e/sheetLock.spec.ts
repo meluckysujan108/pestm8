@@ -5,6 +5,7 @@ import {
   setupBusinessWithSub,
   signInViaUi,
   openEdit,
+  skipNearPerthMidnight,
 } from './fixtures'
 import type { Locator, Page } from '@playwright/test'
 
@@ -27,8 +28,10 @@ async function changeEnd(detail: Locator) {
   return next
 }
 
-async function openJob(page: Page, slug: string) {
-  await page.goto(`/${slug}/schedule`)
+/** The fixture's job, opened from its own day: a bare schedule opens on
+ * today, which past Perth midnight is not the day it was booked on. */
+async function openJob(page: Page, slug: string, dayKey: string) {
+  await page.goto(`/${slug}/schedule?date=${dayKey}`)
   const detail = page.getByRole('dialog')
   await clickUntil(page.getByText('Termite Inspection').first(), () =>
     expect(detail).toBeVisible({ timeout: 2_000 }),
@@ -44,7 +47,7 @@ test('editing a job: Escape and ✕ ask before a change is thrown away', async (
 }) => {
   const s = await setupBusinessWithSub('lock-job')
   await signInViaUi(page, s.owner.email)
-  const detail = await openJob(page, s.slug)
+  const detail = await openJob(page, s.slug, s.ownerJobDay)
 
   await openEdit(page, detail)
   // Edit mode is the form alone: the rest of the job steps aside.
@@ -83,7 +86,7 @@ test('editing a job with nothing changed closes without asking', async ({
 }) => {
   const s = await setupBusinessWithSub('lock-clean')
   await signInViaUi(page, s.owner.email)
-  const detail = await openJob(page, s.slug)
+  const detail = await openJob(page, s.slug, s.ownerJobDay)
   await openEdit(page, detail)
   await expect(detail.getByText('Editing job #')).toBeVisible()
   await page.keyboard.press('Escape')
@@ -96,7 +99,7 @@ test('editing the job’s client: Escape and ✕ ask, Cancel goes straight back'
 }) => {
   const s = await setupBusinessWithSub('lock-job-client')
   await signInViaUi(page, s.owner.email)
-  const detail = await openJob(page, s.slug)
+  const detail = await openJob(page, s.slug, s.ownerJobDay)
   const savedName = async () =>
     (
       await s.owner.client.query(api.jobs.get, {
@@ -130,6 +133,10 @@ test('editing the job’s client: Escape and ✕ ask, Cancel goes straight back'
 test('the phone’s Back asks before leaving a job with unsaved changes', async ({
   page,
 }) => {
+  // The Schedule link opens on today, with no `?date=` to say otherwise.
+  skipNearPerthMidnight(
+    'past Perth midnight the Schedule link opens on the day after the job’s',
+  )
   const s = await setupBusinessWithSub('lock-back')
   await signInViaUi(page, s.owner.email)
   // Arrive at the schedule from inside the app, so Back stays in the app —

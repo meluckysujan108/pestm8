@@ -119,8 +119,13 @@ async function business(label: string) {
 
 type Business = Awaited<ReturnType<typeof business>>
 
-/** A job booked from the office on today, at `hour`. */
-function bookFromOffice(s: Business, clientName: string, hour: number) {
+/** A job booked from the office on `dayKey`, at `hour`. */
+function bookFromOffice(
+  s: Business,
+  clientName: string,
+  hour: number,
+  dayKey: string,
+) {
   return s.owner.client.mutation(api.jobs.create, {
     businessId: s.businessId,
     newClient: {
@@ -134,13 +139,13 @@ function bookFromOffice(s: Business, clientName: string, hour: number) {
     assignedMembershipId: s.ownerMembershipId,
     jobType: 'General Pest Control',
     price: 19500,
-    scheduledAt: perthAt(perthDay(0), hour),
+    scheduledAt: perthAt(dayKey, hour),
     durationMinutes: 60,
   })
 }
 
 /** The day's jobs on the server, for `clientName`. */
-async function jobsFor(s: Business, clientName: string, dayKey = perthDay(0)) {
+async function jobsFor(s: Business, clientName: string, dayKey: string) {
   const day = await s.owner.client.query(api.jobs.listDay, {
     businessId: s.businessId,
     dayKey,
@@ -153,8 +158,14 @@ async function jobsFor(s: Business, clientName: string, dayKey = perthDay(0)) {
 const newJobButton = (page: Page) =>
   page.getByRole('button', { name: 'New job' })
 
-async function openSchedule(page: Page, slug: string) {
-  await page.goto(`/${slug}/schedule`)
+/**
+ * The schedule on `dayKey`, hydrated. Each case reads its day once, before
+ * anything is booked: New Job books on the day the page shows, and a day
+ * read later is tomorrow once a run crosses Perth midnight. A reload keeps
+ * it, the worker's with no signal too.
+ */
+async function openSchedule(page: Page, slug: string, dayKey: string) {
+  await page.goto(`/${slug}/schedule?date=${dayKey}`)
   await expect(newJobButton(page)).toBeEnabled()
 }
 
@@ -379,11 +390,12 @@ test('booked with no signal: kept on the phone, shown, and once back, the same s
   page,
   context,
 }) => {
+  const day = perthDay(0)
   const s = await business('outbox-offline')
-  await bookFromOffice(s, 'Beatrice Byford', 8)
-  await bookFromOffice(s, 'Cedric Coolbellup', 11)
+  await bookFromOffice(s, 'Beatrice Byford', 8, day)
+  await bookFromOffice(s, 'Cedric Coolbellup', 11, day)
   await signInViaUi(page, s.owner.email)
-  await openSchedule(page, s.slug)
+  await openSchedule(page, s.slug, day)
   await keepPageInWorker(page)
   await waitForKeptCopy(page)
 
@@ -440,19 +452,18 @@ test('booked with no signal: kept on the phone, shown, and once back, the same s
   await expect
     .poll(() => offsetInGroup(page, 'Sent', 'Arthur Wellard'))
     .toBeCloseTo(before!, 1)
-  expect(await jobsFor(s, 'Arthur Wellard')).toHaveLength(1)
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(1)
 
   // A day tapped and back: the day drawn afresh, the job in its time order.
-  // Tomorrow, or yesterday on a Sunday: the strip shows Monday to Sunday.
-  const today = perthDay(0)
-  const otherDay =
-    today === addDaysToKey(startOfWeekKey(today), 6)
-      ? perthDay(-1)
-      : perthDay(1)
+  // The next, or the one before on a Sunday: the strip shows Monday to Sunday.
+  const otherDay = addDaysToKey(
+    day,
+    day === addDaysToKey(startOfWeekKey(day), 6) ? -1 : 1,
+  )
   await page.getByRole('button', { name: otherDay, exact: true }).click()
   await expect(dayHeading(page, otherDay)).toBeVisible()
-  await page.getByRole('button', { name: today, exact: true }).click()
-  await expect(dayHeading(page, today)).toBeVisible()
+  await page.getByRole('button', { name: day, exact: true }).click()
+  await expect(dayHeading(page, day)).toBeVisible()
   await expect(groupHeading(page, /not sent yet|Sent/)).toHaveCount(0)
   const names = await page
     .getByRole('button', {
@@ -472,9 +483,10 @@ test('a new client booked with no signal: once back, one client, one site, one j
   page,
   context,
 }) => {
+  const day = perthDay(0)
   const s = await business('outbox-new-client')
   await signInViaUi(page, s.owner.email)
-  await openSchedule(page, s.slug)
+  await openSchedule(page, s.slug, day)
   await keepPageInWorker(page)
   await waitForKeptCopy(page)
 
@@ -512,7 +524,7 @@ test('a new client booked with no signal: once back, one client, one site, one j
   await expect(card(page, 'Daphne Dalkeith')).toContainText('Pending', {
     timeout: 30_000,
   })
-  const jobs = await jobsFor(s, 'Daphne Dalkeith')
+  const jobs = await jobsFor(s, 'Daphne Dalkeith', day)
   expect(jobs).toHaveLength(1)
   expect(jobs[0].jobNumber).toEqual(expect.any(Number))
   const directory = await s.owner.client.query(api.clients.directory, {
@@ -541,9 +553,10 @@ test('a new client booked with no signal: once back, one client, one site, one j
 test('booked with signal: closed inside the wait as before, keyed, and on the phone as sent until SENT_KEEP_MS', async ({
   page,
 }) => {
+  const day = perthDay(0)
   const s = await business('outbox-online')
   await signInViaUi(page, s.owner.email)
-  await openSchedule(page, s.slug)
+  await openSchedule(page, s.slug, day)
 
   const sheet = await openNewJob(page)
   await chooseProperty(page, sheet, 'Arthur', /Arthur Wellard/)
@@ -565,7 +578,7 @@ test('booked with signal: closed inside the wait as before, keyed, and on the ph
   ).toHaveCount(1)
   await page.waitForTimeout(1_000)
   await expect(groupHeading(page, /not sent yet|sending|Sent/)).toHaveCount(0)
-  const jobs = await jobsFor(s, 'Arthur Wellard')
+  const jobs = await jobsFor(s, 'Arthur Wellard', day)
   expect(jobs).toHaveLength(1)
   expect(jobs[0].clientRequestId).toMatch(
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
@@ -588,6 +601,7 @@ test('booked with signal: closed inside the wait as before, keyed, and on the ph
 test('refused inside the wait with signal: FormAlert as before, nothing left on the phone, and a retry books once', async ({
   page,
 }) => {
+  const day = perthDay(0)
   const s = await business('outbox-refused')
   await s.owner.client.mutation(api.team.remove, {
     businessId: s.businessId,
@@ -595,7 +609,7 @@ test('refused inside the wait with signal: FormAlert as before, nothing left on 
   })
   await refuseFirstBooking(page, s.subMembershipId)
   await signInViaUi(page, s.owner.email)
-  await openSchedule(page, s.slug)
+  await openSchedule(page, s.slug, day)
 
   const sheet = await bookArthur(page)
   await expect(
@@ -604,7 +618,7 @@ test('refused inside the wait with signal: FormAlert as before, nothing left on 
     ),
   ).toBeVisible()
   await expect.poll(() => bookingsOnPhone(page)).toEqual([])
-  expect(await jobsFor(s, 'Arthur Wellard')).toHaveLength(0)
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(0)
   // Nothing of it is on the phone now, so closing the sheet asks first, as
   // it always did.
   await page.keyboard.press('Escape')
@@ -616,7 +630,7 @@ test('refused inside the wait with signal: FormAlert as before, nothing left on 
 
   await sheet.getByRole('button', { name: 'Book job' }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect.poll(() => jobsFor(s, 'Arthur Wellard')).toHaveLength(1)
+  await expect.poll(() => jobsFor(s, 'Arthur Wellard', day)).toHaveLength(1)
 })
 
 test('nothing can be kept (the phone’s storage never answers): no signal says to keep PestM8 open, and back online it books once', async ({
@@ -636,9 +650,10 @@ test('nothing can be kept (the phone’s storage never answers): no signal says 
       return {} as IDBOpenDBRequest
     }
   })
+  const day = perthDay(0)
   const s = await business('outbox-no-storage')
   await signInViaUi(page, s.owner.email)
-  await openSchedule(page, s.slug)
+  await openSchedule(page, s.slug, day)
   await waitForKeptCopy(page)
 
   await context.setOffline(true)
@@ -661,32 +676,34 @@ test('nothing can be kept (the phone’s storage never answers): no signal says 
     await context.setOffline(false)
   }
   await expect(page.getByRole('dialog')).toHaveCount(0, { timeout: 30_000 })
-  await expect.poll(() => jobsFor(s, 'Arthur Wellard')).toHaveLength(1)
+  await expect.poll(() => jobsFor(s, 'Arthur Wellard', day)).toHaveLength(1)
   await page.waitForTimeout(5_000)
-  expect(await jobsFor(s, 'Arthur Wellard')).toHaveLength(1)
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(1)
 })
 
 test('a keep that lands late (F2): booked straight, and the late row gone, with no card', async ({
   page,
 }) => {
+  const day = perthDay(0)
   const s = await business('outbox-late-keep')
   const slow = await slowOutboxStore(page)
   await signInViaUi(page, s.owner.email)
-  await openSchedule(page, s.slug)
+  await openSchedule(page, s.slug, day)
 
   await slow()
   await bookArthur(page)
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect.poll(() => jobsFor(s, 'Arthur Wellard')).toHaveLength(1)
+  await expect.poll(() => jobsFor(s, 'Arthur Wellard', day)).toHaveLength(1)
   await page.waitForTimeout(LATE_OPEN_MS * 2)
   await expect.poll(() => bookingsOnPhone(page)).toEqual([])
   await expect(page.getByText('Not sent yet', { exact: true })).toHaveCount(0)
-  expect(await jobsFor(s, 'Arthur Wellard')).toHaveLength(1)
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(1)
 })
 
 test('a keep that lands late, and the booking refused: FormAlert, ✕, and a minute on, nothing booked and nothing on the phone', async ({
   page,
 }) => {
+  const day = perthDay(0)
   const s = await business('outbox-late-refused')
   await s.owner.client.mutation(api.team.remove, {
     businessId: s.businessId,
@@ -695,7 +712,7 @@ test('a keep that lands late, and the booking refused: FormAlert, ✕, and a min
   const slow = await slowOutboxStore(page)
   await refuseFirstBooking(page, s.subMembershipId)
   await signInViaUi(page, s.owner.email)
-  await openSchedule(page, s.slug)
+  await openSchedule(page, s.slug, day)
 
   await slow()
   const sheet = await bookArthur(page)
@@ -713,7 +730,7 @@ test('a keep that lands late, and the booking refused: FormAlert, ✕, and a min
   await discard.getByRole('button', { name: 'Discard' }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.waitForTimeout(60_000)
-  expect(await jobsFor(s, 'Arthur Wellard')).toHaveLength(0)
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(0)
   expect(await bookingsOnPhone(page)).toEqual([])
 })
 
@@ -723,7 +740,7 @@ test('with no signal and nothing of it on the phone, New Job says so rather than
 }) => {
   const s = await business('outbox-not-on-phone')
   await signInViaUi(page, s.owner.email)
-  await openSchedule(page, s.slug)
+  await openSchedule(page, s.slug, perthDay(0))
   await keepPageInWorker(page)
   // No copy of anything on the phone: only the page the worker keeps, which
   // carries the day and the team, never the client list.

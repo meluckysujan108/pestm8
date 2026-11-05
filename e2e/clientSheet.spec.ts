@@ -5,6 +5,7 @@ import {
   clickUntil,
   setupBusinessWithSub,
   signInViaUi,
+  skipNearPerthMidnight,
 } from './fixtures'
 import { createReport } from './fixtures/reportPayloads'
 import type { Locator, Page } from '@playwright/test'
@@ -63,6 +64,10 @@ function book(s: Setup, jobType: string, at: number) {
 test('the Jobs tab: what is coming up, each service as one row, and each visit with its report', async ({
   page,
 }) => {
+  // What is coming up is from today on, by the page's own clock.
+  skipNearPerthMidnight(
+    'past Perth midnight the fixture’s job is no longer coming up',
+  )
   const s = await setupBusinessWithSub('client-jobs')
   await s.owner.client.mutation(api.recurrences.create, {
     businessId: s.businessId,
@@ -239,6 +244,8 @@ test('the Notes tab sorts notes by what each is for', async ({ page }) => {
 test('a report started from Reports asks which visit it is for', async ({
   page,
 }) => {
+  // Which visit is today's is by the page's own clock.
+  skipNearPerthMidnight('past Perth midnight the fixture’s job is yesterday’s')
   const s = await setupBusinessWithSub('report-visit')
   const past = await book(s, 'General Pest Control', Date.now() - 3 * DAY)
   await s.owner.client.mutation(api.jobs.complete, {

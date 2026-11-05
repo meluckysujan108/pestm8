@@ -153,8 +153,8 @@ test('history is what happened here, each visit with its report', async ({
   )
 
   await signInViaUi(page, s.owner.email)
-  // The fixture's own job: a Termite Inspection, today.
-  const sheet = await openJob(page, s.slug, Date.now(), /Termite Inspection/)
+  // The fixture's own job: a Termite Inspection, on its own day.
+  const sheet = await openJob(page, s.slug, s.ownerJobAt, /Termite Inspection/)
   const history = section(sheet, 'History at this property')
 
   // The last visit for this service leads, with its report under it.
@@ -213,7 +213,7 @@ test('an invoiced job says why it is locked, under its status', async ({
   })
 
   await signInViaUi(page, s.owner.email)
-  const sheet = await openJob(page, s.slug, Date.now(), /Termite Inspection/)
+  const sheet = await openJob(page, s.slug, s.ownerJobAt, /Termite Inspection/)
   const notice = sheet.getByText(/This job has been invoiced/)
   await expect(notice).toBeVisible()
   await expect(sheet.getByRole('button', { name: EDIT_TRIGGER })).toHaveCount(0)
