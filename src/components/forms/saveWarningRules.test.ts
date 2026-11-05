@@ -167,6 +167,21 @@ describe('afterEdit', () => {
     const list = [outsideWa]
     expect(afterEdit(list, 'email', null)).toBe(list)
   })
+
+  test('a change about some of a field’s warnings (`only`) takes those, and leaves the rest and the others’', () => {
+    expect(
+      afterEdit(
+        [outsideWa, postcode, email],
+        'address',
+        null,
+        (w) => w.id === postcode.id,
+      ),
+    ).toEqual([outsideWa, email])
+    // Never another field's, whatever it picks.
+    expect(
+      afterEdit([outsideWa, email], 'address', null, (w) => w.id === email.id),
+    ).toEqual([outsideWa, email])
+  })
 })
 
 describe('pressedForm', () => {
@@ -475,6 +490,33 @@ describe('match rows (`kind: match`)', () => {
     expect(state.shown).toEqual([])
   })
 
+  test('a date moved under rows of which one named the work near it: that one goes, and the one that named none stays, shown and confirmed (FW13, M3)', () => {
+    let state: SaveGuardState = IDLE_SAVE_GUARD
+    const guard = createSaveGuard((next) => (state = next))
+    const save = vi.fn()
+    const press = () => guard.guard({ preventDefault: () => {} }, save)
+    const naming: SaveWarning = {
+      ...jane,
+      message: `${jane.message} It has a job on Thu 29 Oct (#123).`,
+    }
+    let rows = [naming, shared]
+    guard.register('match', () => rows)
+    press()
+    expect(state.shown.map((w) => w.id)).toEqual([jane.id, shared.id])
+    // The date moved: what Jane's row said of her site is of another day.
+    guard.edited('match', (w) => w.id === jane.id)
+    expect(state.shown.map((w) => w.id)).toEqual([shared.id])
+    expect(state.open).toBe(true)
+    // The press after it asks about her row as it reads now, and books on
+    // the one after that.
+    rows = [jane, shared]
+    press()
+    expect(save).not.toHaveBeenCalled()
+    expect(state.shown.map((w) => w.id)).toEqual([jane.id, shared.id])
+    press()
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+
   test('a fix that draws the same address block again, in another client mode, keeps what was confirmed there', () => {
     let state: SaveGuardState = IDLE_SAVE_GUARD
     const guard = createSaveGuard((next) => (state = next))
@@ -520,6 +562,118 @@ describe('match rows (`kind: match`)', () => {
     expect(state.shown.map((w) => w.id)).toEqual([usualSuburb.id])
     // So Book anyway books: nothing is asked again.
     press()
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('rows about work already booked at the site (`kind: site`)', () => {
+  const jane: SaveWarning = {
+    id: 'match:c_jane',
+    kind: 'match',
+    label: 'Already a client',
+    message: 'Jane Nguyen, of Bayswater, has the same name and mobile.',
+  }
+  const booked: SaveWarning = {
+    id: 'site:job:j_123',
+    kind: 'site',
+    label: 'Already booked',
+    message:
+      '12 Wattle St has a job on Thu 29 Oct at 10:00am — General Pest, Sam Lee (#123).',
+  }
+
+  test('come last: after the fields’ own warnings and the match rows', () => {
+    expect(panelOrder([booked, jane, typo])).toEqual([typo, jane, booked])
+    const ordered = [typo, jane, booked]
+    expect(panelOrder(ordered)).toBe(ordered)
+    const sites = [booked]
+    expect(panelOrder(sites)).toBe(sites)
+  })
+
+  test('alone, their own foot; after match rows, the match rows’; with a field’s, today’s', () => {
+    const matchFoot = (rows: ReadonlyArray<SaveWarning>) =>
+      `match ${rows.map((r) => r.id).join(',')}`
+    const siteFoot = (rows: ReadonlyArray<SaveWarning>) => `site ${rows.length}`
+    expect(panelFooter([booked], 'Book anyway', matchFoot, siteFoot)).toBe(
+      'site 1',
+    )
+    // The match rows' foot, given those rows only.
+    expect(
+      panelFooter([jane, booked], 'Book anyway', matchFoot, siteFoot),
+    ).toBe(`match ${jane.id}`)
+    expect(
+      panelFooter([typo, booked], 'Book anyway', matchFoot, siteFoot),
+    ).toBe('Fix them, or press Book anyway to keep them as they are.')
+    // A form with no foot of its own for them: today's line.
+    expect(panelFooter([booked], 'Book anyway')).toBe(
+      'Fix it, or press Book anyway to keep it as it is.',
+    )
+  })
+
+  test('Open #123, a fix that opens the job (`keepsRow`): the row stays while "Discard your changes?" asks, and nothing else goes', () => {
+    let state: SaveGuardState = IDLE_SAVE_GUARD
+    const guard = createSaveGuard((next) => (state = next))
+    const save = vi.fn()
+    const asked = vi.fn()
+    const committed = vi.fn()
+    const other: SaveWarning = {
+      ...booked,
+      id: 'site:job:j_124',
+      message: '12 Wattle St has a job on Fri 30 Oct at 8:00am (#124).',
+    }
+    guard.register('site', () => [booked, other])
+    guard.guard({ preventDefault: () => {} }, save)
+    const row = state.shown.find((w) => w.id === booked.id)
+    if (!row) throw new Error('row missing')
+    guard.fix(
+      { ...row, fix: { label: 'Open #123', apply: asked, keepsRow: true } },
+      (change) => {
+        committed()
+        change()
+      },
+    )
+    expect(asked).toHaveBeenCalledTimes(1)
+    // Kept editing: the person is still looking at what it said.
+    expect(state.shown.map((w) => w.id)).toEqual([booked.id, other.id])
+    expect(state.open).toBe(true)
+    expect(committed).not.toHaveBeenCalled()
+    // And the press after it books, as with the rows shown.
+    guard.guard({ preventDefault: () => {} }, save)
+    expect(save).toHaveBeenCalledTimes(1)
+  })
+
+  test('Book at, which moves the booking to that site, takes every row about the site’s work, not just its own: they were about where the booking was', () => {
+    let state: SaveGuardState = IDLE_SAVE_GUARD
+    const guard = createSaveGuard((next) => (state = next))
+    const bookAt = vi.fn()
+    const saturday: SaveWarning = {
+      ...booked,
+      id: 'site:job:j_124',
+      message:
+        '12 Wattle St, Bayswater (Jane Nguyen’s) has a job on Sat 31 Oct.',
+    }
+    guard.register('typo', () => [typo])
+    guard.register('site', () => [
+      { ...booked, fix: { label: 'Book at 12 Wattle St', apply: bookAt } },
+      saturday,
+    ])
+    guard.guard({ preventDefault: () => {} }, vi.fn())
+    const row = state.shown.find((w) => w.id === booked.id)
+    if (!row) throw new Error('row missing')
+    guard.fix(row, (change) => change())
+    expect(bookAt).toHaveBeenCalledTimes(1)
+    // Saturday's row goes with it; a field's own warning stays.
+    expect(state.shown.map((w) => w.id)).toEqual([typo.id])
+  })
+
+  test('a second press with the same rows books', () => {
+    let state: SaveGuardState = IDLE_SAVE_GUARD
+    const guard = createSaveGuard((next) => (state = next))
+    const save = vi.fn()
+    guard.register('site', () => [booked])
+    guard.guard({ preventDefault: () => {} }, save)
+    expect(state.shown.map((w) => w.id)).toEqual([booked.id])
+    expect(save).not.toHaveBeenCalled()
+    guard.guard({ preventDefault: () => {} }, save)
     expect(save).toHaveBeenCalledTimes(1)
   })
 })

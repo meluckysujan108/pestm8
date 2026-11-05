@@ -9,10 +9,14 @@ import {
 } from 'react'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { useRouteContext } from '@tanstack/react-router'
+import { useNavigate, useRouteContext } from '@tanstack/react-router'
 import { flushSync } from 'react-dom'
 import { Drawer } from 'vaul'
-import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
+import {
+  SHEET_BODY,
+  SheetShell,
+  useSheetClose,
+} from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
 import {
   DEFAULT_INTERVAL,
@@ -75,6 +79,8 @@ import {
   clientOptions,
   pickerName,
   propertyOptions,
+  siteWorkDetail,
+  siteWorkIndex,
 } from '#/lib/propertyOptions'
 import {
   clientOf,
@@ -94,9 +100,34 @@ import {
 import type { NoMatchRoute, PropertyListEnd } from '#/lib/clientSearch'
 import {
   answerMayBeBehind,
+  openWorkStanding,
   useNewerClientsHint,
+  useOpenWork,
   useReadableAll,
 } from '#/lib/offline/useKept'
+import {
+  NOTHING_SEEN,
+  NOT_CHECKED,
+  bookAtSees,
+  bookingAt,
+  bookingWork,
+  matchClientsOf,
+  namedWorkMoved,
+  siteBehindNote,
+  siteFooter,
+  siteTargets,
+  uncheckedKeysOf,
+  withSeen,
+  withSeenAll,
+  workDayOf,
+} from '#/lib/siteWorkRows'
+import type {
+  OpenWorkRow,
+  Seen,
+  Shows,
+  SiteFix,
+  SiteRow,
+} from '#/lib/siteWorkRows'
 import { useMatchIndex } from '#/lib/useMatchIndex'
 import {
   blurLine,
@@ -126,7 +157,7 @@ import { JobTimeFields, useJobTimes } from './JobTimeFields'
 import { SheetPending } from '#/components/shell/Pending'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { BOOKING_ERROR_COPY } from './bookingCopy'
-import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
+import { dayKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
 import { MAX_JOB_NOTES_LENGTH } from '../../../convex/lib/jobNotes'
 import { joinJobTypes } from '../../../convex/lib/jobTypes'
@@ -136,6 +167,7 @@ import { Plus } from 'lucide-react'
 import { alsoGoingFullLabel } from '#/lib/jobPeople'
 import { MAX_ALSO_GOING } from '../../../convex/lib/jobPeople'
 import { useAccess } from '#/lib/access'
+import { isOffline } from '#/lib/online'
 
 /** 'site' is a new site for an existing client (Prompt 6.3). */
 type ClientMode = 'existing' | 'new' | 'site'
@@ -146,6 +178,56 @@ const JOB_TYPE_ERROR_ID = 'new-job-type-error'
 
 /** An hour from nine, until the person says otherwise. */
 const OPENING_TIMES = { start: '09:00', end: '10:00', length: 60 }
+
+/**
+ * How long a press of Book waits for what is booked at each site, with
+ * signal and nothing of it on the phone yet ("Checking…"): long enough for
+ * an answer on its way to land, short of the 3 s any check at Book is
+ * given (SAVE_CHECK_TIMEOUT_MS), so the row saying the site couldn't be
+ * checked is still said if it hasn't.
+ */
+export const OPEN_WORK_WAIT_MS = 2000
+
+/**
+ * A press of Book waiting for this week's answer of what is booked at each
+ * site (`untilWorkHeld`): one wait for both checks of a press, let go as
+ * the answer comes or plainly isn't coming (`settle`), or after `ms`. A
+ * wait that ran out (`ranOut`) isn't waited again by the presses after it,
+ * until what is held or coming changes (`reset`): the panel has said the
+ * site couldn't be checked, and the Book anyway that confirms it, or each
+ * press after an edit, would otherwise pay the 2 s again on a line that
+ * isn't answering.
+ */
+export function createWorkWait(ms: number = OPEN_WORK_WAIT_MS) {
+  let current: { promise: Promise<void>; go: () => void } | null = null
+  let ranOut = false
+  return {
+    until(): Promise<void> {
+      if (current) return current.promise
+      let go = () => {}
+      const promise = new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          ranOut = true
+          go()
+        }, ms)
+        go = () => {
+          clearTimeout(timer)
+          if (current?.promise === promise) current = null
+          resolve()
+        }
+      })
+      current = { promise, go }
+      return promise
+    },
+    settle(): void {
+      current?.go()
+    },
+    ranOut: (): boolean => ranOut,
+    reset(): void {
+      ranOut = false
+    },
+  }
+}
 
 /**
  * Above Book job while the line is down (lib/offline/useLineDown.ts). The
@@ -240,6 +322,7 @@ export function NewJobSheet({
   onBooked,
   forProperty,
   pickDate = false,
+  onOpenJob,
 }: {
   businessId: Id<'businesses'>
   dayKey: string
@@ -256,6 +339,10 @@ export function NewJobSheet({
   /** Opened away from the Schedule, where no day is selected: the day is a
    * field of the form, starting on `dayKey`. */
   pickDate?: boolean
+  /** How the page opens a job's sheet, for Open #123 at Book once New Job
+   * has closed (the Schedule's, keeping its view and place). Without it,
+   * the Schedule on the job's day. */
+  onOpenJob?: (jobId: Id<'jobs'>, dayKey: string) => void
 }) {
   // What the form is made of, on the phone or on its way: with the line
   // down and none of it here, the sheet says so rather than wait for good.
@@ -299,6 +386,7 @@ export function NewJobSheet({
             onBooked={onBooked}
             forProperty={forProperty}
             pickDate={pickDate}
+            onOpenJob={onOpenJob}
             onShown={setFormUp}
           />
         </Suspense>
@@ -316,6 +404,7 @@ function NewJobForm({
   onBooked,
   forProperty,
   pickDate,
+  onOpenJob,
   onShown,
 }: {
   businessId: Id<'businesses'>
@@ -326,6 +415,7 @@ function NewJobForm({
   onBooked?: () => void
   forProperty?: Id<'properties'>
   pickDate: boolean
+  onOpenJob?: (jobId: Id<'jobs'>, dayKey: string) => void
   /** The form is up (`newJobBody`). */
   onShown: (shown: true) => void
 }) {
@@ -724,6 +814,11 @@ function NewJobForm({
     { keepPick = false }: { keepPick?: boolean } = {},
   ) {
     saveWarnings.reset()
+    // What a fix booked past (`seen`) was for the booking it made: changed
+    // by hand, the booking is another, and is told of that work again, and
+    // of what couldn't be checked.
+    setSeen(NOTHING_SEEN)
+    setUncheckedSeen({ workDay: '', keys: new Set() })
     const to = next(mode) === 'new' ? 'new' : 'other'
     if (to === 'new' && carried) {
       const line = carried.line
@@ -1022,10 +1117,20 @@ function NewJobForm({
   // What a line's or the panel's fix moved up under the thumb takes no tap
   // for a moment.
   const lineFixHold = useLineFixHold()
-  const panelFix = (fix: MatchFix): SaveWarningFix => ({
+  /** A match row's fix, through the latest setters. `sees`: the work at
+   * the site the row names, and the rows about that site beside it, which
+   * its fix books past (FW13, `bookingWork`'s `fixSees`), so the press
+   * after it isn't asked about any of it again. */
+  const panelFix = (
+    fix: MatchFix,
+    sees: Shows | undefined,
+    beside: ReadonlyArray<string>,
+  ): SaveWarningFix => ({
     label: fix.label,
     apply: () => {
       lineFixHold.taken()
+      if (sees) setSeen((s) => withSeen(s, sees))
+      seeUnchecked(beside, workDay)
       latestApplyMatchFix.current(fix)
     },
     focusAfter: () => latestFocusAfterMatchFix.current(),
@@ -1039,9 +1144,9 @@ function NewJobForm({
     },
   })
 
-  /** The rows at Book, as warnings of the panel's last kind. */
-  function matchWarnings(): Array<SaveWarning> {
-    const rows: Array<MatchRow> = bookingMatchRows(
+  /** Who the caller may already be, as the form holds it now. */
+  function matchRowsNow(): Array<MatchRow> {
+    return bookingMatchRows(
       matchCtx,
       mode === 'site'
         ? {
@@ -1066,6 +1171,191 @@ function NewJobForm({
             }
           : { mode },
     )
+  }
+
+  // ── Is the site already booked? (the matching plan's M5) ──────────────
+  // At Book in every mode, from what is booked at each site as the phone
+  // holds it (`useOpenWork`: this week's answer, or on a Monday with no
+  // signal last week's): open work within a week of the booking at the
+  // site chosen, or at the address typed, whoever's it is; and for a
+  // Recurring Job, one already running there (lib/siteWorkRows.ts).
+  // Synchronously, but for a phone with signal that holds nothing of it
+  // yet, which waits a moment for it (`untilWorkHeld`). Nothing of it is
+  // sent with the booking yet (the online sheet's `siteCheck`, M7): `seen`
+  // is what has been shown and booked past, by a fix that named it.
+  const openWork = useOpenWork(businessId, timezone)
+  const [seen, setSeen] = useState<Seen>(NOTHING_SEEN)
+  // The "Not checked" rows a fix was taken beside, by the day and repeat
+  // they were read for, at the sites they were said for (`uncheckedKeysOf`):
+  // the press after the fix isn't asked them again, as it isn't the work
+  // the fix marked seen, while the booking is checked at those sites; at
+  // another (picked by hand after the fix, say), it is.
+  const [uncheckedSeen, setUncheckedSeen] = useState<{
+    workDay: string
+    keys: ReadonlySet<string>
+  }>({ workDay: '', keys: new Set() })
+  /** A fix taken beside "Not checked" rows (`keys`, `uncheckedKeysOf`):
+   * they are read. */
+  const seeUnchecked = (keys: ReadonlyArray<string>, readFor: string) => {
+    if (keys.length === 0) return
+    setUncheckedSeen((s) => ({
+      workDay: readFor,
+      keys: new Set([...(s.workDay === readFor ? s.keys : []), ...keys]),
+    }))
+  }
+  // What the last press found, said once as it appears: how old what it
+  // read is, the rows by id for the foot, the match rows that named the
+  // work at their site, and the day and repeat it was read for.
+  const [siteShown, setSiteShown] = useState<{
+    behind: Array<string>
+    rows: ReadonlyMap<string, SiteRow>
+    named: ReadonlySet<string>
+    readFor: string | null
+  }>({ behind: [], rows: new Map(), named: new Set(), readFor: null })
+  // Who each job is for, as the rows name them.
+  const people = useMemo(
+    () => new Map<string, string>(members.map((m) => [m._id, personLabel(m)])),
+    [members],
+  )
+  // The booking's day and repeat, which the work near it is read for: a
+  // series' by its first visit, which the time can move (`workDayOf`).
+  const workDay = workDayOf(bookingWhen()?.dayKey ?? day, chosenInterval)
+
+  /** When the booking is, for the check: a series by its first visit
+   * (`bookingAt`). Null while the time doesn't make one. */
+  function bookingWhen(): { at: number; dayKey: string } | null {
+    const [hh, mm] = times.start.split(':').map(Number)
+    try {
+      const scheduledAt = zonedDateTimeToUtc(day, hh, mm, timezone)
+      if (!Number.isFinite(scheduledAt)) return null
+      const at = bookingAt(
+        { scheduledAt, repeat: chosenInterval },
+        timezone,
+        Date.now(),
+      )
+      return { at, dayKey: dayKeyOf(at, timezone) }
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Both checks at Book from one reading of the form (`bookingWork`): the
+   * match rows, each naming the work at the site it names (FW13); and the
+   * site's own rows, less that work, which the match row has said, then
+   * what couldn't be checked. Asked by each check, so either reads the
+   * same.
+   */
+  function bookingChecks() {
+    const matchRows = mode === 'existing' ? [] : matchRowsNow()
+    const when = bookingWhen()
+    if (!when) {
+      return {
+        matchRows,
+        named: new Map<string, ReadonlyArray<OpenWorkRow>>(),
+        fixSees: new Map<string, Shows>(),
+        site: null,
+      }
+    }
+    const today = todayKey(timezone)
+    const typed =
+      mode === 'site'
+        ? newSite
+        : {
+            addressLine: newClient.addressLine,
+            suburb: newClient.suburb,
+            postcode: newClient.postcode,
+          }
+    const targets =
+      mode === 'existing'
+        ? siteTargets(matchIndex, {
+            mode,
+            site: properties.find((p) => p._id === propertyId) ?? null,
+          })
+        : siteTargets(matchIndex, {
+            mode,
+            typed,
+            clients:
+              mode === 'site'
+                ? siteClient
+                  ? [siteClient._id]
+                  : []
+                : matchClientsOf(matchRows),
+          })
+    const work = bookingWork({
+      held: openWork.held,
+      dayKey: when.dayKey,
+      matchRows,
+      check: {
+        timezone,
+        today,
+        at: when.at,
+        repeats: chosenInterval !== null,
+        targets,
+        seen,
+        index: matchIndex,
+        people,
+        typedAddress: typed.addressLine.trim(),
+        // In New site for, booked only ever at the chosen client's site.
+        ...(mode === 'site' ? { bookFor: siteClient?._id ?? null } : {}),
+      },
+      uncheckedSeen:
+        uncheckedSeen.workDay === workDay ? uncheckedSeen.keys : undefined,
+    })
+    return {
+      matchRows: work.matchRows,
+      named: work.named,
+      fixSees: work.fixSees,
+      site: { ...work, today, targets },
+    }
+  }
+
+  /**
+   * Whether a press waits for this week's answer before either check says
+   * anything: with a site to check, nothing of it on the phone yet, and it
+   * on its way over a line that is up. Otherwise a phone just signed in
+   * (every kept copy is cleared then), its answer a moment away, would say
+   * the site can't be checked on it.
+   */
+  function waitsForWork(checks: ReturnType<typeof bookingChecks>): boolean {
+    return (
+      checks.site?.pick === 'none' &&
+      checks.site.targets.length > 0 &&
+      openWork.coming &&
+      !workWait.ranOut() &&
+      lineDown === null &&
+      !isOffline()
+    )
+  }
+  // The press waiting for it (`untilWorkHeld`), let go as it comes or once
+  // it is plainly not coming (refused, say); one that ran out isn't waited
+  // again until what is held or coming changes.
+  const [workWait] = useState(createWorkWait)
+  const workSettled = openWork.held.length > 0 || !openWork.coming
+  useEffect(() => {
+    if (workSettled) workWait.settle()
+  }, [workWait, workSettled])
+  useEffect(() => {
+    workWait.reset()
+  }, [workWait, openWork.held.length, openWork.coming])
+  /** Until this week's answer is held, or isn't coming after all, or
+   * OPEN_WORK_WAIT_MS have gone ("Checking…" meanwhile): one wait for both
+   * checks of a press, so they read the same. */
+  function untilWorkHeld(): Promise<void> {
+    return workWait.until()
+  }
+
+  /** The rows at Book, as warnings of the panel's last kind. */
+  function matchWarnings(
+    checks: ReturnType<typeof bookingChecks> = bookingChecks(),
+  ): Array<SaveWarning> {
+    const { matchRows: rows, fixSees } = checks
+    // What couldn't be checked, said beside them, at the sites it was
+    // said for (`seeUnchecked`).
+    const beside = uncheckedKeysOf(
+      checks.site?.unchecked ?? [],
+      checks.site?.targets ?? [],
+    )
     if (rows.length > 0) {
       setMatchShown({
         notes: matchNotes({
@@ -1088,13 +1378,43 @@ function NewJobForm({
       kind: 'match',
       label: row.label,
       message: row.message,
-      ...(row.fix ? { fix: panelFix(row.fix) } : {}),
-      ...(row.fix2 ? { fix2: panelFix(row.fix2) } : {}),
+      ...(row.fix
+        ? { fix: panelFix(row.fix, fixSees.get(row.id), beside) }
+        : {}),
+      ...(row.fix2
+        ? { fix2: panelFix(row.fix2, fixSees.get(row.id), beside) }
+        : {}),
     }))
   }
+  const latestMatchWarnings = useLatest(matchWarnings)
+  // A match row's words about its site's work (FW13) are of the work near
+  // the date: moved, or the repeat changed, those rows go, as the site's
+  // own do; rows naming no work stay, as they always have (M3), and so not
+  // a dependency of the check below, which would take every row it gave.
+  const matchNamesWork = saveWarnings.warnings.some(
+    (w) => w.kind === 'match' && siteShown.named.has(w.id),
+  )
+  const namedMoved = namedWorkMoved({
+    naming: matchNamesWork,
+    workDay,
+    readFor: siteShown.readFor,
+  })
+  const namedRows = siteShown.named
+  const dropRows = saveWarnings.drop
+  useEffect(() => {
+    if (namedMoved === null) return
+    dropRows('new-job-client-match', (w) => namedRows.has(w.id))
+  }, [dropRows, namedMoved, namedRows])
   useSaveCheck(
     'new-job-client-match',
-    mode === 'existing' ? null : matchWarnings,
+    mode === 'existing'
+      ? null
+      : () => {
+          const checks = bookingChecks()
+          return waitsForWork(checks)
+            ? untilWorkHeld().then(() => latestMatchWarnings.current())
+            : matchWarnings(checks)
+        },
     [
       mode,
       newClient.clientName,
@@ -1110,6 +1430,147 @@ function NewJobForm({
     ],
     // This form's own: the provider is rendered below, by this component.
     saveWarnings,
+  )
+
+  /** Open #123: New Job closes as ✕ closes it, asking first about what was
+   * changed, and that job's sheet opens: live, the phone's copy of it, or
+   * its "opens when you have signal". On the Schedule, by the page's own
+   * way of opening a job (`onOpenJob`: the view kept, and the place in
+   * it); anywhere else, the Schedule on the job's day. */
+  const closeSheet = useSheetClose()
+  const navigate = useNavigate()
+  function openJob(fix: Extract<SiteFix, { kind: 'openJob' }>) {
+    closeSheet(() => {
+      if (onOpenJob) {
+        onOpenJob(fix.jobId, fix.dayKey)
+        return
+      }
+      void navigate({
+        to: '/$businessSlug/schedule',
+        params: { businessSlug: business.slug },
+        search: { date: fix.dayKey, jobId: fix.jobId },
+      })
+    })
+  }
+  const latestOpenJob = useLatest(openJob)
+  /** A site row's fix: open the job; or book at the site, past every row
+   * the panel showed of the site's work, and the work a match row named
+   * there (`bookAtSees`), and what it said couldn't be checked (so the
+   * press after it isn't asked about any of it again: the person read them
+   * all, and the rows, about the address as typed, go with it). */
+  const siteFix = (
+    fix: SiteFix,
+    shown: ReadonlyArray<SiteRow>,
+    named: ReadonlyMap<string, ReadonlyArray<OpenWorkRow>>,
+    read: ReadonlyArray<string>,
+  ): SaveWarningFix =>
+    fix.kind === 'openJob'
+      ? {
+          label: fix.label,
+          apply: () => latestOpenJob.current(fix),
+          // The row stays while "Discard your changes?" asks: kept
+          // editing, the person is still looking at it; it goes with the
+          // sheet.
+          keepsRow: true,
+        }
+      : {
+          label: fix.label,
+          apply: () => {
+            lineFixHold.taken()
+            setSeen((s) =>
+              withSeenAll(s, bookAtSees(fix.propertyId, shown, named)),
+            )
+            seeUnchecked(read, workDay)
+            latestApplyMatchFix.current(fix)
+          },
+          focusAfter: () => latestFocusAfterMatchFix.current(),
+        }
+
+  /** The site's rows at Book, as warnings of the panel's very last kind:
+   * the work found, then what couldn't be checked (`uncheckedRows`). */
+  function siteWarnings(
+    checks: ReturnType<typeof bookingChecks> = bookingChecks(),
+  ): Array<SaveWarning> {
+    const { named, site } = checks
+    const standing = site?.read
+      ? openWorkStanding(site.read)
+      : { behind: false, asOf: null }
+    const found = site?.found ?? []
+    const rows = site ? [...found, ...site.unchecked] : []
+    const behind = site
+      ? siteBehindNote({
+          said: found.length > 0 || named.size > 0,
+          behind: standing.behind,
+          asOf: standing.asOf,
+          timezone,
+          today: site.today,
+        })
+      : null
+    setSiteShown({
+      behind: behind === null ? [] : [behind],
+      rows: new Map(rows.map((row) => [row.id, row])),
+      named: new Set(named.keys()),
+      readFor: workDay,
+    })
+    // What couldn't be checked, at the sites it was said for.
+    const read = site ? uncheckedKeysOf(site.unchecked, site.targets) : []
+    return rows.map((row) => ({
+      id: row.id,
+      kind: 'site',
+      label: row.label,
+      message: row.message,
+      ...(row.fix ? { fix: siteFix(row.fix, rows, named, read) } : {}),
+      ...(row.fix2 ? { fix2: siteFix(row.fix2, rows, named, read) } : {}),
+    }))
+  }
+  const latestSiteWarnings = useLatest(siteWarnings)
+  useSaveCheck(
+    'new-job-site-work',
+    () => {
+      const checks = bookingChecks()
+      return waitsForWork(checks)
+        ? untilWorkHeld().then(() => latestSiteWarnings.current())
+        : siteWarnings(checks)
+    },
+    [
+      mode,
+      propertyId,
+      workDay,
+      siteClientId,
+      newSite.addressLine,
+      newSite.suburb,
+      newSite.postcode,
+      newClient.clientName,
+      newClient.phone,
+      newClient.email,
+      newClient.addressLine,
+      newClient.suburb,
+      newClient.postcode,
+      seen,
+      uncheckedSeen,
+    ],
+    // This form's own, as the check above.
+    saveWarnings,
+  )
+  // The Property picker's line for each site, from the newest answer held:
+  // "Booked Thu 30 Oct", "Repeats every 3 months, next Mon 12 Jan", "Last
+  // visit Wed 15 Oct" (`siteWorkDetail`).
+  // By site, once per answer (`siteWorkIndex`): the picker decides up to a
+  // hundred rows as they first show.
+  const pickerWork = openWork.held.at(0)?.work
+  const pickerIndex = useMemo(
+    () => (pickerWork ? siteWorkIndex(pickerWork) : null),
+    [pickerWork],
+  )
+  const pickerDetail = useCallback(
+    (value: string) =>
+      pickerIndex
+        ? siteWorkDetail(pickerIndex, value, {
+            timezone,
+            today: todayKey(timezone),
+          })
+        : undefined,
+    [pickerIndex, timezone],
   )
 
   /** The line under Name, Phone or Email, decided as it is left. */
@@ -1137,6 +1598,17 @@ function NewJobForm({
       : null
   }
   const showsMatch = saveWarnings.warnings.some((w) => w.kind === 'match')
+  // How old what the site's rows, or a match row's line about the work at
+  // its site, were read from, only while they show.
+  const showsWork = saveWarnings.warnings.some(
+    (w) =>
+      (w.kind === 'site' && siteShown.rows.get(w.id)?.label !== NOT_CHECKED) ||
+      (w.kind === 'match' && siteShown.named.has(w.id)),
+  )
+  const panelNotes = [
+    ...(showsMatch ? matchShown.notes : []),
+    ...(showsWork ? siteShown.behind : []),
+  ]
 
   const bookLabel = create.isPending
     ? 'Booking…'
@@ -1234,6 +1706,7 @@ function NewJobForm({
                 triggerRef={propertyTrigger}
                 handleRef={propertyPicker}
                 onDismiss={endPick}
+                detailOf={pickerDetail}
               />
             </Field>
             {/* Outside the <label>: inside it, this sentence would become part
@@ -1580,11 +2053,13 @@ function NewJobForm({
               },
             )
           }
-          note={
-            showsMatch && matchShown.notes.length > 0
-              ? matchShown.notes.join(' ')
-              : undefined
+          siteFooter={(shown) =>
+            siteFooter(
+              shown.map((w) => siteShown.rows.get(w.id) ?? {}),
+              'Book anyway',
+            )
           }
+          note={panelNotes.length > 0 ? panelNotes.join(' ') : undefined}
         />
 
         <div className="mt-5">

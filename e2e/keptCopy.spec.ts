@@ -41,9 +41,18 @@ const TZ = 'Australia/Perth'
 const HOUR = 60 * 60 * 1000
 const WEEK = 7 * 24 * HOUR
 
-/** This week and next (14 days and 2 weeks), the client list, the team and
- * the job types: `keptQueries` in src/lib/offline/keptSet.ts. */
-const KEPT_ROWS = 19
+/** This week and next (14 days and 2 weeks), the client list, the team, the
+ * job types and what is booked at each site (`jobs.openWork`, this week's
+ * Monday): `keptQueries` in src/lib/offline/keptSet.ts. */
+const KEPT_ROWS = 20
+
+/**
+ * The kept answers written last, which a count alone could be met without:
+ * the client list waits 5 s (KEPT_DIRECTORY_DELAY_MS), and what is booked
+ * at each site comes after the schedule. Waited for by name, so a set that
+ * grows again can't make the wait pass before them.
+ */
+const KEPT_LAST = ['clients:directory', 'jobs:openWork']
 
 /** Long enough for every kept answer to come live and be written: a claim
  * waits for access:me, and a write 1.5 s after an answer (5 s for the
@@ -323,8 +332,10 @@ async function waitForKeptCopy(page: Page, businessId: Id<'businesses'>) {
     .poll(
       async () => {
         const kept = await keptCopy(page)
-        return kept.owner?.businessId === businessId
-          ? kept.rows.filter((row) => row.businessId === businessId).length
+        if (kept.owner?.businessId !== businessId) return 0
+        const rows = kept.rows.filter((row) => row.businessId === businessId)
+        return KEPT_LAST.every((fn) => rows.some((row) => row.fn === fn))
+          ? rows.length
           : 0
       },
       { timeout: KEEP_TIMEOUT },

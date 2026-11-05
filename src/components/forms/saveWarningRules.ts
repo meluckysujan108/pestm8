@@ -21,6 +21,13 @@ export type SaveWarningFix = {
   label: string
   apply: () => void
   focusAfter?: () => void
+  /**
+   * The fix opens something rather than changing the form (New Job's Open
+   * #123, which asks "Discard your changes?" first): its row stays on the
+   * list, and focus where it is, so a person who keeps editing is still
+   * looking at what the row said. Nothing is edited, so nothing else goes.
+   */
+  keepsRow?: boolean
 }
 
 export type SaveWarning = {
@@ -41,8 +48,11 @@ export type SaveWarning = {
    * `match`: a client the caller may already be (lib/clientMatchRows.ts),
    * not something wrong with a field. Listed after the fields' own
    * warnings, and with a footer of its own when nothing else is listed.
+   * `site`: work already booked at the site (lib/siteWorkRows.ts), listed
+   * last, after the match rows, with a footer of its own when it is all
+   * there is.
    */
-  kind?: 'match'
+  kind?: 'match' | 'site'
 }
 
 /**
@@ -87,29 +97,37 @@ export function stillArmed(
 }
 
 /** The panel's order: the fields' own warnings first, as checked; then the
- * clients the caller may be. The same array back when nothing moves. */
+ * clients the caller may be; then the work already booked at the site. The
+ * same array back when nothing moves. */
 export function panelOrder<T extends Pick<SaveWarning, 'kind'>>(
   warnings: ReadonlyArray<T>,
 ): ReadonlyArray<T> {
-  const fields = warnings.filter((w) => w.kind !== 'match')
-  if (fields.length === 0 || fields.length === warnings.length) return warnings
-  const matches = warnings.filter((w) => w.kind === 'match')
-  const ordered = [...fields, ...matches]
+  const ordered = [
+    ...warnings.filter((w) => w.kind === undefined),
+    ...warnings.filter((w) => w.kind === 'match'),
+    ...warnings.filter((w) => w.kind === 'site'),
+  ]
   return ordered.every((w, i) => w === warnings[i]) ? warnings : ordered
 }
 
 /**
- * The line at the foot of the panel. Match rows alone have their own
+ * The line at the foot of the panel. Match rows have their own
  * (`matchFooter`, the form's, given those rows: "Use it, or press Book
- * anyway to add a new client."); anything else, or a mix, today's.
+ * anyway to add a new client."), with or without rows about the site's
+ * work after them, which Book anyway books past as well; those rows alone
+ * have theirs (`siteFooter`: "Open it, or press Book anyway to book this
+ * one as well."). Anything with a field's own warning, today's.
  */
 export function panelFooter<T extends Pick<SaveWarning, 'kind'>>(
   warnings: ReadonlyArray<T>,
   anywayLabel: string,
   matchFooter?: (rows: ReadonlyArray<T>) => string,
+  siteFooter?: (rows: ReadonlyArray<T>) => string,
 ): string {
-  if (matchFooter && warnings.every((w) => w.kind === 'match')) {
-    return matchFooter(warnings)
+  if (warnings.every((w) => w.kind !== undefined)) {
+    const matches = warnings.filter((w) => w.kind === 'match')
+    if (matchFooter && matches.length > 0) return matchFooter(matches)
+    if (siteFooter && matches.length === 0) return siteFooter(warnings)
   }
   return warnings.length === 1
     ? `Fix it, or press ${anywayLabel} to keep it as it is.`
@@ -217,7 +235,10 @@ export type SourcedWarning = SaveWarning & { source: string }
  * Normally every warning it raised goes: they were about what used to be
  * there. Not while one of its fixes is being applied (`fixing`): that edit
  * answers only the warning whose fix it is. A postcode put right does not
- * move the address inside WA, so "outside WA" stays on the list.
+ * move the address inside WA, so "outside WA" stays on the list. Nor where
+ * the change was about only some of them (`only`): those go, and the rest
+ * stay as shown and confirmed (New Job's match rows that named the work
+ * near a date since moved; those that named none were never about it).
  *
  * Returns `list` itself when nothing leaves it.
  */
@@ -225,11 +246,12 @@ export function afterEdit<T extends SourcedWarning>(
   list: ReadonlyArray<T>,
   source: string,
   fixing: { source: string; id: string } | null,
+  only?: (warning: T) => boolean,
 ): ReadonlyArray<T> {
   const goes =
     fixing?.source === source
       ? (w: T) => w.id === fixing.id
-      : (w: T) => w.source === source
+      : (w: T) => w.source === source && (only?.(w) ?? true)
   return list.some(goes) ? list.filter((w) => !goes(w)) : list
 }
 
@@ -326,9 +348,12 @@ export function createSaveGuard(onChange: (state: SaveGuardState) => void) {
     onChange(state)
   }
 
-  const edited = (source: string) => {
+  const edited = (
+    source: string,
+    only?: (warning: SourcedWarning) => boolean,
+  ) => {
     if (state.checking) editedWhileChecking = true
-    publish({ shown: afterEdit(state.shown, source, fixing) })
+    publish({ shown: afterEdit(state.shown, source, fixing, only) })
   }
 
   const guard = (
@@ -438,7 +463,8 @@ export function createSaveGuard(onChange: (state: SaveGuardState) => void) {
         if (registry.get(source) === check) registry.delete(source)
       }
     },
-    /** The values `source`'s check reads changed. */
+    /** The values `source`'s check reads changed; or, with `only`, what
+     * only the warnings it picks were about (`afterEdit`). */
     edited,
     /** The field `source` names has gone from the form (a Business client
      * turned Person): its warnings point at nothing. */
@@ -454,11 +480,15 @@ export function createSaveGuard(onChange: (state: SaveGuardState) => void) {
      *
      * A match row's fix (`kind: 'match'`) takes every row its check gave:
      * they were all about the caller as typed, and the booking is now on a
-     * client. A field the fix took off the screen takes its warnings with
-     * it, once the fix is rendered, unless the same field is back by then;
-     * those kept are still the rows the field gone made, so their own fixes
-     * must reach the field on screen when tapped (VerifiedAddressFields'
-     * `useFixOnScreen`), not the one gone.
+     * client. So does a fix of a row about the site's work (`kind: 'site'`,
+     * New Job's Book at): they were about where the booking was, and it is
+     * now at another site. A field the fix took off the screen takes its
+     * warnings with it, once the fix is rendered, unless the same field is
+     * back by then; those kept are still the rows the field gone made, so
+     * their own fixes must reach the field on screen when tapped
+     * (VerifiedAddressFields' `useFixOnScreen`), not the one gone.
+     *
+     * A fix that `keepsRow` only runs: the list is as it was.
      */
     fix(
       warning: SourcedWarning,
@@ -467,8 +497,12 @@ export function createSaveGuard(onChange: (state: SaveGuardState) => void) {
     ) {
       const apply = warning[which]?.apply
       if (!apply) return
+      if (warning[which]?.keepsRow) {
+        apply()
+        return
+      }
       fixing =
-        warning.kind === 'match'
+        warning.kind === 'match' || warning.kind === 'site'
           ? null
           : { source: warning.source, id: warning.id }
       leftDuringFix = new Set()

@@ -292,6 +292,12 @@ function tenKDirectory() {
   return tenK
 }
 
+/** The small book, for businesses of their own elsewhere
+ * (siteWorkFixtures.ts). */
+export function smallBook() {
+  return matchDirectory()
+}
+
 /** `clients.directory` for the two businesses here, or undefined for any
  * other. */
 export function resolveMatch(fn: string, args: unknown): unknown {

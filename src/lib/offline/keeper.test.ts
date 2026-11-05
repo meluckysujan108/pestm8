@@ -8,6 +8,7 @@ import { forgetRefusedQueries } from '#/lib/signInSettling'
 import { QUIET_LINE_MS } from '#/lib/socketWatch'
 import { KeepingConvexQueryClient } from './KeepingConvexQueryClient'
 import { Keeper, lineDownAt, nextDownSince } from './keeper'
+import { openWorkHeld } from './useKept'
 import {
   keepStartPage,
   keepStartPageIfMissing,
@@ -28,6 +29,7 @@ import { MemoryKeptBackend } from './keptStore.fixtures'
 import { setKeptBackendForTests, wipeKept } from './keptStore'
 import { setOutboxBackendForTests } from '#/lib/outbox/outboxStore'
 import { itemFor, outboxOf } from '#/lib/outbox/outboxStore.fixtures'
+import { pickOpenWork, siteBehindNote, uncheckedRows } from '#/lib/siteWorkRows'
 import type { QueryKey, QueryState } from '@tanstack/react-query'
 import type { ConvexReactClient } from 'convex/react'
 import type { Access } from '#/lib/access'
@@ -431,6 +433,31 @@ function tokenFor(sub: string): string {
 
 const B2_BUSINESS = { _id: B2, slug: 'other-co', timezone: 'Australia/Perth' }
 const roster = (businessId = B) => rq.roster(businessId).queryKey as QueryKey
+
+/** What is booked at each site, asked for with the week starting `startKey`. */
+const work = (startKey: string, businessId = B) =>
+  rq.openWork(businessId, startKey).queryKey as QueryKey
+/** The Monday of the fortnight NOW is in, and the next. */
+const WEEK = '2026-10-19'
+const NEXT_WEEK = '2026-10-26'
+/** `jobs.openWork`'s answer: one job of the viewer's at one site. */
+const booked = (id: string) => ({
+  rows: [
+    {
+      propertyId: 'p1' as Id<'properties'>,
+      at: NOW + 86_400_000,
+      scheduledAt: NOW + 86_400_000,
+      status: 'booked',
+      jobId: id as Id<'jobs'>,
+      jobType: 'General Pest',
+      assignedMembershipId: M1,
+    },
+  ],
+  series: [],
+})
+/** An empty answer of the shape `key`'s function answers with. */
+const emptyOf = (key: QueryKey): unknown =>
+  key[1] === 'jobs:openWork' ? { rows: [], series: [] } : []
 
 beforeEach(() => {
   vi.useFakeTimers({
@@ -1008,8 +1035,10 @@ describe('live, and what is written', () => {
       .filter((q) =>
         (KEPT_FNS as ReadonlyArray<unknown>).includes(q.queryKey[1]),
       )
-    expect(pinned).toHaveLength(19)
-    for (const query of pinned) h.convex.answer(query.queryKey, [])
+    // Nineteen, and what is booked at each site this week.
+    expect(pinned).toHaveLength(20)
+    for (const query of pinned)
+      h.convex.answer(query.queryKey, emptyOf(query.queryKey))
     await vi.advanceTimersByTimeAsync(KEPT_STAMP_MS - 5_000)
     h.convex.ping()
     const spoke = Date.now()
@@ -1027,7 +1056,7 @@ describe('the stamp', () => {
         continue
       }
       if (skip && h.hash(skip) === query.queryHash) continue
-      h.convex.answer(query.queryKey, [])
+      h.convex.answer(query.queryKey, emptyOf(query.queryKey))
     }
   }
 
@@ -1168,12 +1197,10 @@ describe('pins', () => {
     expect(h.qc.getQueryCache().find({ queryKey: day(TODAY) })?.gcTime).toBe(
       Infinity,
     )
-    // All nineteen asked for at once: every kept function but what is
-    // booked at each site, which waits for New Job's check to read it.
+    // All twenty asked for at once: every kept function, what is booked
+    // at each site this week among them.
     await vi.advanceTimersByTimeAsync(10)
-    expect(new Set(h.convex.asked)).toEqual(
-      new Set(KEPT_FNS.filter((fn) => fn !== 'jobs:openWork')),
-    )
+    expect(new Set(h.convex.asked)).toEqual(new Set(KEPT_FNS))
   })
 
   test('a refused answer forgotten before it had data is asked for again on the next connection', async () => {
@@ -1950,6 +1977,7 @@ describe('with the kill switch off', () => {
           'clients:directory',
           'memberships:listForBusiness',
           'jobTypes:list',
+          'jobs:openWork',
         ]),
       )
       convex.answer(accessKey(), own)
@@ -1966,5 +1994,344 @@ describe('with the kill switch off', () => {
       vi.doUnmock('./keptSet')
       vi.resetModules()
     }
+  })
+})
+
+describe('what is booked at each site', () => {
+  const refusals = () =>
+    vi
+      .mocked(logConnection)
+      .mock.calls.filter(([what]) => what === 'open-work-refused')
+  const asks = (h: ReturnType<typeof harness>) =>
+    h.convex.asked.filter((fn) => fn === 'jobs:openWork').length
+
+  test('this week’s is pinned and written to the phone', async () => {
+    const backend = new MemoryKeptBackend()
+    const h = harness(backend)
+    await claimed(h)
+    expect(h.qc.getQueryDefaults(work(WEEK)).gcTime).toBe(Infinity)
+    expect(
+      h.qc.getQueryCache().find({ queryKey: work(WEEK), exact: true }),
+    ).toBeDefined()
+    h.convex.answer(work(WEEK), booked('j1'))
+    await vi.advanceTimersByTimeAsync(KEPT_WRITE_DELAY_MS + 10)
+    expect(h.row(work(WEEK))).toMatchObject({
+      fn: 'jobs:openWork',
+      data: booked('j1'),
+    })
+    expect(h.keeper.refusedNow(work(WEEK))).toBe(false)
+  })
+
+  test('with no signal the phone’s copy answers, as of when it was written, not when anything else was last confirmed', async () => {
+    const savedAt = NOW - 3_600_000
+    const h = harness(
+      await phoneKeeps(
+        [{ key: work(WEEK), data: booked('j1'), savedAt }],
+        NOW - 60_000,
+      ),
+    )
+    h.html(accessKey(), own)
+    h.convex.connected = false
+    goOffline()
+    h.keeper.enter(BUSINESS)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(h.data(work(WEEK))).toEqual(booked('j1'))
+    expect(h.keeper.phoneAsOf(work(WEEK))).toBe(savedAt)
+  })
+
+  test('this week’s refused as the page loads, its copy on the phone: New Job still checks from it, as of when it was written', async () => {
+    // A phone whose clock runs a few minutes behind the server's Monday, or
+    // any refusal at load: the keeper answers from the copy only while the
+    // server is slower, so the page's own read has nothing.
+    const savedAt = NOW - 3_600_000
+    const h = harness(
+      await phoneKeeps(
+        [{ key: work(WEEK), data: booked('j1'), savedAt }],
+        NOW - 60_000,
+      ),
+    )
+    await claimed(h)
+    h.convex.refuse(work(WEEK), new ConvexError('INVALID_WEEK'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(h.data(work(WEEK))).toBeUndefined()
+    expect(h.keeper.refusedNow(work(WEEK))).toBe(true)
+
+    const lastWeek = '2026-10-12'
+    const held = openWorkHeld({
+      thisWeek: { startKey: WEEK, queryKey: work(WEEK) },
+      lastWeek: { startKey: lastWeek, queryKey: work(lastWeek) },
+      asked: h.data(work(WEEK)),
+      thisOnPhone: h.keeper.answerOnPhone(work(WEEK)),
+      last: h.keeper.answerOnPhone(work(lastWeek)),
+      inMemory: (key) => h.data(key) !== undefined,
+    })
+    expect(held).toEqual([
+      {
+        startKey: WEEK,
+        work: booked('j1'),
+        queryKey: work(WEEK),
+        inMemory: false,
+      },
+    ])
+    expect(pickOpenWork(held, '2026-10-21').kind).toBe('answer')
+    // Dated by the copy's own write (`openWorkStanding`).
+    expect(h.keeper.phoneAsOf(work(WEEK))).toBe(savedAt)
+  })
+
+  test('the Monday with no signal: last week’s, kept, checks the new week', async () => {
+    // Monday 26 Oct, 9am in Perth; written late on the Sunday.
+    const monday = Date.UTC(2026, 9, 26, 1)
+    const sunday = Date.UTC(2026, 9, 25, 12)
+    vi.setSystemTime(monday)
+    const h = harness(
+      await phoneKeeps(
+        [{ key: work(WEEK), data: booked('j1'), savedAt: sunday }],
+        sunday + 60_000,
+      ),
+    )
+    h.html(accessKey(), own)
+    h.convex.connected = false
+    goOffline()
+    h.keeper.enter(BUSINESS)
+    await vi.advanceTimersByTimeAsync(10)
+
+    // This week's is asked for, and nothing answers it.
+    expect(
+      h.qc.getQueryCache().find({ queryKey: work(NEXT_WEEK), exact: true }),
+    ).toBeDefined()
+    expect(h.data(work(NEXT_WEEK))).toBeUndefined()
+    expect(h.keeper.answerOnPhone(work(NEXT_WEEK))).toBeUndefined()
+    // Last week's does, from the phone, as of when it was written.
+    expect(h.keeper.answerOnPhone(work(WEEK))).toEqual(booked('j1'))
+    expect(h.keeper.phoneAsOf(work(WEEK))).toBe(sunday)
+
+    const pick = pickOpenWork(
+      [{ startKey: WEEK, work: booked('j1') }],
+      '2026-10-27',
+    )
+    expect(pick.kind).toBe('answer')
+    expect(
+      uncheckedRows({
+        pick: pick.kind,
+        startKey: WEEK,
+        dayKey: '2026-10-27',
+        repeats: false,
+        targets: 1,
+        timezone: 'Australia/Perth',
+        today: '2026-10-26',
+      }),
+    ).toEqual([])
+    expect(
+      siteBehindNote({
+        said: true,
+        behind: true,
+        asOf: sunday,
+        timezone: 'Australia/Perth',
+        today: '2026-10-26',
+      }),
+    ).toBe('From the jobs on this phone, updated Sun 25 Oct, 8:00pm.')
+  })
+
+  test('the week turning on the phone before the server: refused and noted once, never asked for on a timer, last week’s held until this week’s comes (RK3)', async () => {
+    // Sunday 25 Oct, 11:59pm in Perth.
+    vi.setSystemTime(Date.UTC(2026, 9, 25, 15, 59))
+    const backend = new MemoryKeptBackend()
+    const h = harness(backend)
+    await claimed(h)
+    h.convex.answer(work(WEEK), booked('j1'))
+    await vi.advanceTimersByTimeAsync(KEPT_WRITE_DELAY_MS + 10)
+    expect(h.row(work(WEEK))?.data).toEqual(booked('j1'))
+
+    // Midnight: the minute's tick pins this week's, and the server, its
+    // week not yet turned, refuses it.
+    await vi.advanceTimersByTimeAsync(KEPT_TICK_MS)
+    expect(
+      h.qc.getQueryCache().find({ queryKey: work(NEXT_WEEK), exact: true }),
+    ).toBeDefined()
+    h.convex.refuse(work(NEXT_WEEK), new ConvexError('INVALID_WEEK'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(refusals()).toEqual([
+      ['open-work-refused', { code: 'INVALID_WEEK', week: NEXT_WEEK }],
+    ])
+    expect(h.keeper.refusedNow(work(NEXT_WEEK))).toBe(true)
+
+    // Pushed again, and minutes go by: nothing new noted, nothing asked.
+    h.convex.refuse(work(NEXT_WEEK), new ConvexError('INVALID_WEEK'))
+    await vi.advanceTimersByTimeAsync(10)
+    const asked = asks(h)
+    await pinging(h, KEPT_TICK_MS * 3)
+    expect(asks(h)).toBe(asked)
+    expect(refusals()).toHaveLength(1)
+    // Last week's, which covers this week, stays in memory.
+    expect(h.data(work(WEEK))).toEqual(booked('j1'))
+
+    // The server's week turns, and it pushes this week's.
+    h.convex.answer(work(NEXT_WEEK), booked('j2'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(h.data(work(NEXT_WEEK))).toEqual(booked('j2'))
+    expect(h.keeper.refusedNow(work(NEXT_WEEK))).toBe(false)
+    expect(h.keeper.isLive(work(NEXT_WEEK))).toBe(true)
+    // Last week's goes from memory, and from the phone with the next write.
+    expect(
+      h.qc.getQueryCache().find({ queryKey: work(WEEK), exact: true }),
+    ).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(KEPT_WRITE_DELAY_MS + 10)
+    expect(h.row(work(NEXT_WEEK))?.data).toEqual(booked('j2'))
+    expect(h.row(work(WEEK))).toBeUndefined()
+    expect(refusals()).toHaveLength(1)
+  })
+
+  test('this week’s asked for by New Job as its Monday turns, before the keeper’s minute pins it, and refused: noted as it is refused, not later as the answer comes', async () => {
+    // Sunday 25 Oct, a second to midnight in Perth: the keeper's minute
+    // next comes at 00:00:59.
+    vi.setSystemTime(Date.UTC(2026, 9, 25, 15, 59, 59))
+    const h = harness(new MemoryKeptBackend())
+    await claimed(h)
+    h.convex.answer(work(WEEK), booked('j1'))
+    await vi.advanceTimersByTimeAsync(1_500)
+
+    // New Job's own read turns to this week, and the server, its week not
+    // yet turned, refuses it.
+    h.ask(work(NEXT_WEEK))
+    h.convex.refuse(work(NEXT_WEEK), new ConvexError('INVALID_WEEK'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(refusals()).toEqual([
+      ['open-work-refused', { code: 'INVALID_WEEK', week: NEXT_WEEK }],
+    ])
+
+    // The minute pins it; minutes go by.
+    await pinging(h, KEPT_TICK_MS * 2)
+    expect(h.qc.getQueryDefaults(work(NEXT_WEEK)).gcTime).toBe(Infinity)
+    expect(refusals()).toHaveLength(1)
+
+    // The server's week turns and it pushes this week's: asked once more,
+    // and answered. Nothing more is noted: the refusal was minutes ago.
+    h.convex.answer(work(NEXT_WEEK), booked('j2'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(h.data(work(NEXT_WEEK))).toEqual(booked('j2'))
+    expect(refusals()).toHaveLength(1)
+
+    // A refusal of last week's, once this week's is pinned: no news.
+    h.convex.refuse(work(WEEK), new ConvexError('INVALID_WEEK'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(refusals()).toHaveLength(1)
+  })
+
+  test('…and its answer pushed before the keeper’s minute pins it: taken then, not left refused once it is pinned', async () => {
+    // Sunday 25 Oct, a second to midnight in Perth: the keeper's minute
+    // next comes at 00:00:59.
+    vi.setSystemTime(Date.UTC(2026, 9, 25, 15, 59, 59))
+    const h = harness(new MemoryKeptBackend())
+    await claimed(h)
+    h.convex.answer(work(WEEK), booked('j1'))
+    await vi.advanceTimersByTimeAsync(1_500)
+
+    // New Job, open, reads this week's as its Monday turns; the server,
+    // its week not yet turned, refuses it.
+    const stop = observe(h, work(NEXT_WEEK))
+    h.convex.refuse(work(NEXT_WEEK), new ConvexError('INVALID_WEEK'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(h.keeper.refusedNow(work(NEXT_WEEK))).toBe(true)
+
+    // The server's week turns, and it pushes this week's, still before the
+    // keeper's minute: asked once more, and answered.
+    h.convex.answer(work(NEXT_WEEK), booked('j2'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(h.data(work(NEXT_WEEK))).toEqual(booked('j2'))
+
+    // The minute pins it; minutes go by. It stays answered, and live.
+    await pinging(h, KEPT_TICK_MS * 2)
+    expect(h.qc.getQueryDefaults(work(NEXT_WEEK)).gcTime).toBe(Infinity)
+    expect(h.data(work(NEXT_WEEK))).toEqual(booked('j2'))
+    expect(h.keeper.refusedNow(work(NEXT_WEEK))).toBe(false)
+    expect(h.keeper.isLive(work(NEXT_WEEK))).toBe(true)
+    // And last week's goes from memory, as this week's has an answer.
+    expect(
+      h.qc.getQueryCache().find({ queryKey: work(WEEK), exact: true }),
+    ).toBeUndefined()
+    stop()
+  })
+
+  test('refused while every other pinned answer is live: the stamp still comes, and the phone’s copy keeps its own time (RK4)', async () => {
+    const savedAt = NOW - 3_600_000
+    const backend = await phoneKeeps([
+      { key: work(WEEK), data: booked('j1'), savedAt },
+    ])
+    const h = harness(backend)
+    await claimed(h)
+    for (const query of h.qc.getQueryCache().getAll()) {
+      if (!(KEPT_FNS as ReadonlyArray<unknown>).includes(query.queryKey[1])) {
+        continue
+      }
+      if (query.queryKey[1] === 'jobs:openWork') {
+        h.convex.refuse(query.queryKey, new ConvexError('INVALID_WEEK'))
+      } else h.convex.answer(query.queryKey, emptyOf(query.queryKey))
+    }
+    await vi.advanceTimersByTimeAsync(KEPT_STAMP_MS - 5_000)
+    h.convex.ping()
+    const spoke = Date.now()
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(backend.owner?.liveAt).toBe(spoke)
+    expect(h.keeper.refusedNow(work(WEEK))).toBe(true)
+    expect(h.keeper.phoneAsOf(work(WEEK))).toBe(savedAt)
+    expect(refusals()).toEqual([
+      ['open-work-refused', { code: 'INVALID_WEEK', week: WEEK }],
+    ])
+  })
+
+  test('a refusal noted once for each week and code until its answer next comes live: pushed again meanwhile, nothing; refused after a live spell, noted again', async () => {
+    const h = harness(new MemoryKeptBackend())
+    await claimed(h)
+    const invalid = ['open-work-refused', { code: 'INVALID_WEEK', week: WEEK }]
+    h.convex.refuse(work(WEEK), new ConvexError('INVALID_WEEK'))
+    await vi.advanceTimersByTimeAsync(10)
+    h.convex.refuse(work(WEEK), new ConvexError('INVALID_WEEK'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(refusals()).toEqual([invalid])
+
+    h.convex.answer(work(WEEK), booked('j1'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(h.keeper.isLive(work(WEEK))).toBe(true)
+    h.convex.refuse(work(WEEK), new ConvexError('INVALID_WEEK'))
+    await vi.advanceTimersByTimeAsync(10)
+    h.convex.refuse(work(WEEK), new ConvexError('INVALID_WEEK'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(refusals()).toEqual([invalid, invalid])
+  })
+
+  test('…and noted again once it has been unpinned: another business entered, and this one again', async () => {
+    const h = harness(new MemoryKeptBackend())
+    await claimed(h)
+    const stop = observe(h, work(WEEK))
+    const invalid = ['open-work-refused', { code: 'INVALID_WEEK', week: WEEK }]
+    h.convex.refuse(work(WEEK), new ConvexError('INVALID_WEEK'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(refusals()).toEqual([invalid])
+    h.keeper.enter(B2_BUSINESS)
+    await vi.advanceTimersByTimeAsync(10)
+    h.keeper.enter(BUSINESS)
+    await vi.advanceTimersByTimeAsync(10)
+    h.convex.refuse(work(WEEK), new ConvexError('INVALID_WEEK'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(refusals()).toEqual([invalid, invalid])
+    stop()
+  })
+
+  test('never what the schedule says it is updated to', async () => {
+    const h = harness(
+      await phoneKeeps([
+        { key: work(WEEK), data: booked('j1'), savedAt: NOW - 7_200_000 },
+        { key: day(TODAY), data: [job('a')], savedAt: NOW - 3_600_000 },
+      ]),
+    )
+    h.html(accessKey(), own)
+    h.convex.connected = false
+    goOffline()
+    const stop = observe(h, work(WEEK), day(TODAY))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(h.data(work(WEEK))).toEqual(booked('j1'))
+    expect(h.keeper.screenAsOf()).toBe(NOW - 3_600_000)
+    expect(h.keeper.phoneAsOf(work(WEEK))).toBe(NOW - 7_200_000)
+    stop()
   })
 })

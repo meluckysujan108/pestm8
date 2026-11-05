@@ -12,6 +12,7 @@ import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import { useBlocker, useRouter } from '@tanstack/react-router'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
+import { FIX_ARM_MS } from '#/components/forms/saveWarningRules'
 import { ReachNotice } from '#/components/shell/ConnectionNotice'
 import { KeptPlace, useKeptHere } from '#/lib/offline/keptOnScreen'
 import { noticeOverKept, useDrawsNotice, useReachNotice } from '#/lib/reach'
@@ -49,6 +50,22 @@ export function SheetLock({
 const LockRegistry = createContext<
   ((id: string, lock: Lock | null) => void) | null
 >(null)
+
+/** How something in a sheet closes it (`useSheetClose`). */
+const SheetCloser = createContext<((after?: () => void) => void) | null>(null)
+
+/**
+ * Closes the sheet this is in, from something inside it, as ✕ does: asking
+ * "Discard your changes?" first when a form in it has changed
+ * (`useSheetLock`), and closing at once when nothing has. `after` runs once
+ * it has closed, and never when the person keeps editing: New Job's "Open
+ * #123" opens that job's sheet only once New Job has gone, its draft
+ * discarded as the person said. Outside a sheet, `after` runs at once.
+ */
+export function useSheetClose(): (after?: () => void) => void {
+  const close = useContext(SheetCloser)
+  return close ?? ((after) => after?.())
+}
 
 /**
  * Called by a form inside a sheet: while it is mounted the sheet cannot be
@@ -160,10 +177,52 @@ export function SheetShell({
     openRef.current = open
   })
 
-  /** ✕ or Escape, while a form is open. */
-  function requestClose() {
+  // What `useSheetClose` asked to happen once the sheet has closed.
+  const afterClose = useRef<(() => void) | null>(null)
+  // "Discard your changes?" asked by a button inside the sheet
+  // (`useSheetClose`): it comes up over the tap that asked, so for
+  // FIX_ARM_MS its buttons take no tap, and the second tap of a double tap
+  // on New Job's Open #123 never lands on Discard. Only that question: ✕,
+  // Escape and Back ask from where none of its buttons are, so the hold
+  // goes with the question it came up with (answered, or gone with the
+  // change), and theirs is never held, however soon after one that was.
+  const [discardHeld, setDiscardHeld] = useState(false)
+  useEffect(() => {
+    if (!discardHeld) return
+    const release = setTimeout(() => setDiscardHeld(false), FIX_ARM_MS)
+    return () => clearTimeout(release)
+  }, [discardHeld])
+  if (discardHeld && !changed) setDiscardHeld(false)
+
+  /** The question answered, or gone with the Back over it. */
+  function settled() {
+    setAsking(false)
+    setDiscardHeld(false)
+  }
+
+  /** ✕ or Escape, while a form is open, the question never held; or
+   * `useSheetClose`, with what to do once it has closed and the question
+   * held a moment (`discardHeld`). */
+  function requestClose({
+    after,
+    held = false,
+  }: { after?: () => void; held?: boolean } = {}) {
+    afterClose.current = after ?? null
+    setDiscardHeld(changed && held)
     if (changed) setAsking(true)
-    else onClose()
+    else closeNow()
+  }
+
+  /** `useSheetClose`: as ✕, the question held a moment (`discardHeld`). */
+  function closeFromInside(after?: () => void) {
+    requestClose({ after, held: true })
+  }
+
+  function closeNow() {
+    const after = afterClose.current
+    afterClose.current = null
+    onClose()
+    after?.()
   }
 
   /** "Discard" confirmed: each form in the sheet hears it before it goes. */
@@ -247,24 +306,33 @@ export function SheetShell({
           <KeptPlace.Provider value={keptPlace}>
             <SheetReachNotice />
             <LockRegistry.Provider value={register}>
-              <InSheet.Provider value>{children}</InSheet.Provider>
+              <SheetCloser.Provider value={closeFromInside}>
+                <InSheet.Provider value>{children}</InSheet.Provider>
+              </SheetCloser.Provider>
             </LockRegistry.Provider>
           </KeptPlace.Provider>
-          <SheetCloseButton onClick={requestClose} />
+          <SheetCloseButton onClick={() => requestClose()} />
         </Drawer.Content>
       </Drawer.Portal>
       {changed && (
         <DiscardGuard
           asking={asking}
-          onKeep={() => setAsking(false)}
+          held={discardHeld}
+          onKeep={() => {
+            afterClose.current = null
+            settled()
+          }}
           onDiscard={() => {
             discarding()
-            setAsking(false)
-            onClose()
+            settled()
+            closeNow()
           }}
           onLeaving={discarding}
           onLeft={() => {
-            setAsking(false)
+            // A Back went on with the person's own move: not where
+            // `useSheetClose` was going.
+            afterClose.current = null
+            settled()
             if (openRef.current) onClose()
           }}
         />
@@ -292,6 +360,8 @@ function DiscardGuard({
   onLeaving: () => void
   /** Back went through: close the sheet too if it is still open. */
   onLeft: () => void
+  /** Its buttons take no tap yet (`discardHeld`). */
+  held: boolean
 }) {
   // Sheets are also drawn where there is no router: the UI harness's
   // specimens, and component tests.
@@ -309,12 +379,14 @@ function blockBack({ action }: { action: string }) {
 
 function BackGuard({
   asking,
+  held,
   onKeep,
   onDiscard,
   onLeaving,
   onLeft,
 }: {
   asking: boolean
+  held: boolean
   onKeep: () => void
   onDiscard: () => void
   onLeaving: () => void
@@ -351,6 +423,7 @@ function BackGuard({
   return (
     <DiscardDialog
       asking={asking || blocked}
+      held={held}
       onKeep={() => {
         if (blocked) blocker.reset()
         onKeep()
@@ -377,16 +450,19 @@ function BackGuard({
 
 function DiscardDialog({
   asking,
+  held,
   onKeep,
   onDiscard,
 }: {
   asking: boolean
+  held: boolean
   onKeep: () => void
   onDiscard: () => void
 }) {
   return (
     <ConfirmDialog
       open={asking}
+      held={held}
       onOpenChange={(open) => !open && onKeep()}
       title="Discard your changes?"
       body="What you changed here hasn’t been saved. Discarding puts it back as it was."

@@ -92,8 +92,10 @@ export function keptWindow(todayKey: string): KeptWindow {
 
 /**
  * Every query kept for a business over `w`: both weeks, all fourteen days,
- * the directory, the team and the job types. Built from `rq`, so each key is
- * the very one a loader warms and a page reads.
+ * the directory, the team, the job types, and what is booked at each site
+ * (`jobs.openWork`, this week's only: the server answers for no other).
+ * Built from `rq`, so each key is the very one a loader warms and a page
+ * reads.
  */
 export function keptQueries(
   businessId: Id<'businesses'>,
@@ -105,7 +107,16 @@ export function keptQueries(
     rq.directory(businessId),
     rq.roster(businessId),
     rq.jobTypes(businessId),
+    rq.openWork(businessId, w.weekStarts[0]),
   ]
+}
+
+/**
+ * The Monday of the week before `w`'s: the one `jobs.openWork` answer kept
+ * past its own week, until this week's has been written (`inWindow`).
+ */
+export function lastWeekStart(w: KeptWindow): string {
+  return addDaysToKey(w.weekStarts[0], -7)
 }
 
 const KEPT_NAMES: ReadonlySet<string> = new Set(KEPT_FNS)
@@ -137,7 +148,15 @@ export function keptFnOf(queryKey: QueryKey): KeptFn | null {
     : null
 }
 
-/** Whether a key's day or week is in `w`. True for anything not by date. */
+/**
+ * Whether a key's day or week is in `w`. True for anything not by date.
+ *
+ * What is booked at each site (`jobs.openWork`) is this week's, or last
+ * week's: the server answers only for this week's Monday, so on a Monday
+ * opened with no signal last week's answer, which covers this week too
+ * (`openWorkCovers`), is the one there is. It goes once this week's has
+ * been written (keeper.ts, `writeDue`).
+ */
 export function inWindow(queryKey: QueryKey, w: KeptWindow): boolean {
   const args = argsOf(queryKey)
   switch (keptFnOf(queryKey)) {
@@ -147,6 +166,11 @@ export function inWindow(queryKey: QueryKey, w: KeptWindow): boolean {
       return (
         typeof args?.startKey === 'string' &&
         w.weekStarts.includes(args.startKey)
+      )
+    case 'jobs:openWork':
+      return (
+        args?.startKey === w.weekStarts[0] ||
+        args?.startKey === lastWeekStart(w)
       )
     default:
       return true
@@ -253,9 +277,18 @@ export function usableRow(row: KeptRow, at: KeptUse): boolean {
 /**
  * When a kept row was last known to be right: when it was written, or the
  * last time the server spoke while every kept answer was live, if later.
+ *
+ * What is booked at each site (`jobs.openWork`) by when it was written
+ * alone: the stamp that sets `owner.liveAt` doesn't wait for it (keeper.ts,
+ * `stamp`), so a failing one can't hold every other "Updated" back, and
+ * others being live never confirms it. Its time can then read older than
+ * it is, when nothing at any site changed for a while: the safe way to be
+ * wrong.
  */
 export function rowAsOf(row: KeptRow, owner: KeptOwner): number {
-  return Math.max(row.savedAt, owner.liveAt)
+  return row.fn === 'jobs:openWork'
+    ? row.savedAt
+    : Math.max(row.savedAt, owner.liveAt)
 }
 
 /**

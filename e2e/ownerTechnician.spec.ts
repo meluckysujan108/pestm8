@@ -85,6 +85,13 @@ test('a subcontractor’s new job is theirs, with no one else to pick', async ({
   await chooseJobTypes(page, sheet, ['Termite Inspection'])
   await sheet.getByLabel('Start').fill('15:30')
   await sheet.getByRole('button', { name: 'Book job' }).click()
+  // The owner's Termite Inspection there today (the fixture's), told to
+  // the subcontractor by its date alone (New Job's check at Book): this
+  // one is booked as well.
+  await expect(
+    sheet.getByRole('region', { name: /to check before saving/ }),
+  ).toContainText('Already booked: 12 Wattle Street has another job booked on')
+  await sheet.getByRole('button', { name: 'Book anyway' }).click()
   await expect(sheet).toBeHidden()
 
   const today = new Intl.DateTimeFormat('en-CA', {
