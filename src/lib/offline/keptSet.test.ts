@@ -13,6 +13,7 @@ import {
   keptIsNewer,
   keptQueries,
   keptWindow,
+  lastWeekStart,
   lensOf,
   rowAsOf,
   shapeOk,
@@ -69,11 +70,22 @@ describe('keptQueries', () => {
     const names = keptQueries(B, w).map(({ queryKey }) => queryKey[1])
     expect(names.filter((n) => n === 'jobs:listWeek')).toHaveLength(2)
     expect(names.filter((n) => n === 'jobs:listDay')).toHaveLength(14)
-    // Not yet what is booked at each site: nothing reads it until New
-    // Job's double-booking check does.
-    expect(new Set(names)).toEqual(
-      new Set(KEPT_FNS.filter((fn) => fn !== 'jobs:openWork')),
+    expect(new Set(names)).toEqual(new Set(KEPT_FNS))
+  })
+
+  test('what is booked at each site, for this week only: the one the server answers for', () => {
+    const asked = keptQueries(B, w).filter(
+      ({ queryKey }) => queryKey[1] === 'jobs:openWork',
     )
+    expect(asked.map(({ queryKey }) => queryKey[2])).toEqual([
+      { businessId: B, startKey: '2026-10-19' },
+    ])
+    // On the Monday, the Monday.
+    expect(
+      keptQueries(B, keptWindow('2026-10-26'))
+        .filter(({ queryKey }) => queryKey[1] === 'jobs:openWork')
+        .map(({ queryKey }) => queryKey[2]),
+    ).toEqual([{ businessId: B, startKey: '2026-10-26' }])
   })
 
   test('hashes to the very entries the loaders and pages use', () => {
@@ -84,6 +96,7 @@ describe('keptQueries', () => {
       rq.directory(B),
       rq.roster(B),
       rq.jobTypes(B),
+      rq.openWork(B, w.weekStarts[0]),
     ].map(({ queryKey }) => hash(queryKey))
     expect(kept).toEqual(pages)
     // As a page that builds its own key from the function reference would.
@@ -125,6 +138,19 @@ describe('inWindow', () => {
     expect(inWindow(rq.week(B, '2026-10-26').queryKey, w)).toBe(true)
     expect(inWindow(rq.week(B, '2026-10-12').queryKey, w)).toBe(false)
     expect(inWindow(rq.directory(B).queryKey, w)).toBe(true)
+  })
+
+  test('what is booked at each site: this week’s, and last week’s until this week’s is written', () => {
+    expect(lastWeekStart(w)).toBe('2026-10-12')
+    expect(inWindow(rq.openWork(B, '2026-10-19').queryKey, w)).toBe(true)
+    expect(inWindow(rq.openWork(B, '2026-10-12').queryKey, w)).toBe(true)
+    // Never next week's, which the server never answers for, nor older.
+    expect(inWindow(rq.openWork(B, '2026-10-26').queryKey, w)).toBe(false)
+    expect(inWindow(rq.openWork(B, '2026-10-05').queryKey, w)).toBe(false)
+    // The Monday after: last week's is the week just gone.
+    const monday = keptWindow('2026-10-26')
+    expect(inWindow(rq.openWork(B, '2026-10-19').queryKey, monday)).toBe(true)
+    expect(inWindow(rq.openWork(B, '2026-10-12').queryKey, monday)).toBe(false)
   })
 })
 
@@ -319,6 +345,20 @@ describe('rowAsOf', () => {
     expect(rowAsOf(row({ savedAt: 5_000 }), { ...owner, liveAt: 9_000 })).toBe(
       9_000,
     )
+  })
+
+  test('what is booked at each site by when it was written alone: others being live never confirms it', () => {
+    const work = row({
+      fn: 'jobs:openWork',
+      queryKey: [
+        'convexQuery',
+        'jobs:openWork',
+        { businessId: B, startKey: '2026-10-19' },
+      ],
+      data: { rows: [], series: [] },
+      savedAt: 5_000,
+    })
+    expect(rowAsOf(work, { ...owner, liveAt: 9_000 })).toBe(5_000)
   })
 })
 

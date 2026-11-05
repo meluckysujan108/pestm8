@@ -29,6 +29,15 @@
  * morning with no signal, says how slow it is in a handful of notes, not one
  * a key, and the socket's and sign-in's notes before it are still there to
  * send.
+ *
+ * And what is booked at each site, refused for this week (lib/offline/
+ * keeper.ts): `open-work-refused {code, week}`, as it is refused, and
+ * again only when its code changes, or once that week's answer has come live
+ * or been unpinned (another business entered), when a refusal is news
+ * again, and after a reload. So a
+ * phone whose week turned before the server's (INVALID_WEEK), or whose
+ * clock or business zone is off, says so once for each spell refused
+ * rather than every push.
  */
 
 /** A note's details: short words and numbers. */

@@ -6,8 +6,11 @@ import {
   clientOptions,
   pickerName,
   propertyOptions,
+  siteWorkDetail,
+  siteWorkIndex,
 } from './propertyOptions'
 import type { PickableClient, PickableProperty } from './propertyOptions'
+import type { OpenWork } from './siteWorkRows'
 import { filterByWords, pickOnEnter, startsFirst } from './searchMatch'
 import { clientsForPicker, sitesWithClients } from './directory'
 import type { Directory } from './directory'
@@ -855,5 +858,141 @@ describe('what was typed, best match first', () => {
         'j nguyen',
       ).map((r) => r.value),
     ).toEqual(['n', 'x'])
+  })
+})
+
+describe('what a site’s row says of its work (`siteWorkDetail`)', () => {
+  const at = { timezone: 'Australia/Perth', today: '2026-10-26' }
+  /** A site's line from `work`, as the picker reads it: by site, once. */
+  const detailOf = (
+    work: OpenWork,
+    propertyId: string,
+    when: typeof at,
+  ): string | undefined => siteWorkDetail(siteWorkIndex(work), propertyId, when)
+  /** `hh`:00 on `dayKey` in Perth. */
+  const perth = (dayKey: string, hh = 9) => {
+    const [y, m, d] = dayKey.split('-').map(Number)
+    return Date.UTC(y, m - 1, d, hh - 8)
+  }
+  const P = 'p-nguyen' as Id<'properties'>
+  const mine = (
+    id: string,
+    dayKey: string,
+    status: 'booked' | 'completed' = 'booked',
+    recurrenceId?: string,
+  ): OpenWork['rows'][number] => ({
+    propertyId: P,
+    at: perth(dayKey),
+    scheduledAt: perth(dayKey),
+    status,
+    jobId: id as Id<'jobs'>,
+    jobType: 'General Pest',
+    assignedMembershipId: 'm1' as Id<'memberships'>,
+    ...(recurrenceId
+      ? { recurrenceId: recurrenceId as Id<'recurrences'> }
+      : {}),
+  })
+  const quarterly = {
+    _id: 'r-1' as Id<'recurrences'>,
+    propertyId: P,
+    intervalCount: 3,
+    intervalUnit: 'month' as const,
+    jobType: 'General Pest',
+  }
+
+  test('its next job or visit still open from today', () => {
+    expect(
+      detailOf(
+        {
+          rows: [mine('j-1', '2026-11-05'), mine('j-2', '2026-10-29')],
+          series: [],
+        },
+        P,
+        at,
+      ),
+    ).toBe('Booked Thu 29 Oct')
+    // Someone else's, by its date alone (C5).
+    expect(
+      detailOf(
+        {
+          rows: [
+            {
+              propertyId: P,
+              at: perth('2026-10-29'),
+              scheduledAt: perth('2026-10-29'),
+            },
+          ],
+          series: [],
+        },
+        P,
+        at,
+      ),
+    ).toBe('Booked Thu 29 Oct')
+  })
+
+  test('a visit of a Recurring Job of the person’s own: how often, and when next', () => {
+    expect(
+      detailOf(
+        {
+          rows: [mine('j-1', '2027-01-11', 'booked', 'r-1')],
+          series: [quarterly],
+        },
+        P,
+        at,
+      ),
+    ).toBe('Repeats every 3 months, next Mon 11 Jan 2027')
+  })
+
+  test('nothing coming, but one running there; else the last visit done', () => {
+    expect(detailOf({ rows: [], series: [quarterly] }, P, at)).toBe(
+      'Repeats every 3 months',
+    )
+    expect(
+      detailOf(
+        {
+          rows: [
+            mine('j-1', '2026-10-01', 'completed'),
+            mine('j-2', '2026-10-15', 'completed'),
+          ],
+          series: [],
+        },
+        P,
+        at,
+      ),
+    ).toBe('Last visit Thu 15 Oct')
+  })
+
+  test('nothing for a site with none, or only another site’s', () => {
+    expect(detailOf({ rows: [], series: [] }, P, at)).toBeUndefined()
+    expect(
+      detailOf(
+        { rows: [mine('j-1', '2026-10-29')], series: [quarterly] },
+        'p-other',
+        at,
+      ),
+    ).toBeUndefined()
+  })
+
+  test('the answer read once for a hundred rows, not once a row', () => {
+    // Combobox decides up to a hundred rows as they first show: at the
+    // 6,000-row cap, reading every row for each would land in the render
+    // that opens the picker.
+    const rows = Array.from({ length: 6000 }, (_, n) =>
+      mine(`j-${n}`, '2026-10-29'),
+    )
+    let reads = 0
+    const work = {
+      get rows() {
+        reads += 1
+        return rows
+      },
+      series: [quarterly],
+    } as OpenWork
+    const index = siteWorkIndex(work)
+    for (let n = 0; n < 100; n += 1) {
+      siteWorkDetail(index, n === 0 ? P : `p-${n}`, at)
+    }
+    expect(reads).toBe(1)
+    expect(siteWorkDetail(index, P, at)).toBe('Booked Thu 29 Oct')
   })
 })

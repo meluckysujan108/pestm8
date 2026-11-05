@@ -13,9 +13,9 @@
  * double-booking check. Nothing `keptOutOfHtml` names, and nothing that is
  * already in every page's HTML.
  *
- * `jobs:openWork` is kept but not yet asked for (`keptQueries`): nothing
- * reads it until New Job's check does, and pinning it before then would
- * only add a subscription to every page.
+ * `jobs:openWork` is asked for with this week's Monday only, and pinned on
+ * every page (`keptQueries`), so New Job's check at Book works with no
+ * signal on a Monday after a Friday with it.
  */
 export const KEPT_FNS = [
   'jobs:listDay',

@@ -52,6 +52,11 @@ export const rq = {
     convexQuery(api.jobs.listWeek, { businessId, startKey }),
   day: (businessId: B, dayKey: string) =>
     convexQuery(api.jobs.listDay, { businessId, dayKey }),
+  /** What is booked at each site, for New Job's check at Book: asked only
+   * with this week's Monday in the business's time zone, the one week the
+   * server answers for (`jobs.openWork`, INVALID_WEEK otherwise). */
+  openWork: (businessId: B, startKey: string) =>
+    convexQuery(api.jobs.openWork, { businessId, startKey }),
   month: (businessId: B, monthKey: string) =>
     convexQuery(api.jobs.listMonth, { businessId, monthKey }),
   monthTeam: (businessId: B, monthKey: string) =>

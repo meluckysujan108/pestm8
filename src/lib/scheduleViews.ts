@@ -19,3 +19,19 @@ export const SCHEDULE_VIEW_OPTIONS: Array<{
   { value: 'job', label: 'Job' },
   { value: 'week', label: 'Week' },
 ]
+
+/**
+ * How the Schedule moves to a day to open one of its jobs over it (New
+ * Job's Open #123), as picking that day does (`setDay`): in the week, the
+ * day is scrolled to (`focusWeek`); in a day's list, a day newly opened
+ * reads from its top, while the day already shown keeps the person's place
+ * in it.
+ */
+export function openJobScroll(
+  view: ScheduleView,
+  shownKey: string,
+  dayKey: string,
+): { resetScroll: boolean; focusWeek: boolean } {
+  const inWeek = view === 'week'
+  return { resetScroll: !inWeek && dayKey !== shownKey, focusWeek: inWeek }
+}

@@ -200,6 +200,13 @@ function isAccessKey(queryKey: QueryKey): boolean {
   return queryKey[0] === 'convexQuery' && queryKey[1] === ACCESS_FN
 }
 
+/** What is booked at each site (`jobs.openWork`): New Job's check at Book. */
+const OPEN_WORK_FN = 'jobs:openWork'
+
+function isOpenWorkKey(queryKey: QueryKey): boolean {
+  return queryKey[0] === 'convexQuery' && queryKey[1] === OPEN_WORK_FN
+}
+
 /** A ConvexError's code (`ConvexError('NO_ACCESS')` arrives as its data). */
 function codeOf(error: unknown): string | null {
   if (typeof error !== 'object' || error === null) return null
@@ -243,6 +250,13 @@ export class Keeper {
   // has spoken since each was kept (`catchUpWrittenAs`).
   private laterPages: Array<PageKept> = []
   private readonly pinned = new Map<string, Warmable>()
+  /** The refusal last noted in the connection log for each pinned
+   * `jobs.openWork`, so a refusal pushed again says nothing new, until it
+   * comes live or is unpinned (`noteRefusal`). */
+  private readonly refusalNoted = new Map<string, string>()
+  /** Each `jobs.openWork` refusal already heard, by its entry's
+   * `errorUpdateCount`: a push onto the entry it left is no new one. */
+  private readonly refusalHeard = new Map<string, number>()
   // This business's keys from a week gone by, dropped once nothing shows them.
   private readonly leaving = new Map<string, QueryKey>()
   private entered: KeptBusiness | null = null
@@ -568,6 +582,7 @@ export class Keeper {
     if (!query) return
     if (query.state.status === 'error') {
       this.refused(query)
+      this.askAfterRefusal(query)
       return
     }
     if (
@@ -596,6 +611,34 @@ export class Keeper {
     }
   }
 
+  /**
+   * This week's `jobs.openWork` the server refused before it had any
+   * answer, pushed again: asked once more, from what the socket now holds.
+   * The adapter sets a push's answer only on an entry that has one, so
+   * without this a week the server refused for the minute its week hadn't
+   * turned (INVALID_WEEK) would stay refused all day, though its
+   * subscription had the answer. This week's as `noteRefusal` knows it
+   * (`isThisWeeksWork`): the one pinned, or New Job's own read whose Monday
+   * turned before the keeper's minute pinned it, whose push may come before
+   * that minute does (once pinned, the keeper asks again only for what isn't
+   * in memory at all). Once per push, never on a timer: nothing loops while
+   * the server goes on refusing it.
+   */
+  private askAfterRefusal(query: Query): void {
+    const qc = this.qc
+    if (
+      !qc ||
+      query.state.data !== undefined ||
+      !isOpenWorkKey(query.queryKey) ||
+      !this.isThisWeeksWork(query.queryKey)
+    ) {
+      return
+    }
+    void qc
+      .prefetchQuery({ queryKey: query.queryKey, retry: false })
+      .catch(() => {})
+  }
+
   private markLive(hash: string, key: QueryKey): void {
     this.sources.set(hash, {
       from: 'live',
@@ -605,6 +648,7 @@ export class Keeper {
     const fn = keptFnOf(key)
     if (fn !== null) this.markDirty(hash, fn)
     if (isAccessKey(key)) this.queueClaim()
+    if (isOpenWorkKey(key)) this.refusalNoted.delete(hash)
     this.notify()
   }
 
@@ -627,6 +671,7 @@ export class Keeper {
       })
     }
     this.dirty.delete(hash)
+    if (isOpenWorkKey(query.queryKey)) this.noteRefusal(query)
     const businessId = businessOf(query.queryKey)
     if (
       isAccessKey(query.queryKey) &&
@@ -639,6 +684,63 @@ export class Keeper {
     this.notify()
   }
 
+  /**
+   * This week's `jobs.openWork` refused, noted once in the connection log
+   * (`open-work-refused {code, week}`) until its answer next comes live
+   * (`markLive`) or it is unpinned (`pinWindow`: another business entered),
+   * when a refusal is news again, and before that again only for another
+   * code. What was noted isn't kept, so a reload notes it again.
+   * INVALID_WEEK is the phone's week turning before the server's (up to two
+   * minutes), or its clock or the business's zone being off. What the phone
+   * kept stays, and New Job checks from it. Last week's, refused once the
+   * server's week has turned, is no news, and isn't noted.
+   *
+   * Noted as the refusal arrives, never later: `refused` also hears every
+   * push onto the entry a refusal left (`heard`), the server's answer
+   * among them once its week turns, which the adapter can't set on an
+   * entry with nothing in it; by then the refusal is that answer's minutes
+   * old. And this week's is this week's from its first ask, New Job's own
+   * read whose Monday turned before the keeper's minute pinned it as well.
+   */
+  private noteRefusal(query: Query): void {
+    const hash = query.queryHash
+    const count = query.state.errorUpdateCount
+    if (this.refusalHeard.get(hash) === count) return
+    this.refusalHeard.set(hash, count)
+    if (!this.isThisWeeksWork(query.queryKey)) return
+    const code = codeOf(query.state.error) ?? 'other'
+    if (this.refusalNoted.get(hash) === code) return
+    this.refusalNoted.set(hash, code)
+    const week = argsOf(query.queryKey)?.startKey
+    logConnection('open-work-refused', {
+      code,
+      week: typeof week === 'string' ? week : '',
+    })
+  }
+
+  /**
+   * Whether `key` is this week's `jobs.openWork`: the one pinned, or one
+   * newer than it, which a page asked for as its week turned before the
+   * keeper's minute did (`useOpenWork`).
+   */
+  private isThisWeeksWork(key: QueryKey): boolean {
+    if (this.pinned.has(this.hashOf(key))) return true
+    const week = argsOf(key)?.startKey
+    if (typeof week !== 'string') return false
+    const businessId = businessOf(key)
+    for (const pinned of this.pinned.values()) {
+      if (
+        !isOpenWorkKey(pinned.queryKey) ||
+        businessOf(pinned.queryKey) !== businessId
+      ) {
+        continue
+      }
+      const pinnedWeek = argsOf(pinned.queryKey)?.startKey
+      return typeof pinnedWeek === 'string' && week > pinnedWeek
+    }
+    return false
+  }
+
   private onCacheEvent(event: QueryCacheNotifyEvent): void {
     const { query } = event
     if (query.queryKey[0] !== 'convexQuery') return
@@ -647,6 +749,7 @@ export class Keeper {
         this.noteAdded(query)
         break
       case 'removed':
+        this.refusalHeard.delete(query.queryHash)
         this.sources.delete(query.queryHash)
         this.htmlAt.delete(query.queryHash)
         this.dirty.delete(query.queryHash)
@@ -654,11 +757,13 @@ export class Keeper {
         break
       case 'updated':
         if (event.action.type === 'error') this.refused(query)
-        else if (
-          event.action.type === 'success' &&
-          isAccessKey(query.queryKey)
-        ) {
-          this.queueClaim()
+        else if (event.action.type === 'success') {
+          if (isAccessKey(query.queryKey)) this.queueClaim()
+          // This week's has an answer: last week's, held until it had
+          // (`heldForThisWeek`), can go.
+          if (isOpenWorkKey(query.queryKey) && this.leaving.size > 0) {
+            this.pruneLeaving()
+          }
         }
         break
       default:
@@ -866,10 +971,43 @@ export class Keeper {
     return this.rows.get(hash)?.savedAt ?? null
   }
 
-  /** `asOf` over every kept answer something is showing. */
+  /**
+   * Whether the server's last word on `queryKey` was a refusal, whatever is
+   * still shown for it: an answer that won't come up to date by itself.
+   */
+  refusedNow(queryKey: QueryKey): boolean {
+    const query = this.qc?.getQueryCache().get(this.hashOf(queryKey))
+    return query?.state.status === 'error'
+  }
+
+  /**
+   * When `queryKey`'s answer with nothing from PestM8 (`answerOnPhone`) was
+   * last known right: `asOf` for one in memory (null while it is live),
+   * else the phone's copy's own time (`rowAsOf`). Null where there is
+   * neither.
+   */
+  phoneAsOf(queryKey: QueryKey): number | null {
+    const qc = this.qc
+    if (!qc) return null
+    const hash = this.hashOf(queryKey)
+    if (qc.getQueryCache().get(hash)?.state.data !== undefined) {
+      return this.asOfHash(hash)
+    }
+    if (!this.peekDone) return null
+    const found = this.usableFor(queryKey)
+    return found ? rowAsOf(found.row, found.owner) : null
+  }
+
+  /**
+   * `asOf` over every kept answer something is showing. Not what is booked
+   * at each site (`jobs.openWork`): New Job's check says how old that is
+   * itself, and one the server refuses for a minute is no reason for the
+   * schedule's "Updated" to read older.
+   */
   screenAsOf(): number | null {
     let oldest: number | null = null
     for (const query of this.shownKept()) {
+      if (isOpenWorkKey(query.queryKey)) continue
       const at = this.asOfHash(query.queryHash)
       if (at !== null && (oldest === null || at < oldest)) oldest = at
     }
@@ -1527,19 +1665,28 @@ export class Keeper {
     }
     const owner = this.owner
     const putting = new Set(put.map((row) => row.hash))
+    // Last week's `jobs.openWork` stays on the phone until this week's has
+    // been written (`inWindow`): from then on it is only older.
+    const thisWeeks = this.hashOf(
+      rq.openWork(claim.businessId, window.weekStarts[0]).queryKey,
+    )
+    const hasThisWeeks = putting.has(thisWeeks) || this.rows.has(thisWeeks)
     const drop = owner
       ? [...this.rows.values()]
           .filter(
             (row) =>
               !putting.has(row.hash) &&
-              !usableRow(row, {
+              (!usableRow(row, {
                 owner,
                 userId,
                 businessId: claim.businessId,
                 lens: claim.lens,
                 window,
                 now,
-              }),
+              }) ||
+                (hasThisWeeks &&
+                  row.fn === 'jobs:openWork' &&
+                  row.hash !== thisWeeks)),
           )
           .map((row) => row.hash)
       : []
@@ -1588,6 +1735,11 @@ export class Keeper {
    * has spoken: `owner.liveAt`, which counts as confirming every row
    * (`rowAsOf`). Only with nothing waiting to be written, so a row is never
    * confirmed past a change it hasn't taken in.
+   *
+   * Never waiting on what is booked at each site (`jobs.openWork`), which
+   * `rowAsOf` dates by its own write instead: refused for the minutes a
+   * week takes to turn on the server, or on a phone whose clock is off, it
+   * would hold back every other "Updated" for as long.
    */
   private async stamp(): Promise<void> {
     const claim = this.claim
@@ -1601,7 +1753,10 @@ export class Keeper {
     }
     const userId = this.claimHolds(claim)
     if (!userId) return
-    for (const hash of this.pinned.keys()) if (!this.isLiveHash(hash)) return
+    for (const [hash, query] of this.pinned) {
+      if (isOpenWorkKey(query.queryKey)) continue
+      if (!this.isLiveHash(hash)) return
+    }
     const at = this.lastServerMessageAt()
     if (at === null || at <= owner.liveAt) return
     const wipesBefore = keptWipeCount()
@@ -1647,9 +1802,16 @@ export class Keeper {
     const qc = this.qc
     if (!qc) return
     const window = keptWindow(dayKeyOf(Date.now(), b.timezone))
+    // What is booked at each site is pinned with nothing kept too: New
+    // Job's check at Book reads it from memory as well.
     const wanted = KEPT_ENABLED
       ? keptQueries(b._id, window)
-      : [rq.directory(b._id), rq.roster(b._id), rq.jobTypes(b._id)]
+      : [
+          rq.directory(b._id),
+          rq.roster(b._id),
+          rq.jobTypes(b._id),
+          rq.openWork(b._id, window.weekStarts[0]),
+        ]
     const keep = new Map(
       wanted.map((query) => [this.hashOf(query.queryKey), query]),
     )
@@ -1658,10 +1820,19 @@ export class Keeper {
     for (const [hash, query] of this.pinned) {
       if (keep.has(hash)) continue
       this.pinned.delete(hash)
+      this.refusalNoted.delete(hash)
       const fn = keptFnOf(query.queryKey)
       // The directory, team and job types stay pinned for good, as they
-      // were before anything was kept (root-provider.tsx).
-      if (fn !== 'jobs:listDay' && fn !== 'jobs:listWeek') continue
+      // were before anything was kept (root-provider.tsx). Last week's
+      // `jobs.openWork` goes, its subscription with it, once this week's
+      // has come (`pruneLeaving`).
+      if (
+        fn !== 'jobs:listDay' &&
+        fn !== 'jobs:listWeek' &&
+        fn !== 'jobs:openWork'
+      ) {
+        continue
+      }
       qc.setQueryDefaults(query.queryKey, { gcTime: UNPINNED_GC_MS })
       if (businessOf(query.queryKey) === b._id) {
         this.leaving.set(hash, query.queryKey)
@@ -1693,15 +1864,41 @@ export class Keeper {
     for (const [hash, key] of this.leaving) {
       const query = qc.getQueryCache().get(hash)
       if (query && query.getObserversCount() > 0) continue
+      if (query && this.heldForThisWeek(key)) continue
       if (query) qc.removeQueries({ queryKey: key, exact: true })
       this.leaving.delete(hash)
     }
   }
 
   /**
+   * Whether `key` is last week's `jobs.openWork` and this week's has no
+   * answer yet: until it has, last week's (which covers this week) is what
+   * New Job checks from, and stays in memory.
+   */
+  private heldForThisWeek(key: QueryKey): boolean {
+    if (!isOpenWorkKey(key)) return false
+    const businessId = businessOf(key)
+    for (const [hash, pinned] of this.pinned) {
+      if (
+        isOpenWorkKey(pinned.queryKey) &&
+        businessOf(pinned.queryKey) === businessId
+      ) {
+        return this.qc?.getQueryCache().get(hash)?.state.data === undefined
+      }
+    }
+    return false
+  }
+
+  /**
    * Asks again for every pinned answer that has gone: one `warm` or
    * `forgetRefusedQueries` dropped after a refusal before it had data, say.
    * Offline, the phone's copy answers; otherwise the server.
+   *
+   * What is booked at each site is asked for on its own, and left in the
+   * cache when the server refuses it (`warm` drops a refusal with no
+   * answer): there, still subscribed, the server's own push answers it
+   * once its week turns (`askAfterRefusal`), where asking again every
+   * minute would only be refused again.
    */
   private rewarm(): void {
     const qc = this.qc
@@ -1709,7 +1906,14 @@ export class Keeper {
     const missing = [...this.pinned.entries()]
       .filter(([hash]) => qc.getQueryCache().get(hash) === undefined)
       .map(([, query]) => query)
-    if (missing.length > 0) void warm(qc, ...missing)
+    const others = missing.filter((query) => !isOpenWorkKey(query.queryKey))
+    if (others.length > 0) void warm(qc, ...others)
+    for (const query of missing) {
+      if (!isOpenWorkKey(query.queryKey)) continue
+      void qc
+        .prefetchQuery({ queryKey: query.queryKey, retry: false })
+        .catch(() => {})
+    }
   }
 
   /** Each minute, and as the page comes back: the week, and what has gone. */

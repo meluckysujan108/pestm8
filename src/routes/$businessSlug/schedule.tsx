@@ -67,7 +67,11 @@ import {
   useReadable,
   useReadableAll,
 } from '#/lib/offline/useKept'
-import { SCHEDULE_VIEWS, SCHEDULE_VIEW_OPTIONS } from '#/lib/scheduleViews'
+import {
+  SCHEDULE_VIEWS,
+  SCHEDULE_VIEW_OPTIONS,
+  openJobScroll,
+} from '#/lib/scheduleViews'
 import { weekDayKeys, weekTotals } from '#/lib/weekView'
 import type { ScheduleView } from '#/lib/scheduleViews'
 import type { Access } from '#/lib/access'
@@ -503,6 +507,27 @@ function ScheduleBody({
       resetScroll: !inWeek,
     })
   }
+  // A job New Job's check at Book named (Open #123), once New Job has
+  // closed: its sheet over its day, in the view the person was in, moved to
+  // as picking that day moves (`openJobScroll`).
+  const openJobOnDay = (id: string, dayKey: string) => {
+    const { resetScroll, focusWeek } = openJobScroll(
+      activeView,
+      requestedKey,
+      dayKey,
+    )
+    if (focusWeek) setWeekFocusTick((tick) => tick + 1)
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        date: dayKey,
+        jobId: id,
+        outboxId: undefined,
+      }),
+      replace: true,
+      resetScroll,
+    })
+  }
   // From the week to one of its days. A push, unlike `setDay`: Back returns
   // to the week the day was opened from.
   const openDay = (dayKey: string) =>
@@ -923,6 +948,7 @@ function ScheduleBody({
           setNewJobFor(undefined)
         }}
         assignTo={newJobFor}
+        onOpenJob={openJobOnDay}
         // Booked for someone from their join notice: that is the notice
         // answered, so it goes (on every device).
         onBooked={() => {

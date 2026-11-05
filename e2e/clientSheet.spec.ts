@@ -158,6 +158,14 @@ test('a job is booked from the client’s sheet, for them, on the day chosen', a
   await newJob.getByLabel('Start').fill('10:00')
   await newJob.getByLabel('Price (AUD)').fill('150')
   await newJob.getByRole('button', { name: 'Book job' }).click()
+  // The fixture's Termite Inspection there today is within a week of it
+  // (New Job's check at Book, the day chosen here): booked as well.
+  await expect(
+    newJob.getByRole('region', { name: /to check before saving/ }),
+  ).toContainText(
+    /Already booked: 12 Wattle Street has a job on .+ — Termite Inspection, Terence \(#\d+\)\./,
+  )
+  await newJob.getByRole('button', { name: 'Book anyway' }).click()
   await expect(newJob).toHaveCount(0)
 
   await expect(section(sheet, 'Coming up')).toContainText('Cockroaches')

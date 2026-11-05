@@ -172,6 +172,18 @@ async function keepPageInWorker(page: Page) {
   }).toPass({ timeout: 60_000 })
 }
 
+/**
+ * Every kept answer (`keptQueries` in src/lib/offline/keptSet.ts): 14 days,
+ * 2 weeks, the client list, the team, the job types and what is booked at
+ * each site, as keptCopy.spec.ts counts them.
+ */
+const KEPT_ROWS = 20
+
+/** Written last, so waited for by name as well as counted: the client list
+ * (after 5 s), and what is booked at each site, which New Job's check at
+ * Book reads with no signal. */
+const KEPT_LAST = ['clients:directory', 'jobs:openWork']
+
 /** Waits for the kept copy of the schedule (`pestm8-offline`) to be written,
  * for New Job with no signal. */
 async function waitForKeptCopy(page: Page) {
@@ -179,7 +191,7 @@ async function waitForKeptCopy(page: Page) {
     .poll(
       () =>
         page
-          .evaluate(async () => {
+          .evaluate(async (last) => {
             const names = await indexedDB.databases()
             if (!names.some((db) => db.name === 'pestm8-offline')) return 0
             const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -189,19 +201,25 @@ async function waitForKeptCopy(page: Page) {
             })
             try {
               if (!db.objectStoreNames.contains('rows')) return 0
-              const rows = db.transaction('rows').objectStore('rows').count()
-              return await new Promise<number>((resolve) => {
-                rows.onsuccess = () => resolve(rows.result)
-                rows.onerror = () => resolve(0)
-              })
+              const all = db.transaction('rows').objectStore('rows').getAll()
+              const rows = await new Promise<Array<{ fn?: unknown }>>(
+                (resolve) => {
+                  all.onsuccess = () =>
+                    resolve(all.result as Array<{ fn?: unknown }>)
+                  all.onerror = () => resolve([])
+                },
+              )
+              return last.every((fn) => rows.some((row) => row.fn === fn))
+                ? rows.length
+                : 0
             } finally {
               db.close()
             }
-          })
+          }, KEPT_LAST)
           .catch(() => 0),
       { timeout: KEEP_TIMEOUT },
     )
-    .toBeGreaterThanOrEqual(19)
+    .toBeGreaterThanOrEqual(KEPT_ROWS)
 }
 
 type StoredBooking = {

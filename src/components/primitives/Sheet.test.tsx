@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { Sheet } from './Sheet'
+import { Sheet, useSheetClose } from './Sheet'
 import type { ReactNode, RefObject } from 'react'
 
 /**
@@ -77,5 +77,35 @@ describe('Sheet', () => {
 
   it('with nowhere given, leaves it to Radix as before', () => {
     expect(render().onCloseAutoFocus).toBeUndefined()
+  })
+})
+
+describe('useSheetClose', () => {
+  it('closes the sheet it is in as ✕ does, nothing having changed, then does what it was asked', () => {
+    const calls: Array<string> = []
+    const held: { close?: (after?: () => void) => void } = {}
+    function Inside() {
+      held.close = useSheetClose()
+      return null
+    }
+    renderToStaticMarkup(
+      <Sheet open onClose={() => calls.push('closed')} title="New job">
+        <Inside />
+      </Sheet>,
+    )
+    held.close!(() => calls.push('after'))
+    expect(calls).toEqual(['closed', 'after'])
+  })
+
+  it('outside a sheet, does it at once', () => {
+    const after = vi.fn()
+    const held: { close?: (after?: () => void) => void } = {}
+    function Outside() {
+      held.close = useSheetClose()
+      return null
+    }
+    renderToStaticMarkup(<Outside />)
+    held.close!(after)
+    expect(after).toHaveBeenCalledOnce()
   })
 })

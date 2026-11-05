@@ -295,7 +295,13 @@ test.describe('job visibility', () => {
   test('sub with canViewAllJobs=false cannot see another job', async () => {
     const s = await setupBusinessWithSub('visibility-off')
 
-    const day = todayKey()
+    // The fixture's job's own day: a day read off the clock after it was
+    // booked is tomorrow once the run crosses Perth midnight.
+    const ownerJob = await s.owner.client.query(api.jobs.get, {
+      businessId: s.businessId,
+      jobId: s.ownerJobId,
+    })
+    const day = perthDayKey(ownerJob!.scheduledAt)
 
     // Not merely hidden in the UI — never loaded at all.
     const subDay = await s.sub.client.query(api.jobs.listDay, {
@@ -433,11 +439,9 @@ test.describe('job visibility', () => {
   test.fixme('Xero push lands only in the assignee organisation', () => {})
 })
 
-function todayKey() {
+/** The tenant's own day, not the runner's. */
+function perthDayKey(ts: number) {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Australia/Perth',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date())
+  }).format(new Date(ts))
 }

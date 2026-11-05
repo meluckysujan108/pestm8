@@ -141,9 +141,20 @@ async function clientOfSite(
 const newJobButton = (page: Page) =>
   page.getByRole('button', { name: 'New job' })
 
-/** The schedule, hydrated, and New Job open on it. */
-async function openNewJob(page: Page, slug: string, goto = true) {
-  if (goto) await page.goto(`/${slug}/schedule`)
+/**
+ * The schedule, hydrated, and New Job open on it: on `dayKey` when given.
+ * New Job books on the day the page shows, so a test that reads its booking
+ * back opens the page on the day it reads, which it takes once before
+ * anything is booked: a day read afterwards is tomorrow once the run crosses
+ * Perth midnight.
+ */
+async function openNewJob(page: Page, slug: string, dayKey?: string) {
+  await page.goto(`/${slug}/schedule${dayKey ? `?date=${dayKey}` : ''}`)
+  return newJobOnPage(page)
+}
+
+/** New Job opened on the day the page already shows. */
+async function newJobOnPage(page: Page) {
   await expect(newJobButton(page)).toBeEnabled()
   const sheet = page.getByRole('dialog')
   await clickUntil(newJobButton(page), () =>
@@ -251,7 +262,7 @@ test('with no signal, the same search runs over the copy kept on the phone, and 
     // Opened afresh from the Home Screen.
     await page.goto('/')
     await expect(page).toHaveURL(new RegExp(`/${s.slug}/schedule`))
-    const sheet = await openNewJob(page, s.slug, false)
+    const sheet = await newJobOnPage(page)
 
     // The copy finds her by her email as the live list does.
     const picker = await searchProperty(page, JANE_EMAIL)
@@ -597,12 +608,13 @@ async function bookOf(owner: Actor, businessId: Id<'businesses'>) {
   return owner.client.query(api.clients.directory, { businessId })
 }
 
-/** Today's jobs, as the Schedule lists them. */
-async function todaysJobs(owner: Actor, businessId: Id<'businesses'>) {
-  return owner.client.query(api.jobs.listDay, {
-    businessId,
-    dayKey: perthToday(),
-  })
+/** The day's jobs, as the Schedule lists them. */
+async function jobsOn(
+  owner: Actor,
+  businessId: Id<'businesses'>,
+  dayKey: string,
+) {
+  return owner.client.query(api.jobs.listDay, { businessId, dayKey })
 }
 
 /** New Job's New client tab, filled in as a caller gives it: by label. */
@@ -658,8 +670,9 @@ test.describe('part 2: match lines and the check at Book', () => {
   }) => {
     const s = await seedMatching('match-use')
     const before = await bookOf(s.owner, s.businessId)
+    const day = perthToday()
     await signInViaUi(page, s.owner.email)
-    const sheet = await openNewJob(page, s.slug)
+    const sheet = await openNewJob(page, s.slug, day)
 
     await typeCaller(sheet, { name: 'Jane Nguyen', phone: P2_JANE_MOBILE })
     // Name was left for Phone before any address: choose her site.
@@ -711,7 +724,7 @@ test.describe('part 2: match lines and the check at Book', () => {
       '12 Wattle St',
       '40 Coode St',
     ])
-    const jobs = await todaysJobs(s.owner, s.businessId)
+    const jobs = await jobsOn(s.owner, s.businessId, day)
     expect(jobs).toHaveLength(1)
     expect(jobs[0].clientName).toBe('Jane Nguyen')
     expect(jobs[0].addressLine).toBe('40 Coode St')
@@ -722,8 +735,9 @@ test.describe('part 2: match lines and the check at Book', () => {
   }) => {
     const s = await seedMatching('match-shared')
     const before = await bookOf(s.owner, s.businessId)
+    const day = perthToday()
     await signInViaUi(page, s.owner.email)
-    const sheet = await openNewJob(page, s.slug)
+    const sheet = await openNewJob(page, s.slug, day)
 
     await typeCaller(sheet, { name: 'Kim Pham', phone: P2_OFFICE })
     await leavePhone(sheet)
@@ -749,7 +763,7 @@ test.describe('part 2: match lines and the check at Book', () => {
     const after = await bookOf(s.owner, s.businessId)
     expect(after.clients).toHaveLength(before.clients.length + 1)
     expect(after.clients.filter((c) => c.name === 'Kim Pham')).toHaveLength(1)
-    const jobs = await todaysJobs(s.owner, s.businessId)
+    const jobs = await jobsOn(s.owner, s.businessId, day)
     expect(jobs.map((job) => job.clientName)).toEqual(['Kim Pham'])
   })
 
@@ -758,8 +772,9 @@ test.describe('part 2: match lines and the check at Book', () => {
   }) => {
     const s = await seedMatching('match-site')
     const before = await bookOf(s.owner, s.businessId)
+    const day = perthToday()
     await signInViaUi(page, s.owner.email)
-    const sheet = await openNewJob(page, s.slug)
+    const sheet = await openNewJob(page, s.slug, day)
 
     await typeCaller(sheet, {
       name: 'Tom Lee',
@@ -790,7 +805,7 @@ test.describe('part 2: match lines and the check at Book', () => {
     const after = await bookOf(s.owner, s.businessId)
     expect(after.clients).toHaveLength(before.clients.length)
     expect(after.sites).toHaveLength(before.sites.length)
-    const jobs = await todaysJobs(s.owner, s.businessId)
+    const jobs = await jobsOn(s.owner, s.businessId, day)
     expect(jobs).toHaveLength(1)
     expect(jobs[0].propertyId).toBe(s.agencySite)
     expect(jobs[0].notePreview).toContain(`Caller: Tom Lee, ${P2_TOM_LEE}`)
@@ -849,8 +864,9 @@ test.describe('part 2: match lines and the check at Book', () => {
   }) => {
     const s = await seedMatching('match-name')
     const before = await bookOf(s.owner, s.businessId)
+    const day = perthToday()
     await signInViaUi(page, s.owner.email)
-    const sheet = await openNewJob(page, s.slug)
+    const sheet = await openNewJob(page, s.slug, day)
 
     await typeCaller(sheet, { name: 'Jane Nguyen' })
     // Name left for Phone, as the form's order goes.
@@ -889,7 +905,7 @@ test.describe('part 2: match lines and the check at Book', () => {
     const after = await bookOf(s.owner, s.businessId)
     expect(after.clients).toHaveLength(before.clients.length)
     expect(after.sites).toHaveLength(before.sites.length)
-    const jobs = await todaysJobs(s.owner, s.businessId)
+    const jobs = await jobsOn(s.owner, s.businessId, day)
     expect(jobs).toHaveLength(1)
     expect(jobs[0].propertyId).toBe(s.janeSite)
   })
@@ -968,7 +984,7 @@ test.describe('part 2: match lines and the check at Book', () => {
     try {
       await page.goto('/')
       await expect(page).toHaveURL(new RegExp(`/${s.slug}/schedule`))
-      const sheet = await openNewJob(page, s.slug, false)
+      const sheet = await newJobOnPage(page)
 
       await typeCaller(sheet, { name: 'Jane Nguyen', phone: P2_JANE_MOBILE })
       await leavePhone(sheet)
@@ -1295,8 +1311,9 @@ test.describe('part 2: match lines and the check at Book', () => {
   }) => {
     const s = await seedMatching('match-double')
     const before = await bookOf(s.owner, s.businessId)
+    const day = perthToday()
     await signInViaUi(page, s.owner.email)
-    const sheet = await openNewJob(page, s.slug)
+    const sheet = await openNewJob(page, s.slug, day)
 
     await typeCaller(sheet, {
       name: 'Jane Nguyen',
@@ -1321,7 +1338,7 @@ test.describe('part 2: match lines and the check at Book', () => {
     ).toBeVisible()
     // And nothing booked, some while after.
     await page.waitForTimeout(1_500)
-    expect(await todaysJobs(s.owner, s.businessId)).toHaveLength(0)
+    expect(await jobsOn(s.owner, s.businessId, day)).toHaveLength(0)
     const after = await bookOf(s.owner, s.businessId)
     expect(after.clients).toHaveLength(before.clients.length)
   })
@@ -1331,8 +1348,9 @@ test.describe('part 2: match lines and the check at Book', () => {
   }) => {
     const s = await seedMatching('match-held')
     const before = await bookOf(s.owner, s.businessId)
+    const day = perthToday()
     await signInViaUi(page, s.owner.email)
-    const sheet = await openNewJob(page, s.slug)
+    const sheet = await openNewJob(page, s.slug, day)
 
     await typeCaller(sheet, {
       name: 'Jane Nguyen',
@@ -1392,7 +1410,7 @@ test.describe('part 2: match lines and the check at Book', () => {
     ).toBeVisible()
     await expect(sheet.getByLabel('New site for')).toHaveCount(0)
     await page.waitForTimeout(1_500)
-    expect(await todaysJobs(s.owner, s.businessId)).toHaveLength(0)
+    expect(await jobsOn(s.owner, s.businessId, day)).toHaveLength(0)
     const after = await bookOf(s.owner, s.businessId)
     expect(after.clients).toHaveLength(before.clients.length)
   })
@@ -1402,8 +1420,9 @@ test.describe('part 2: match lines and the check at Book', () => {
   }) => {
     const s = await seedMatching('match-near')
     const before = await bookOf(s.owner, s.businessId)
+    const day = perthToday()
     await signInViaUi(page, s.owner.email)
-    const sheet = await openNewJob(page, s.slug)
+    const sheet = await openNewJob(page, s.slug, day)
 
     await typeCaller(sheet, {
       name: 'Jane Nguyen',
@@ -1433,7 +1452,7 @@ test.describe('part 2: match lines and the check at Book', () => {
     const after = await bookOf(s.owner, s.businessId)
     expect(after.clients).toHaveLength(before.clients.length)
     expect(after.sites).toHaveLength(before.sites.length)
-    const jobs = await todaysJobs(s.owner, s.businessId)
+    const jobs = await jobsOn(s.owner, s.businessId, day)
     expect(jobs).toHaveLength(1)
     expect(jobs[0].propertyId).toBe(s.janeSite)
   })
