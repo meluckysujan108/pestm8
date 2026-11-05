@@ -376,7 +376,9 @@ test('a subcontractor booking beside another member’s job: its date alone, and
   page,
 }) => {
   const s = await setupBusinessWithSub('site-sub')
-  const today = perthToday()
+  // The fixture's job's own day: a day read off the clock after it was
+  // booked is tomorrow once the run crosses Perth midnight.
+  const today = s.ownerJobDay
   const creates: Array<string> = []
   page.on('websocket', (ws) =>
     ws.on('framesent', ({ payload }) => {
