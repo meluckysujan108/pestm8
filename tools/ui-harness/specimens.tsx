@@ -35,7 +35,7 @@ import { clientCountLabel, directoryCount } from '#/lib/offline/keptClients'
 import { ScheduleNotKept } from '#/components/schedule/ScheduleNotKept'
 import { RecurringDueNote } from '#/components/schedule/RecurringDueNote'
 import { WeekStrip } from '#/components/schedule/WeekStrip'
-import { WeekView } from '#/components/schedule/WeekView'
+import { WeekSummary, WeekView } from '#/components/schedule/WeekView'
 import { SidebarProvider } from '#/components/ui/sidebar'
 import {
   formatDayLabel,
@@ -125,7 +125,11 @@ import {
   NoMatches,
 } from '#/components/primitives/EmptyState'
 import { StatusPill } from '#/components/primitives/StatusPill'
-import { ScheduleFilterButton } from '#/components/schedule/ScheduleFilterButton'
+import {
+  RecurringFilterButton,
+  ScheduleFilterButton,
+  WeekFilterButton,
+} from '#/components/schedule/ScheduleFilterButton'
 import type { JobRow } from '#/components/schedule/JobCard'
 import { DaySummary, SummaryLine } from '#/components/schedule/DaySummary'
 import { ClientFilterBar } from '#/components/clients/ClientFilterBar'
@@ -164,8 +168,8 @@ import {
   User,
   Users,
 } from 'lucide-react'
-import { useScheduleFilters } from '#/lib/scheduleFilters'
-import type { ScheduleFilterSearch } from '#/lib/scheduleFilters'
+import { recurringSortOf, useScheduleFilters } from '#/lib/scheduleFilters'
+import type { RecurringSort, ScheduleFilterSearch } from '#/lib/scheduleFilters'
 import type {
   KindFilter,
   StatusFilter as ClientStatusFilter,
@@ -1058,6 +1062,8 @@ function scheduleRecurring(byDate: boolean) {
   return function ScheduleRecurring() {
     const today = perthTodayKey()
     const weekStart = startOfWeekKey(today)
+    const filters = useHarnessFilters([])
+    const [sort, setSort] = useState<RecurringSort>(recurringSortOf(undefined))
     return (
       <Phone>
         <AccessProvider businessId={bizId}>
@@ -1084,10 +1090,21 @@ function scheduleRecurring(byDate: boolean) {
                 options={SCHEDULE_VIEW_OPTIONS}
                 onChange={() => {}}
               />
+              <RecurringFilterButton
+                business={{ _id: bizId, timezone: TZ }}
+                members={MEMBERS}
+                filters={filters}
+                sort={sort}
+                onSortChange={setSort}
+                byDate={byDate}
+              />
             </div>
             <div className="mb-3 min-w-0">
               <h2 className="section-label truncate">Recurring Jobs</h2>
-              <RecurringSummary business={{ _id: bizId, timezone: TZ }} />
+              <RecurringSummary
+                business={{ _id: bizId, timezone: TZ }}
+                staffId={filters.staffId}
+              />
             </div>
             <RecurringView
               business={{
@@ -1100,6 +1117,9 @@ function scheduleRecurring(byDate: boolean) {
               onByDateChange={() => {}}
               onOpenJob={() => {}}
               bar={false}
+              staffId={filters.staffId}
+              sort={sort}
+              onClearFilters={filters.clear}
             />
           </section>
         </AccessProvider>
@@ -1604,12 +1624,19 @@ function perthAt(dayKey: string, time: string): number {
  * A technician's day on the phone (6 Nov 2026): the View switch with the
  * filters' icon at the end of its row, blue with "1" since the phone opens
  * on their own jobs, then the heading and its one line, "2 of 4 jobs".
- * `schedule-day-filters-open` taps it.
+ * `schedule-day-filters-open` taps it. `schedule-day-sorted` opens on
+ * everyone's Termite Inspections, by suburb.
  */
-function ScheduleDayFilters() {
+function scheduleDayFilters(initial: ScheduleFilterSearch = {}) {
+  return function ScheduleDayFilters() {
+    return <DayFilters initial={initial} />
+  }
+}
+
+function DayFilters({ initial }: { initial: ScheduleFilterSearch }) {
   const today = perthTodayKey()
   const jobs = JOBS as never as Array<JobRow>
-  const filters = useHarnessFilters(jobs, {}, jobs[0].assignedMembershipId)
+  const filters = useHarnessFilters(jobs, initial, jobs[0].assignedMembershipId)
   return (
     <KeptSchedule
       note={{ phase: 'hidden', tone: 'live', asOf: null }}
@@ -1701,6 +1728,56 @@ function ScheduleKeptWeek() {
         focusKey={today}
         week={scheduleWeek(weekStart)}
         showTeam
+        onOpenJob={() => {}}
+        onOpenDay={() => {}}
+      />
+    </KeptSchedule>
+  )
+}
+
+/**
+ * The Week View with its filter (6 Nov 2026): Kevin's week, his jobs and
+ * his due visits, the line "1 of 4 jobs". `schedule-week-filters-open` taps
+ * the icon.
+ */
+function ScheduleWeekFilters() {
+  const today = perthTodayKey()
+  const weekStart = startOfWeekKey(today)
+  const filters = useHarnessFilters([], { staff: 'm_kev' })
+  return (
+    <KeptSchedule
+      note={{ phase: 'hidden', tone: 'live', asOf: null }}
+      view="week"
+      heading={formatWeekRange(weekStart)}
+      summary={
+        <WeekSummary
+          businessId={bizId}
+          weekStart={weekStart}
+          timezone={TZ}
+          week={scheduleWeek(weekStart)}
+          staffId={filters.staffId}
+        />
+      }
+      filterButton={
+        <WeekFilterButton
+          businessId={bizId}
+          weekStart={weekStart}
+          timezone={TZ}
+          members={MEMBERS}
+          filters={filters}
+        />
+      }
+    >
+      <WeekView
+        businessId={bizId}
+        businessSlug="demo"
+        timezone={TZ}
+        weekStart={weekStart}
+        todayKey={today}
+        focusKey={today}
+        week={scheduleWeek(weekStart)}
+        showTeam
+        staffId={filters.staffId}
         onOpenJob={() => {}}
         onOpenDay={() => {}}
       />
@@ -3451,7 +3528,13 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   jobdetailbusy: JobDetailBusy,
   recurringbusy: RecurringBusy,
   recurringservices: RecurringServicesBusy,
-  'schedule-day-filters': ScheduleDayFilters,
+  'schedule-day-filters': scheduleDayFilters(),
+  'schedule-day-sorted': scheduleDayFilters({
+    staff: 'all',
+    service: 'Termite Inspection',
+    sort: 'suburb',
+  }),
+  'schedule-week-filters': ScheduleWeekFilters,
   'schedule-recurring': scheduleRecurring(false),
   'schedule-recurring-date': scheduleRecurring(true),
   sign: Sign,

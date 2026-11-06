@@ -5,13 +5,18 @@ import { JobCard } from './JobCard'
 import { RECURRING_GRID, RecurringServices } from './RecurringServices'
 import { WeatherCredit } from './WeatherCredit'
 import { SummaryLine } from './DaySummary'
-import { EmptyState, LoadFailed } from '#/components/primitives/EmptyState'
+import {
+  EmptyState,
+  LoadFailed,
+  NoMatches,
+} from '#/components/primitives/EmptyState'
 import { Segmented } from '#/components/primitives/Segmented'
 import { ListPending } from '#/components/shell/Pending'
 import { useAccess } from '#/lib/access'
 import { logConnection } from '#/lib/connectionLog'
 import { todayKey } from '#/lib/format'
 import { isSignInRefusal, listsEverythingOf } from '#/lib/jobListView'
+import { isOnJob } from '#/lib/scheduleFilters'
 import { useReadable, useReadableAll } from '#/lib/offline/useKept'
 import { rq, warm } from '#/lib/routeQueries'
 import { useBusinessDay } from '#/lib/useBusinessDay'
@@ -20,6 +25,7 @@ import { useJobsWeather } from '#/lib/weather'
 import { startOfDayInZone } from '../../../convex/lib/dates'
 import type { ReactNode } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
+import type { RecurringSort } from '#/lib/scheduleFilters'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 type RecurringBusiness = {
@@ -81,6 +87,10 @@ export async function warmRecurring(
  * None of it is kept on the phone. With the line down and none of it in
  * memory, it says so (`notKeptAction` offers the way to what is kept)
  * rather than waiting for good.
+ *
+ * On the Schedule it is filtered by the page's person (`staffId`), and its
+ * services sorted as the page asks (`sort`); the Job section's shows them
+ * all, in its own order.
  */
 export function RecurringView({
   business,
@@ -89,6 +99,9 @@ export function RecurringView({
   onOpenJob,
   notKeptAction,
   bar = true,
+  staffId = 'all',
+  sort = 'toBook',
+  onClearFilters,
 }: {
   business: RecurringBusiness
   /** "By date" rather than "By service": owned by the page, in its URL. */
@@ -100,6 +113,11 @@ export function RecurringView({
   /** The bar with its two numbers. The Schedule says them in the line under
    * its heading instead (`RecurringSummary`), as it does each view's. */
   bar?: boolean
+  /** Whose services and visits: a membership's id, or 'all'. */
+  staffId?: string
+  sort?: RecurringSort
+  /** Clear filters, where the person chosen has none of them. */
+  onClearFilters?: () => void
 }) {
   const day = useBusinessDay(business.timezone)
   const hydrated = useHydrated()
@@ -163,6 +181,8 @@ export function RecurringView({
             business={business}
             onOpenJob={onOpenJob}
             notKeptAction={notKeptAction}
+            staffId={staffId}
+            onClearFilters={onClearFilters}
           />
         ) : (
           <ByService
@@ -170,6 +190,9 @@ export function RecurringView({
             day={day}
             readFrom={readFrom}
             onOpenJob={onOpenJob}
+            staffId={staffId}
+            sort={sort}
+            onClearFilters={onClearFilters}
           />
         )}
       </Suspense>
@@ -183,20 +206,56 @@ export function RecurringView({
  * visits in the next 6 months". Read without suspense, so the heading never
  * waits: until they come — or with the line down and none of it on the
  * phone — the line says nothing and keeps its height.
+ *
+ * Filtered to one person, how many of the services are theirs ("2 of 5
+ * Recurring Jobs"): the visit count is the server's, everyone's together.
  */
 export function RecurringSummary({
   business,
+  staffId = 'all',
 }: {
   business: Pick<RecurringBusiness, '_id' | 'timezone'>
+  staffId?: string
 }) {
   const olderBackend = listsEverythingOf(useAccess()) === undefined
   const day = useBusinessDay(business.timezone)
   // Over the window the view beside it reads, fixed where it opened.
   const [readFrom] = useState(() => day.startOfToday)
-  return olderBackend ? (
+  return staffId !== 'all' ? (
+    <SummaryForPerson
+      businessId={business._id}
+      startOfToday={readFrom}
+      staffId={staffId}
+    />
+  ) : olderBackend ? (
     <SummaryFromVisits businessId={business._id} />
   ) : (
     <SummaryFromServer businessId={business._id} startOfToday={readFrom} />
+  )
+}
+
+function SummaryForPerson({
+  businessId,
+  startOfToday,
+  staffId,
+}: {
+  businessId: Id<'businesses'>
+  startOfToday: number
+  staffId: string
+}) {
+  const { data } = useQuery(rq.recurringServices(businessId, startOfToday))
+  if (!data) return <SummaryLine />
+  const all = data.services.length
+  const shown = data.services.filter(
+    (service) => service.assignedMembershipId === staffId,
+  ).length
+  return (
+    <SummaryLine>
+      <span>
+        {shown === all ? all : `${shown} of ${all}`}{' '}
+        {all === 1 ? 'Recurring Job' : 'Recurring Jobs'}
+      </span>
+    </SummaryLine>
   )
 }
 
@@ -265,17 +324,27 @@ function NotKeptRecurring({ action }: { action?: ReactNode }) {
   )
 }
 
-/** "By service": a card per running service, each opening to its visits. */
+/**
+ * "By service": a card per running service, each opening to its visits. A
+ * service has only its lead for now, so a person's services are those they
+ * lead, and their other visits those they are on.
+ */
 function ByService({
   business,
   day,
   readFrom,
   onOpenJob,
+  staffId,
+  sort,
+  onClearFilters,
 }: {
   business: RecurringBusiness
   day: ReturnType<typeof useBusinessDay>
   readFrom: number
   onOpenJob: (jobId: string) => void
+  staffId: string
+  sort: RecurringSort
+  onClearFilters?: () => void
 }) {
   const { data: services } = useSuspenseQuery(
     rq.recurringServices(business._id, readFrom),
@@ -290,14 +359,50 @@ function ByService({
       />
     )
   }
+  const shown =
+    staffId === 'all'
+      ? services
+      : {
+          ...services,
+          services: services.services.filter(
+            (service) => service.assignedMembershipId === staffId,
+          ),
+          loose: services.loose.filter(
+            (visit) => visit.assignedMembershipId === staffId,
+          ),
+        }
+  if (shown.services.length === 0 && shown.loose.length === 0) {
+    return (
+      <FilteredOut
+        hint="No Recurring Jobs match these filters."
+        onClear={onClearFilters}
+      />
+    )
+  }
   return (
     <RecurringServices
-      data={services}
+      data={shown}
       day={day}
       roster={roster}
       businessSlug={business.slug}
       onOpenJob={onOpenJob}
+      sort={sort}
     />
+  )
+}
+
+/** The person chosen has none: the thing to do is change the filter. */
+function FilteredOut({
+  hint,
+  onClear,
+}: {
+  hint: string
+  onClear?: () => void
+}) {
+  return onClear ? (
+    <NoMatches hint={hint} clearLabel="Clear filters" onClear={onClear} />
+  ) : (
+    <EmptyState title="No matches" body={hint} />
   )
 }
 
@@ -375,14 +480,22 @@ function VisitsByDate({
   business,
   onOpenJob,
   notKeptAction,
+  staffId,
+  onClearFilters,
 }: {
   business: RecurringBusiness
   onOpenJob: (id: string) => void
   notKeptAction?: ReactNode
+  staffId: string
+  onClearFilters?: () => void
 }) {
   const visits = useQuery(rq.recurringJobs(business._id))
   const readable = useReadable(rq.recurringJobs(business._id).queryKey)
-  const jobs = visits.data?.jobs ?? []
+  const everyVisit = visits.data?.jobs ?? []
+  const jobs =
+    staffId === 'all'
+      ? everyVisit
+      : everyVisit.filter((job) => isOnJob(job, staffId))
   // Each visit's forecast on its own day, for those in the next two weeks.
   const weather = useJobsWeather(business, jobs)
 
@@ -408,6 +521,15 @@ function VisitsByDate({
 
   const { seriesCount, horizonDays } = visits.data
   const months = Math.round(horizonDays / 30)
+
+  if (everyVisit.length > 0 && jobs.length === 0) {
+    return (
+      <FilteredOut
+        hint="No visits match these filters."
+        onClear={onClearFilters}
+      />
+    )
+  }
 
   if (jobs.length === 0) {
     return (

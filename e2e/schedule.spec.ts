@@ -10,6 +10,7 @@ import {
   setupBusinessWithSub,
   signInViaUi,
   signUpActor,
+  skipNearPerthMidnight,
   uniqueEmail,
 } from './fixtures'
 import { weatherKeyOf } from '../convex/lib/forecastWindow'
@@ -641,7 +642,7 @@ test('changing view or filter moves nothing, and the filters are kept in the add
   const start = await place()
 
   // The filters, behind their icon: a status and a person, as chosen.
-  const filters = page.getByRole('button', { name: /^Filters/ })
+  const filters = page.getByRole('button', { name: /^Filter and sort/ })
   await clickUntil(filters, () =>
     expect(page.getByRole('dialog')).toBeVisible({ timeout: 2_000 }),
   )
@@ -658,7 +659,7 @@ test('changing view or filter moves nothing, and the filters are kept in the add
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(ownJob).toBeHidden()
   await expect(kevinsJob).toBeVisible()
-  await expect(filters).toHaveAccessibleName('Filters, 2 on')
+  await expect(filters).toHaveAccessibleName('Filter and sort, 2 on')
   expect(await place()).toEqual(start)
 
   // Through a reload.
@@ -666,7 +667,7 @@ test('changing view or filter moves nothing, and the filters are kept in the add
   await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
   await expect(kevinsJob).toBeVisible()
   await expect(ownJob).toBeHidden()
-  await expect(filters).toHaveAccessibleName('Filters, 2 on')
+  await expect(filters).toHaveAccessibleName('Filter and sort, 2 on')
 
   // Every view: the switch and the heading where they were.
   const view = page.getByRole('tablist', { name: 'View' })
@@ -693,5 +694,157 @@ test('changing view or filter moves nothing, and the filters are kept in the add
   await sheet.getByRole('button', { name: 'Done' }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(ownJob).toBeVisible()
-  await expect(filters).toHaveAccessibleName('Filters')
+  await expect(filters).toHaveAccessibleName('Filter and sort')
+})
+
+/**
+ * Release 2 of the filters (6 Nov 2026): the day sorts by suburb and filters
+ * by service, both kept in the address; the person chosen is the week's and
+ * the Recurring view's filter too, and the Recurring view sorts its
+ * services.
+ */
+test('the day sorts by suburb and filters by service; the week and Recurring filter by person', async ({
+  page,
+}) => {
+  // Kevin's job is half an hour after the fixture's, on the same day.
+  skipNearPerthMidnight('books a job after the fixture’s', 30 * 60_000)
+  const s = await setupBusinessWithSub('schedule-sorts')
+  const armadale = await s.owner.client.mutation(api.properties.create, {
+    businessId: s.businessId,
+    clientName: 'A. Avery',
+    addressLine: '3 Church Avenue',
+    suburb: 'Armadale',
+    state: 'WA',
+    postcode: '6112',
+  })
+  await s.owner.client.mutation(api.jobs.create, {
+    businessId: s.businessId,
+    propertyId: armadale,
+    assignedMembershipId: s.subMembershipId,
+    jobType: 'General Pest Control',
+    price: 19500,
+    scheduledAt: s.ownerJobAt + 30 * 60_000,
+    durationMinutes: 60,
+  })
+  // A service each: the owner's at J. Nguyen's from tomorrow, Kevin's at A.
+  // Avery's three days on, so the soonest is not the first A–Z.
+  const service = (
+    propertyId: typeof armadale,
+    assignedMembershipId: typeof s.subMembershipId,
+    jobType: string,
+    days: number,
+  ) =>
+    s.owner.client.mutation(api.recurrences.create, {
+      businessId: s.businessId,
+      propertyId,
+      assignedMembershipId,
+      intervalCount: 1,
+      intervalUnit: 'week',
+      jobType,
+      price: 18500,
+      anchorDate: Date.now() + days * 24 * 60 * 60_000,
+      durationMinutes: 60,
+    })
+  await service(s.propertyId, s.ownerMembershipId, 'Rodents', 1)
+  await service(armadale, s.subMembershipId, 'Wasps', 3)
+
+  const nguyen = page.getByRole('button', { name: /Termite Inspection/ })
+  const avery = page.getByRole('button', { name: /General Pest Control/ })
+  // Which card comes first in the list: by the page's order, since a
+  // desktop lays two cards side by side.
+  const before = async (a: typeof nguyen, b: typeof nguyen) =>
+    a.evaluate(
+      (el, other) =>
+        (el.compareDocumentPosition(other) &
+          Node.DOCUMENT_POSITION_FOLLOWING) !==
+        0,
+      await b.elementHandle(),
+    )
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/schedule?date=${s.ownerJobDay}`)
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
+  await expect(nguyen).toBeVisible()
+  await expect(avery).toBeVisible()
+  // By time, as the day opens.
+  expect(await before(nguyen, avery)).toBe(true)
+
+  const filters = page.getByRole('button', { name: /^Filter/ })
+  const sheet = page.getByRole('dialog')
+  const open = () =>
+    clickUntil(filters, () => expect(sheet).toBeVisible({ timeout: 2_000 }))
+  const done = async () => {
+    await sheet.getByRole('button', { name: 'Done' }).click()
+    await expect(sheet).toHaveCount(0)
+  }
+
+  // By suburb: Armadale before Bayswater. A sort is no filter.
+  await open()
+  await sheet
+    .getByRole('radiogroup', { name: 'Sort by' })
+    .getByRole('radio', { name: 'Suburb' })
+    .click()
+  await expect(page).toHaveURL(/[?&]sort=suburb/)
+  await done()
+  expect(await before(avery, nguyen)).toBe(true)
+  await expect(filters).toHaveAccessibleName('Filter and sort')
+
+  // A service: only the jobs for it.
+  await open()
+  await sheet
+    .getByRole('group', { name: 'Service' })
+    .getByRole('button', { name: /Termite Inspection/ })
+    .click()
+  await expect(page).toHaveURL(/[?&]service=Termite/)
+  await done()
+  await expect(avery).toBeHidden()
+  await expect(nguyen).toBeVisible()
+  await expect(filters).toHaveAccessibleName('Filter and sort, 1 on')
+
+  // Through a reload.
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
+  await expect(nguyen).toBeVisible()
+  await expect(avery).toBeHidden()
+
+  // The week: only the person filters it, so the service hides nothing.
+  const view = page.getByRole('tablist', { name: 'View' })
+  await clickUntil(view.getByRole('tab', { name: 'Week' }), () =>
+    expect(page).toHaveURL(/[?&]view=week/, { timeout: 2_000 }),
+  )
+  const day = page.locator(`#week-day-${s.ownerJobDay}`)
+  await expect(day.getByRole('button', { name: /A\. Avery/ })).toBeVisible()
+  await expect(day.getByRole('button', { name: /J\. Nguyen/ })).toBeVisible()
+  await open()
+  await expect(sheet.getByRole('heading', { name: 'Filters' })).toBeVisible()
+  await sheet.getByRole('button', { name: /Kevin/ }).click()
+  await expect(page).toHaveURL(/[?&]staff=\w+/)
+  await done()
+  await expect(day.getByRole('button', { name: /A\. Avery/ })).toBeVisible()
+  await expect(day.getByRole('button', { name: /J\. Nguyen/ })).toBeHidden()
+  await expect(filters).toHaveAccessibleName('Filters, 1 on')
+
+  // Recurring: Kevin's services, then everyone's by client.
+  await view.getByRole('tab', { name: 'Recurring' }).click()
+  await expect(
+    page.getByText('1 of 2 Recurring Jobs', { exact: true }),
+  ).toBeVisible()
+  const wasps = page.getByRole('button', { name: /^A\. Avery Wasps/ })
+  const rodents = page.getByRole('button', { name: /^J\. Nguyen Rodents/ })
+  await expect(wasps).toBeVisible()
+  await expect(rodents).toBeHidden()
+  await open()
+  await sheet.getByRole('button', { name: /Everyone/ }).click()
+  await done()
+  await expect(rodents).toBeVisible()
+  // What is to book first, then the soonest: tomorrow's before Kevin's.
+  expect(await before(rodents, wasps)).toBe(true)
+  await open()
+  await sheet
+    .getByRole('radiogroup', { name: 'Sort by' })
+    .getByRole('radio', { name: 'Client A–Z' })
+    .click()
+  await expect(page).toHaveURL(/[?&]sort=client/)
+  await done()
+  expect(await before(wasps, rodents)).toBe(true)
 })

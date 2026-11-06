@@ -1328,12 +1328,40 @@ const PLAN = {
     spec: 'schedule-day-filters',
     before: async (p) => {
       await p.waitForTimeout(500)
-      await p.getByRole('button', { name: /^Filters/ }).click()
+      await p.getByRole('button', { name: /^Filter/ }).click()
       await p.waitForTimeout(700)
     },
   },
-  // The Schedule's Recurring view, by service and by date.
+  // Everyone's Termite Inspections, by suburb, and the sheet that says so.
+  'schedule-day-sorted': { before: async (p) => p.waitForTimeout(500) },
+  'schedule-day-sorted-open': {
+    spec: 'schedule-day-sorted',
+    before: async (p) => {
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: /^Filter/ }).click()
+      await p.waitForTimeout(700)
+    },
+  },
+  // Kevin's week, and its filter.
+  'schedule-week-filters': { before: async (p) => p.waitForTimeout(800) },
+  'schedule-week-filters-open': {
+    spec: 'schedule-week-filters',
+    before: async (p) => {
+      await p.waitForTimeout(800)
+      await p.getByRole('button', { name: /^Filter/ }).click()
+      await p.waitForTimeout(700)
+    },
+  },
+  // The Schedule's Recurring view, by service and by date, and its sort.
   'schedule-recurring': { before: async (p) => p.waitForTimeout(800) },
+  'schedule-recurring-filters-open': {
+    spec: 'schedule-recurring',
+    before: async (p) => {
+      await p.waitForTimeout(800)
+      await p.getByRole('button', { name: /^Filter/ }).click()
+      await p.waitForTimeout(700)
+    },
+  },
   'schedule-recurring-date': { before: async (p) => p.waitForTimeout(1200) },
   // The busy client: a summary under the name, then Jobs, Notes, Details.
   clientbusy: { before: async (p) => p.waitForTimeout(1200) },

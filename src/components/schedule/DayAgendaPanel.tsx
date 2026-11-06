@@ -11,7 +11,8 @@ import {
 import { formatDayLabel } from '#/lib/format'
 import { useActing, useViewMode } from '#/lib/access'
 import { useWeather, weatherKeyOf } from '#/lib/weather'
-import { jobsAhead, travelHintsFor } from '#/lib/travel'
+import { jobsAhead } from '#/lib/travel'
+import { dayTravelHints } from '#/lib/scheduleFilters'
 import { RecurringDueNote } from './RecurringDueNote'
 import { WeatherCredit } from './WeatherCredit'
 import { OutboxGroup } from './OutboxGroup'
@@ -80,7 +81,7 @@ export function DayAgendaPanel({
 }) {
   const mode = useViewMode()
   const acting = useActing()
-  const { status, staffId, filteredJobs } = filters
+  const { status, staffId, service, sort, filteredJobs } = filters
 
   // The day's bookings on this phone, not sent yet, as the phone's list has
   // them: a group under the cards, each keeping its slot until the day is
@@ -92,9 +93,10 @@ export function DayAgendaPanel({
     timezone,
     rows: jobs,
     drawsCards: filteredJobs.length > 0,
-    redrawKey: `${selectedKey}|${status}|${staffId}|${mode ?? ''}|${acting.membershipId}`,
+    redrawKey: `${selectedKey}|${status}|${staffId}|${service}|${sort}|${mode ?? ''}|${acting.membershipId}`,
     allStatuses: status === 'all',
     staffId,
+    service,
     mineOnly: mode === 'mine' ? acting.membershipId : null,
   })
   const outboxPlaces = useOutboxPlaces(businessId, selectedKey, timezone)
@@ -114,9 +116,11 @@ export function DayAgendaPanel({
   )
   // Travel hints read lat/lng out of the RAW entries, not the rendered cell —
   // the coordinates are geography, unrelated to whether a forecast resolved.
-  // Measured over the work still ahead only — see `jobsAhead`.
-  const travel = travelHintsFor(
+  // Measured over the work still ahead only — see `jobsAhead` — along the
+  // route the sort lays out, if it lays one out (`dayTravelHints`).
+  const travel = dayTravelHints(
     jobsAhead(listedJobs),
+    sort,
     (job) =>
       weather.byKey[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)],
   )

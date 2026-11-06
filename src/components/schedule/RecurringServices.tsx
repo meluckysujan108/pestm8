@@ -8,6 +8,7 @@ import { seriesView } from '#/lib/clientJobs'
 import { formatJobDate } from '#/lib/format'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { useHydrated } from '#/lib/useHydrated'
+import type { RecurringSort } from '#/lib/scheduleFilters'
 import type { ReactNode } from 'react'
 import type { FunctionReturnType } from 'convex/server'
 import type { api } from '../../../convex/_generated/api'
@@ -35,7 +36,8 @@ export const RECURRING_GRID =
  * The Recurring Job page by service: one card per running service — whose,
  * where, how often, who does it, when next, how many ahead, and how many to
  * book — each opening to its visits. Services with visits to book come
- * first, then the soonest.
+ * first, then the soonest (`sort`, which the Schedule lets be changed: the
+ * soonest first whatever is to book, or by client).
  *
  * It replaced a card per visit, which for three services was 127 cards and
  * about 45 phone screens, and never showed the services themselves: "which
@@ -48,6 +50,7 @@ export function RecurringServices({
   roster,
   businessSlug,
   onOpenJob,
+  sort = 'toBook',
 }: {
   data: Services
   day: Day & { key: string }
@@ -61,6 +64,7 @@ export function RecurringServices({
     | undefined
   businessSlug: string
   onOpenJob: (jobId: string) => void
+  sort?: RecurringSort
 }) {
   // A card says the suburb, as cards do; the street too only where one
   // client has services at more than one of their sites.
@@ -71,14 +75,24 @@ export function RecurringServices({
       (sitesOf.get(s.clientName) ?? new Set()).add(s.propertyId),
     )
   }
+  type View = SeriesView<Service, Visit>
+  const toBook = (a: View, b: View) =>
+    Number(b.overdue.length > 0) - Number(a.overdue.length > 0)
+  const soonest = (a: View, b: View) =>
+    (a.next?.scheduledAt ?? a.nextDue ?? Infinity) -
+    (b.next?.scheduledAt ?? b.nextDue ?? Infinity)
+  const client = (a: View, b: View) =>
+    a.series.clientName.localeCompare(b.series.clientName, undefined, {
+      sensitivity: 'base',
+    })
   const views = data.services
     .map((service) => seriesView(service, data.visits, day))
-    .sort(
-      (a, b) =>
-        Number(b.overdue.length > 0) - Number(a.overdue.length > 0) ||
-        (a.next?.scheduledAt ?? a.nextDue ?? Infinity) -
-          (b.next?.scheduledAt ?? b.nextDue ?? Infinity) ||
-        a.series.clientName.localeCompare(b.series.clientName),
+    .sort((a, b) =>
+      sort === 'client'
+        ? client(a, b) || soonest(a, b)
+        : sort === 'next'
+          ? soonest(a, b) || client(a, b)
+          : toBook(a, b) || soonest(a, b) || client(a, b),
     )
 
   return (

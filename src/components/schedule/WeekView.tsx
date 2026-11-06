@@ -4,7 +4,7 @@ import { useSuspenseQueries } from '@tanstack/react-query'
 import { ChevronRight, Repeat } from 'lucide-react'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import { addDaysToKey, formatShortDayLabel, formatTime } from '#/lib/format'
-import { computeStaffLoad } from '#/lib/scheduleFilters'
+import { computeStaffLoad, isOnJob } from '#/lib/scheduleFilters'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { rq } from '#/lib/routeQueries'
 import {
@@ -12,8 +12,10 @@ import {
   dayPhase,
   splitDayRows,
   weekDayKeys,
+  weekTotals,
 } from '#/lib/weekView'
 import { HORIZON_DAYS } from '../../../convex/lib/recurrence'
+import { SummaryLine } from './DaySummary'
 import type { DayPhase } from '#/lib/weekView'
 import type { DayLoad } from './WeekStrip'
 import type { JobRow } from './JobCard'
@@ -31,6 +33,11 @@ import { everyoneOnJob, namesOf } from '#/lib/jobPeople'
  * before that is only a number that links to the Recurring Job view. That is
  * the rule `listDay` already keeps: future projections off the schedule, due
  * ones on it, none of them in a job count.
+ *
+ * Filtered to one person (`staffId`), it is their week: their jobs, and the
+ * visits of theirs that are due or overdue. A day ahead counts its visits on
+ * the server, everyone's together (`listWeek`), so that number is left out
+ * rather than said for someone it is not about.
  */
 export function WeekView({
   businessId,
@@ -42,6 +49,7 @@ export function WeekView({
   focusTick = 0,
   week,
   showTeam,
+  staffId = 'all',
   onOpenJob,
   onOpenDay,
 }: {
@@ -59,22 +67,17 @@ export function WeekView({
   week: Array<DayLoad & { dayKey?: string }>
   /** The team key: off in "Just my jobs", where every job is the viewer's. */
   showTeam: boolean
+  /** The Schedule's person filter: a membership's id, or 'all'. */
+  staffId?: string
   onOpenJob: (jobId: string) => void
   onOpenDay: (dayKey: string) => void
 }) {
-  const dayKeys = weekDayKeys(weekStart)
-  // Seven reads that the route's loader has already asked for together; no
-  // boundary of its own, so a week not in the cache keeps the previous view
-  // up (the page defers the switch) instead of flashing a placeholder.
-  const days = useSuspenseQueries({
-    queries: dayKeys.map((dayKey) => rq.day(businessId, dayKey)),
-  }).map((result) => result.data as Array<JobRow>)
-
-  const split = dayKeys.map((dayKey, i) =>
-    splitDayRows(days[i], dayKey, timezone),
-  )
+  const split = useWeekDays(businessId, weekStart, timezone)
   const committedAll = split.flatMap((d) => d.committed)
   const team = computeStaffLoad(committedAll)
+  const everyone = staffId === 'all'
+  const theirs = (rows: Array<JobRow>) =>
+    everyone ? rows : rows.filter((job) => isOnJob(job, staffId))
 
   useScrollToDay(focusKey, weekStart, focusTick)
 
@@ -82,7 +85,7 @@ export function WeekView({
 
   return (
     <div className="flex flex-col gap-3">
-      {showTeam && team.length >= 2 && (
+      {showTeam && everyone && team.length >= 2 && (
         // Whose rail is whose, for this week — the Schedule's cards no
         // longer print the technician's name.
         <ul
@@ -110,26 +113,108 @@ export function WeekView({
         </p>
       )}
 
-      {dayKeys.map((dayKey, i) => (
-        <WeekDay
-          key={dayKey}
-          initials={showTeam && team.length >= 2}
-          dayKey={dayKey}
-          phase={dayPhase(dayKey, todayKey)}
-          businessSlug={businessSlug}
-          timezone={timezone}
-          committed={split[i].committed}
-          dueHere={split[i].dueHere}
-          carried={carriedFromBefore(split[i].carried, weekStart, timezone)}
-          recurringCount={
-            week.find((d) => d.offset === i)?.recurringCount ??
-            split[i].dueHere.length
-          }
-          onOpenJob={onOpenJob}
-          onOpenDay={onOpenDay}
-        />
-      ))}
+      {split.map(({ dayKey, committed, dueHere, carried }, i) => {
+        const phase = dayPhase(dayKey, todayKey)
+        return (
+          <WeekDay
+            key={dayKey}
+            initials={showTeam && everyone && team.length >= 2}
+            dayKey={dayKey}
+            phase={phase}
+            businessSlug={businessSlug}
+            timezone={timezone}
+            committed={theirs(committed)}
+            dueHere={theirs(dueHere)}
+            carried={theirs(carriedFromBefore(carried, weekStart, timezone))}
+            recurringCount={
+              everyone
+                ? (week.find((d) => d.offset === i)?.recurringCount ??
+                  dueHere.length)
+                : phase === 'future'
+                  ? 0
+                  : theirs(dueHere).length
+            }
+            onOpenJob={onOpenJob}
+            onOpenDay={onOpenDay}
+          />
+        )
+      })}
     </div>
+  )
+}
+
+/**
+ * The week's seven days as the Week View draws them: each day's booked jobs,
+ * its own projected visits, and those carried onto it. Seven reads that the
+ * route's loader has already asked for together; no boundary of their own,
+ * so a week not in the cache keeps the previous view up (the page defers the
+ * switch) instead of flashing a placeholder. The view's line and its filter
+ * read the same seven, from the cache.
+ */
+export function useWeekDays(
+  businessId: Id<'businesses'>,
+  weekStart: string,
+  timezone: string,
+): Array<{
+  dayKey: string
+  committed: Array<JobRow>
+  dueHere: Array<JobRow>
+  carried: Array<JobRow>
+}> {
+  const dayKeys = weekDayKeys(weekStart)
+  const days = useSuspenseQueries({
+    queries: dayKeys.map((dayKey) => rq.day(businessId, dayKey)),
+  }).map((result) => result.data as Array<JobRow>)
+  return dayKeys.map((dayKey, i) => ({
+    dayKey,
+    ...splitDayRows(days[i], dayKey, timezone),
+  }))
+}
+
+/**
+ * The week's line under its heading (`SummaryLine`): its jobs and its
+ * recurring visits, or — filtered to one person — how many of the week's
+ * jobs are theirs.
+ */
+export function WeekSummary({
+  businessId,
+  weekStart,
+  timezone,
+  week,
+  staffId,
+}: {
+  businessId: Id<'businesses'>
+  weekStart: string
+  timezone: string
+  week: Array<{ count: number; recurringCount?: number }>
+  staffId: string
+}) {
+  const days = useWeekDays(businessId, weekStart, timezone)
+  if (staffId !== 'all') {
+    const all = days.flatMap((d) => d.committed)
+    const shown = all.filter((job) => isOnJob(job, staffId)).length
+    return (
+      <SummaryLine>
+        <span>
+          {shown === all.length ? all.length : `${shown} of ${all.length}`}{' '}
+          {all.length === 1 ? 'job' : 'jobs'}
+        </span>
+      </SummaryLine>
+    )
+  }
+  const totals = weekTotals(week)
+  return (
+    <SummaryLine>
+      <span>
+        {totals.jobs} {totals.jobs === 1 ? 'job' : 'jobs'}
+      </span>
+      {totals.recurring > 0 && (
+        <span>
+          · {totals.recurring} recurring{' '}
+          {totals.recurring === 1 ? 'visit' : 'visits'}
+        </span>
+      )}
+    </SummaryLine>
   )
 }
 

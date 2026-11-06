@@ -58,7 +58,7 @@ test('God view shows everyone; "Just my jobs" shows his own and simplifies', asy
   await expect(kevinsJob(page)).toBeHidden()
   // Whose jobs these are is no longer a question, so nothing asks it: the
   // filters keep their status, and lose their Technician.
-  await page.getByRole('button', { name: /^Filters/ }).click()
+  await page.getByRole('button', { name: /^Filter/ }).click()
   await expect(
     page.getByRole('dialog').getByRole('group', { name: 'Status' }),
   ).toBeVisible()
@@ -94,7 +94,7 @@ test('changing view starts the filters over', async ({ page }) => {
     page.getByRole('button', { name: 'Whose jobs to show' }),
   ).toBeEnabled()
 
-  await page.getByRole('button', { name: /^Filters/ }).click()
+  await page.getByRole('button', { name: /^Filter/ }).click()
   await page.getByRole('dialog').getByRole('button', { name: /Kevin/ }).click()
   await expect(ownJob(page)).toBeHidden()
   await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click()

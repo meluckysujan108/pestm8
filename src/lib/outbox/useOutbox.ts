@@ -12,7 +12,7 @@ import { keeper } from '#/lib/offline/keeper'
 import { lensOf } from '#/lib/offline/keptSet'
 import { signedInUserId } from '#/lib/rootState'
 import { rq } from '#/lib/routeQueries'
-import { isOnJob } from '#/lib/scheduleFilters'
+import { hasService, isOnJob } from '#/lib/scheduleFilters'
 import { useHydrated } from '#/lib/useHydrated'
 import { outbox } from './outbox'
 import { BookingSession, canKeepNow } from './book'
@@ -211,8 +211,9 @@ export type OutboxDay = {
 /**
  * A day's bookings not sent yet, slotted (`latchSlots`): those of the day
  * shown, under the status filter "All" only (a booking has no status yet),
- * and, like the jobs, only those the staff filter or "Just my jobs" would
- * let through (the lead, or someone also going). Each as the server's
+ * and, like the jobs, only those the staff and service filters or "Just my
+ * jobs" would let through (the lead, or someone also going; any of its
+ * services). Each as the server's
  * answer has it, the moment it is heard (`answeredView`). Needs-a-look
  * bookings of other days join today's group with 2c-E (plan D13), with the
  * sheet that settles them; until then a booking shows on its own day.
@@ -231,6 +232,8 @@ export function useOutboxDay(at: {
   allStatuses: boolean
   /** The staff filter's person, or 'all'. */
   staffId: string
+  /** The service filter's, or 'all'. */
+  service?: string
   /** "Just my jobs": the person's own membership. */
   mineOnly: string | null
 }): OutboxDay {
@@ -259,6 +262,8 @@ export function useOutboxDay(at: {
     if (!at.allStatuses) return false
     const row = outboxRow(item, live)
     if (at.staffId !== 'all' && !isOnJob(row, at.staffId)) return false
+    if (at.service && at.service !== 'all' && !hasService(row, at.service))
+      return false
     if (at.mineOnly !== null && !isOnJob(row, at.mineOnly)) return false
     return true
   }
