@@ -2,8 +2,9 @@ import { Suspense, useEffect, useState } from 'react'
 import { useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { Repeat } from 'lucide-react'
 import { JobCard } from './JobCard'
-import { RecurringServices } from './RecurringServices'
+import { RECURRING_GRID, RecurringServices } from './RecurringServices'
 import { WeatherCredit } from './WeatherCredit'
+import { SummaryLine } from './DaySummary'
 import { EmptyState, LoadFailed } from '#/components/primitives/EmptyState'
 import { Segmented } from '#/components/primitives/Segmented'
 import { ListPending } from '#/components/shell/Pending'
@@ -87,6 +88,7 @@ export function RecurringView({
   onByDateChange,
   onOpenJob,
   notKeptAction,
+  bar = true,
 }: {
   business: RecurringBusiness
   /** "By date" rather than "By service": owned by the page, in its URL. */
@@ -95,6 +97,9 @@ export function RecurringView({
   onOpenJob: (jobId: string) => void
   /** Under "Not on this phone": the way to something the phone keeps. */
   notKeptAction?: ReactNode
+  /** The bar with its two numbers. The Schedule says them in the line under
+   * its heading instead (`RecurringSummary`), as it does each view's. */
+  bar?: boolean
 }) {
   const day = useBusinessDay(business.timezone)
   const hydrated = useHydrated()
@@ -119,46 +124,126 @@ export function RecurringView({
   // the phone has said so), "Not on this phone" takes its place, where the
   // page's placeholder would wait for good. On the Schedule it also lets the
   // view switch at once, its placeholder under the heading just chosen.
+  //
+  // Its columns follow the room it is given, not the screen: beside the
+  // Schedule's month on a desktop it has half the width the Job section
+  // gives it (`RECURRING_GRID`).
   return (
-    <Suspense
-      fallback={
-        <ListPending label="Loading Recurring Jobs" count={3} columns={3} />
+    <div className="@container">
+      <Suspense
+        fallback={
+          <ListPending
+            label="Loading Recurring Jobs"
+            count={3}
+            grid={RECURRING_GRID}
+          />
+        }
+      >
+        {!bar ? null : olderBackend ? (
+          <BarFromVisits businessId={business._id} />
+        ) : (
+          <BarFromSummary businessId={business._id} startOfToday={readFrom} />
+        )}
+
+        <div className="mb-3">
+          <Segmented
+            label="Show"
+            value={byDate ? 'date' : 'service'}
+            disabled={!hydrated}
+            onChange={(next) => onByDateChange(next === 'date')}
+            options={[
+              { value: 'service', label: 'By service' },
+              { value: 'date', label: 'By date' },
+            ]}
+          />
+        </div>
+
+        {byDate ? (
+          <VisitsByDate
+            business={business}
+            onOpenJob={onOpenJob}
+            notKeptAction={notKeptAction}
+          />
+        ) : (
+          <ByService
+            business={business}
+            day={day}
+            readFrom={readFrom}
+            onOpenJob={onOpenJob}
+          />
+        )}
+      </Suspense>
+    </div>
+  )
+}
+
+/**
+ * The bar's two numbers, said in the line under the Schedule's heading
+ * (`SummaryLine`), as each of its views says its own: "3 Recurring Jobs · 41
+ * visits in the next 6 months". Read without suspense, so the heading never
+ * waits: until they come — or with the line down and none of it on the
+ * phone — the line says nothing and keeps its height.
+ */
+export function RecurringSummary({
+  business,
+}: {
+  business: Pick<RecurringBusiness, '_id' | 'timezone'>
+}) {
+  const olderBackend = listsEverythingOf(useAccess()) === undefined
+  const day = useBusinessDay(business.timezone)
+  // Over the window the view beside it reads, fixed where it opened.
+  const [readFrom] = useState(() => day.startOfToday)
+  return olderBackend ? (
+    <SummaryFromVisits businessId={business._id} />
+  ) : (
+    <SummaryFromServer businessId={business._id} startOfToday={readFrom} />
+  )
+}
+
+function SummaryFromServer({
+  businessId,
+  startOfToday,
+}: {
+  businessId: Id<'businesses'>
+  startOfToday: number
+}) {
+  const { data } = useQuery(rq.recurringSummary(businessId, startOfToday))
+  return <CountsLine counts={data} />
+}
+
+function SummaryFromVisits({ businessId }: { businessId: Id<'businesses'> }) {
+  const { data } = useQuery(rq.recurringJobs(businessId))
+  return (
+    <CountsLine
+      counts={
+        data && {
+          seriesCount: data.seriesCount,
+          visitCount: data.jobs.length,
+          horizonDays: data.horizonDays,
+        }
       }
-    >
-      {olderBackend ? (
-        <BarFromVisits businessId={business._id} />
-      ) : (
-        <BarFromSummary businessId={business._id} startOfToday={readFrom} />
-      )}
+    />
+  )
+}
 
-      <div className="mb-3">
-        <Segmented
-          label="Show"
-          value={byDate ? 'date' : 'service'}
-          disabled={!hydrated}
-          onChange={(next) => onByDateChange(next === 'date')}
-          options={[
-            { value: 'service', label: 'By service' },
-            { value: 'date', label: 'By date' },
-          ]}
-        />
-      </div>
-
-      {byDate ? (
-        <VisitsByDate
-          business={business}
-          onOpenJob={onOpenJob}
-          notKeptAction={notKeptAction}
-        />
-      ) : (
-        <ByService
-          business={business}
-          day={day}
-          readFrom={readFrom}
-          onOpenJob={onOpenJob}
-        />
-      )}
-    </Suspense>
+function CountsLine({
+  counts,
+}: {
+  counts:
+    { seriesCount: number; visitCount: number; horizonDays: number } | undefined
+}) {
+  if (!counts) return <SummaryLine />
+  const { seriesCount, visitCount, horizonDays } = counts
+  return (
+    <SummaryLine>
+      <span>
+        {seriesCount} {seriesCount === 1 ? 'Recurring Job' : 'Recurring Jobs'}
+      </span>
+      <span className="truncate">
+        · {visitCount} {visitCount === 1 ? 'visit' : 'visits'} in the next{' '}
+        {Math.round(horizonDays / 30)} months
+      </span>
+    </SummaryLine>
   )
 }
 
@@ -305,7 +390,12 @@ function VisitsByDate({
     if (!readable) return <NotKeptRecurring action={notKeptAction} />
     if (!visits.isError) {
       return (
-        <ListPending label="Loading visits" count={3} columns={3} size="job" />
+        <ListPending
+          label="Loading visits"
+          count={3}
+          grid={RECURRING_GRID}
+          size="job"
+        />
       )
     }
     // Refused for want of a sign-in: the route's error component waits for
@@ -336,7 +426,7 @@ function VisitsByDate({
 
   return (
     <>
-      <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch xl:grid-cols-3">
+      <div className={`${RECURRING_GRID} @xl:items-stretch`}>
         {jobs.map((job) => (
           <JobCard
             key={job._id}

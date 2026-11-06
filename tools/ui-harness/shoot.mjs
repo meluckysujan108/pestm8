@@ -1321,6 +1321,17 @@ const PLAN = {
       await p.waitForTimeout(300)
     },
   },
+  // A technician's day: the filters' icon at the end of the View switch's
+  // row, and its sheet.
+  'schedule-day-filters': { before: async (p) => p.waitForTimeout(500) },
+  'schedule-day-filters-open': {
+    spec: 'schedule-day-filters',
+    before: async (p) => {
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: /^Filters/ }).click()
+      await p.waitForTimeout(700)
+    },
+  },
   // The Schedule's Recurring view, by service and by date.
   'schedule-recurring': { before: async (p) => p.waitForTimeout(800) },
   'schedule-recurring-date': { before: async (p) => p.waitForTimeout(1200) },

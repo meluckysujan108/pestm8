@@ -68,23 +68,27 @@ type CardSize = 'row' | 'job'
  * boards, unless the list it stands in for is a single column — the reports
  * and notes libraries are, and `md:` is a viewport query, so inside the notes
  * column it would otherwise lay two half-width bones side by side. Three is
- * the Job tab's, which adds a third column at `xl:`.
+ * the Job tab's, which adds a third column at `xl:`. A list whose columns
+ * follow its container instead (the Recurring view) passes its own `grid`.
  */
 export function CardRows({
   count,
   className = '',
   columns = 2,
+  grid,
   size = 'row',
 }: {
   count: number
   className?: string
   columns?: 1 | 2 | 3
+  /** The list's own layout classes, in place of `columns`'. */
+  grid?: string
   size?: CardSize
 }) {
   return (
     <div
       aria-hidden
-      className={`flex flex-col gap-2.5 ${columns > 1 ? 'md:grid md:grid-cols-2' : ''} ${columns === 3 ? 'xl:grid-cols-3' : ''} ${className}`}
+      className={`${grid ?? `flex flex-col gap-2.5 ${columns > 1 ? 'md:grid md:grid-cols-2' : ''} ${columns === 3 ? 'xl:grid-cols-3' : ''}`} ${className}`}
     >
       <CardCells count={count} size={size} />
     </div>
@@ -131,12 +135,15 @@ export function ListPending({
   count,
   className = '',
   columns = 1,
+  grid,
   size = 'row',
 }: {
   label: string
   count: number
   className?: string
   columns?: 1 | 2 | 3
+  /** The list's own layout classes (`CardRows`). */
+  grid?: string
   size?: CardSize
 }) {
   return (
@@ -145,6 +152,7 @@ export function ListPending({
       <CardRows
         count={count}
         columns={columns}
+        grid={grid}
         size={size}
         className={className}
       />

@@ -57,7 +57,10 @@ import { EmailInput } from '#/components/forms/EmailInput'
 import { JobCard } from '#/components/schedule/JobCard'
 import type { WeatherCell } from '#/lib/weather'
 import { RecurringServices } from '#/components/schedule/RecurringServices'
-import { RecurringView } from '#/components/schedule/RecurringView'
+import {
+  RecurringSummary,
+  RecurringView,
+} from '#/components/schedule/RecurringView'
 import { useBusinessDay } from '#/lib/useBusinessDay'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import {
@@ -122,7 +125,9 @@ import {
   NoMatches,
 } from '#/components/primitives/EmptyState'
 import { StatusPill } from '#/components/primitives/StatusPill'
-import { ScheduleFilterBar } from '#/components/schedule/ScheduleFilterBar'
+import { ScheduleFilterButton } from '#/components/schedule/ScheduleFilterButton'
+import type { JobRow } from '#/components/schedule/JobCard'
+import { DaySummary, SummaryLine } from '#/components/schedule/DaySummary'
 import { ClientFilterBar } from '#/components/clients/ClientFilterBar'
 import { clientFacets } from '../../convex/lib/clientFacets'
 import {
@@ -159,7 +164,8 @@ import {
   User,
   Users,
 } from 'lucide-react'
-import type { StatusFilter } from '#/lib/scheduleFilters'
+import { useScheduleFilters } from '#/lib/scheduleFilters'
+import type { ScheduleFilterSearch } from '#/lib/scheduleFilters'
 import type {
   KindFilter,
   StatusFilter as ClientStatusFilter,
@@ -1045,28 +1051,43 @@ function RecurringServicesBusy() {
 
 /**
  * The Schedule's Recurring view (6 Nov 2026): the Job section's Recurring
- * Job, the same component (`RecurringView`), under the Schedule's heading and
- * View switch, with no week strip, as the page draws it on a phone.
+ * Job, the same component (`RecurringView`), under the week strip, the
+ * Schedule's heading and its View switch, as the page draws it on a phone.
  */
 function scheduleRecurring(byDate: boolean) {
   return function ScheduleRecurring() {
+    const today = perthTodayKey()
+    const weekStart = startOfWeekKey(today)
     return (
       <Phone>
         <AccessProvider businessId={bizId}>
-          <Header kicker={formatMonthLabel(perthTodayKey())} title="Schedule" />
+          <Header kicker={formatMonthLabel(today)} title="Schedule" />
+          <div className="border-b border-hairline bg-chrome">
+            <div className="flex items-center justify-between px-3 pt-2">
+              <span className="size-8" />
+              <span className="text-body font-semibold text-blue">Today</span>
+              <span className="size-8" />
+            </div>
+            <WeekStrip
+              startKey={weekStart}
+              selectedKey={today}
+              todayKey={today}
+              load={scheduleWeek(weekStart)}
+              onSelect={() => {}}
+            />
+          </div>
           <section className="px-4 pt-4 pb-6">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="section-label">Recurring Jobs</h2>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Segmented
-                  label="View"
-                  value="recurring"
-                  options={SCHEDULE_VIEW_OPTIONS}
-                  onChange={() => {}}
-                />
-              </div>
+            <div className="mb-3 flex min-h-9 items-center justify-between gap-3">
+              <Segmented
+                label="View"
+                value="recurring"
+                options={SCHEDULE_VIEW_OPTIONS}
+                onChange={() => {}}
+              />
+            </div>
+            <div className="mb-3 min-w-0">
+              <h2 className="section-label truncate">Recurring Jobs</h2>
+              <RecurringSummary business={{ _id: bizId, timezone: TZ }} />
             </div>
             <RecurringView
               business={{
@@ -1078,6 +1099,7 @@ function scheduleRecurring(byDate: boolean) {
               byDate={byDate}
               onByDateChange={() => {}}
               onOpenJob={() => {}}
+              bar={false}
             />
           </section>
         </AccessProvider>
@@ -1295,9 +1317,26 @@ function Warnings() {
   )
 }
 
+/**
+ * The route's filters (`useScheduleFilters`), their address a `useState`:
+ * the hook itself, so a specimen filters as the page does.
+ */
+function useHarnessFilters(
+  jobs: Array<JobRow>,
+  initial: ScheduleFilterSearch = {},
+  defaultStaffId = 'all',
+) {
+  const [search, setSearch] = useState(initial)
+  return useScheduleFilters({
+    jobs,
+    search,
+    onSearchChange: setSearch,
+    defaultStaffId,
+  })
+}
+
 function Filters() {
-  const [status, setStatus] = useState<StatusFilter>('all')
-  const [staffId, setStaffId] = useState('all')
+  const scheduleFilters = useHarnessFilters(JOBS as never)
   const [kind, setKind] = useState<KindFilter>('all')
   const [suburb, setSuburb] = useState('all')
   const [clientStatus, setClientStatus] = useState<ClientStatusFilter>('all')
@@ -1318,14 +1357,11 @@ function Filters() {
             { value: 'month', label: 'Month' },
           ]}
         />
-        <p className="section-label">Schedule filter bar</p>
-        <ScheduleFilterBar
+        <p className="section-label">Schedule filters</p>
+        <ScheduleFilterButton
           jobs={JOBS as never}
           members={MEMBERS}
-          status={status}
-          setStatus={setStatus}
-          staffId={staffId}
-          setStaffId={setStaffId}
+          filters={scheduleFilters}
         />
         <p className="section-label">Client filter bar</p>
         <ClientFilterBar
@@ -1506,11 +1542,17 @@ function KeptSchedule({
   note,
   view,
   heading,
+  summary = <SummaryLine />,
+  filterButton,
   children,
 }: {
   note: Pick<KeptNote, 'phase' | 'tone' | 'asOf'>
   view: ScheduleView
   heading: string
+  /** The line under the heading (`SummaryLine`), its height kept. */
+  summary?: ReactNode
+  /** The Job view's filters, at the end of the switch's row. */
+  filterButton?: ReactNode
   children: ReactNode
 }) {
   const today = perthTodayKey()
@@ -1534,14 +1576,18 @@ function KeptSchedule({
       </div>
       <KeptCopyNote {...note} timezone={TZ} todayKey={today} />
       <section className="px-4 pt-4 pb-6">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="section-label min-w-0">{heading}</h2>
+        <div className="mb-3 flex min-h-9 items-center justify-between gap-3">
           <Segmented
             label="View"
             value={view}
             options={SCHEDULE_VIEW_OPTIONS}
             onChange={() => {}}
           />
+          {filterButton}
+        </div>
+        <div className="mb-3 min-w-0">
+          <h2 className="section-label truncate">{heading}</h2>
+          {summary}
         </div>
         {children}
       </section>
@@ -1552,6 +1598,48 @@ function KeptSchedule({
 /** A time of day on `dayKey`, in Perth: the business's clock. */
 function perthAt(dayKey: string, time: string): number {
   return Date.parse(`${dayKey}T${time}:00+08:00`)
+}
+
+/**
+ * A technician's day on the phone (6 Nov 2026): the View switch with the
+ * filters' icon at the end of its row, blue with "1" since the phone opens
+ * on their own jobs, then the heading and its one line, "2 of 4 jobs".
+ * `schedule-day-filters-open` taps it.
+ */
+function ScheduleDayFilters() {
+  const today = perthTodayKey()
+  const jobs = JOBS as never as Array<JobRow>
+  const filters = useHarnessFilters(jobs, {}, jobs[0].assignedMembershipId)
+  return (
+    <KeptSchedule
+      note={{ phase: 'hidden', tone: 'live', asOf: null }}
+      view="job"
+      heading={formatDayLabel(today)}
+      summary={
+        <DaySummary
+          jobs={jobs}
+          shown={filters.filteredJobs}
+          timezone={TZ}
+          todayKey={today}
+        />
+      }
+      filterButton={
+        <ScheduleFilterButton jobs={jobs} members={MEMBERS} filters={filters} />
+      }
+    >
+      <div className="flex flex-col gap-2.5">
+        {filters.filteredJobs.map((job) => (
+          <JobCard
+            key={job._id}
+            job={job}
+            timezone={TZ}
+            onOpen={() => {}}
+            hideTechnician
+          />
+        ))}
+      </div>
+    </KeptSchedule>
+  )
 }
 
 /**
@@ -1798,6 +1886,8 @@ const AGENDA_BOOKINGS = [WAITING, SENDING]
  * cards, drawn by the panel itself from the outbox. */
 function AgendaOutbox() {
   const today = perthTodayKey()
+  const jobs = JOBS.filter((job) => job.status !== 'recurring') as never
+  const filters = useHarnessFilters(jobs)
   return (
     <div className="min-h-screen bg-canvas p-4">
       <AccessProvider businessId={bizId}>
@@ -1809,10 +1899,11 @@ function AgendaOutbox() {
             timezone={TZ}
             selectedKey={today}
             todayKey={today}
-            jobs={JOBS.filter((job) => job.status !== 'recurring') as never}
+            jobs={jobs}
             members={MEMBERS}
             view="job"
             onViewChange={() => {}}
+            filters={filters}
             onOpenJob={() => {}}
             onOpenItem={() => {}}
           />
@@ -3360,6 +3451,7 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   jobdetailbusy: JobDetailBusy,
   recurringbusy: RecurringBusy,
   recurringservices: RecurringServicesBusy,
+  'schedule-day-filters': ScheduleDayFilters,
   'schedule-recurring': scheduleRecurring(false),
   'schedule-recurring-date': scheduleRecurring(true),
   sign: Sign,

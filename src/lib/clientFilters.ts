@@ -206,9 +206,9 @@ export type ClientFilterValues = {
 
 /**
  * Kind + suburb narrowing for the client list — the client-context analogue
- * of `useScheduleFilters`'s status/staff narrowing. Local state, not the URL:
- * mirrors status/staff being ephemeral per-visit while `q` (durable, "survives
- * a refresh") stays in the route's search params.
+ * of `useScheduleFilters`'s status/staff narrowing. Local state, not the URL,
+ * while `q` (durable, "survives a refresh") stays in the route's search
+ * params; the Schedule's moved into its address on 6 Nov 2026.
  *
  * The values only; `filterClientRows` does the narrowing. Which rows there
  * are to narrow depends on the values: the page opens on its newest clients

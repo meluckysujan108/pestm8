@@ -62,17 +62,11 @@ async function openLiveJob(
   name: RegExp = /Termite Inspection/,
   { everyone = false } = {},
 ) {
-  await page.goto(`/${slug}/schedule?date=${perthDayKey(at)}`)
-  // The phone opens on his own jobs, which a colleague's isn't one of.
-  if (everyone && (page.viewportSize()?.width ?? 1280) < 1024) {
-    await clickUntil(
-      page.getByRole('button', { name: 'Clear filters' }).first(),
-      () =>
-        expect(page.getByRole('button', { name }).first()).toBeVisible({
-          timeout: 3_000,
-        }),
-    )
-  }
+  // The phone opens on his own jobs, which a colleague's isn't one of, so
+  // everyone's are asked for in the address (`staff`), as a desktop opens.
+  await page.goto(
+    `/${slug}/schedule?date=${perthDayKey(at)}${everyone ? '&staff=all' : ''}`,
+  )
   const sheet = page.getByRole('dialog')
   await clickUntil(page.getByRole('button', { name }).first(), () =>
     expect(

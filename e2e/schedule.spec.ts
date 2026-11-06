@@ -7,6 +7,7 @@ import {
   chooseProperty,
   clickUntil,
   inviteAndJoin,
+  setupBusinessWithSub,
   signInViaUi,
   signUpActor,
   uniqueEmail,
@@ -586,4 +587,111 @@ test('the phone’s week strip is no taller for holding recurring numbers', asyn
   await expect(page.getByTestId('strip-recurring')).toHaveCount(0)
 
   expect(Math.abs(withRecurring - without)).toBeLessThanOrEqual(0.5)
+})
+
+/**
+ * Changing view or filter moves nothing (6 Nov 2026). The View switch keeps
+ * its place on every view, and the heading with its one line keeps its
+ * place and height, so the cards start where they did; the day's filters
+ * are one icon, its choices kept in the address through a reload and a
+ * change of view. Chips beside the switch had changed width with the word
+ * chosen and, on a phone, taken a row the other views didn't have.
+ */
+test('changing view or filter moves nothing, and the filters are kept in the address', async ({
+  page,
+}) => {
+  const s = await setupBusinessWithSub('schedule-filters')
+  // Kevin's job beside the owner's, so the filters have someone to choose.
+  await s.owner.client.mutation(api.jobs.create, {
+    businessId: s.businessId,
+    propertyId: s.propertyId,
+    assignedMembershipId: s.subMembershipId,
+    jobType: 'General Pest Control',
+    price: 19500,
+    scheduledAt: s.ownerJobAt,
+    durationMinutes: 60,
+  })
+  const ownJob = page.getByRole('button', { name: /Termite Inspection/ })
+  const kevinsJob = page.getByRole('button', { name: /General Pest Control/ })
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/schedule?date=${s.ownerJobDay}`)
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
+  await expect(ownJob).toBeVisible()
+
+  // Where the switch and the heading are on the page, from its top: the
+  // week scrolls to its day on arrival, which is not a move of the layout.
+  const place = async () => {
+    await page.evaluate(() => window.scrollTo(0, 0))
+    return page.evaluate(() => {
+      const at = (selector: string) => {
+        const box = document.querySelector(selector)!.getBoundingClientRect()
+        return {
+          x: Math.round(box.x),
+          top: Math.round(box.top + window.scrollY),
+          bottom: Math.round(box.bottom + window.scrollY),
+        }
+      }
+      return {
+        view: at('[role="tablist"][aria-label="View"]'),
+        heading: at('[data-view-heading]'),
+      }
+    })
+  }
+  const start = await place()
+
+  // The filters, behind their icon: a status and a person, as chosen.
+  const filters = page.getByRole('button', { name: /^Filters/ })
+  await clickUntil(filters, () =>
+    expect(page.getByRole('dialog')).toBeVisible({ timeout: 2_000 }),
+  )
+  const sheet = page.getByRole('dialog')
+  await sheet
+    .getByRole('group', { name: 'Status' })
+    .getByRole('button')
+    .nth(1)
+    .click()
+  await expect(page).toHaveURL(/[?&]status=\w+/)
+  await sheet.getByRole('button', { name: /Kevin/ }).click()
+  await expect(page).toHaveURL(/[?&]staff=\w+/)
+  await sheet.getByRole('button', { name: 'Done' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(ownJob).toBeHidden()
+  await expect(kevinsJob).toBeVisible()
+  await expect(filters).toHaveAccessibleName('Filters, 2 on')
+  expect(await place()).toEqual(start)
+
+  // Through a reload.
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
+  await expect(kevinsJob).toBeVisible()
+  await expect(ownJob).toBeHidden()
+  await expect(filters).toHaveAccessibleName('Filters, 2 on')
+
+  // Every view: the switch and the heading where they were.
+  const view = page.getByRole('tablist', { name: 'View' })
+  await clickUntil(view.getByRole('tab', { name: 'Week' }), () =>
+    expect(page).toHaveURL(/[?&]view=week/, { timeout: 2_000 }),
+  )
+  await expect(page.locator(`#week-day-${s.ownerJobDay}`)).toBeVisible()
+  expect(await place()).toEqual(start)
+  await view.getByRole('tab', { name: 'Recurring' }).click()
+  await expect(
+    page.getByText('No Recurring Jobs yet', { exact: true }),
+  ).toBeVisible()
+  expect(await place()).toEqual(start)
+
+  // Back on the day, the filters are as they were; Clear filters clears
+  // them from the address too.
+  await view.getByRole('tab', { name: 'Job' }).click()
+  await expect(kevinsJob).toBeVisible()
+  await expect(page).toHaveURL(/[?&]status=\w+/)
+  expect(await place()).toEqual(start)
+  await filters.click()
+  await sheet.getByRole('button', { name: 'Clear filters' }).click()
+  await expect(page).not.toHaveURL(/[?&](status|staff)=/)
+  await sheet.getByRole('button', { name: 'Done' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(ownJob).toBeVisible()
+  await expect(filters).toHaveAccessibleName('Filters')
 })

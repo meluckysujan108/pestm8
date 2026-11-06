@@ -1,4 +1,5 @@
 import { CloudRain, Droplets, Wind } from 'lucide-react'
+import { Bone } from '#/components/shell/Pending'
 import { isWet as wetAt, isWindy as windyAt } from '#/lib/weather'
 import type { WeatherCell } from '#/lib/weather'
 
@@ -15,6 +16,22 @@ import type { WeatherCell } from '#/lib/weather'
  * really about. The per-job numbers live on the cards.
  */
 export function WeatherBanner({ cell }: { cell: WeatherCell }) {
+  // While the forecast is on its way, its first line's room is kept, so the
+  // cards under it don't drop when it lands. Wet or windy adds the advice
+  // line, which is the one move left, and only on such a day.
+  if (cell.status === 'pending') {
+    return (
+      <div
+        aria-hidden
+        className="mx-4 mb-3 flex items-start gap-2.5 rounded-2xl border border-hairline bg-surface px-3.5 py-2.5 shadow-elevation"
+      >
+        <p className="flex min-w-0 flex-1 items-center text-body">
+          {'\u00a0'}
+          <Bone className="h-3.5 w-56 max-w-full" />
+        </p>
+      </div>
+    )
+  }
   // Advisory only — never obscures the day's work, and never claims a forecast
   // it does not have.
   if (cell.status !== 'ready') return null
