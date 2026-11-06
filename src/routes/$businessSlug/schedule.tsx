@@ -39,16 +39,27 @@ import { useMediaQuery } from '#/lib/useMediaQuery'
 import { MonthPickerSheet } from '#/components/schedule/MonthPickerSheet'
 import { MonthCalendarCard } from '#/components/schedule/MonthCalendarCard'
 import { DayAgendaPanel } from '#/components/schedule/DayAgendaPanel'
-import { ScheduleFilterButton } from '#/components/schedule/ScheduleFilterButton'
+import {
+  RecurringFilterButton,
+  ScheduleFilterButton,
+  WeekFilterButton,
+} from '#/components/schedule/ScheduleFilterButton'
 import { DaySummary, SummaryLine } from '#/components/schedule/DaySummary'
 import {
   SCHEDULE_FILTER_STATUSES,
+  SCHEDULE_SORTS,
+  dayTravelHints,
+  recurringSortOf,
+  sortParamOf,
   useScheduleFilters,
 } from '#/lib/scheduleFilters'
-import type { ScheduleFilterSearch } from '#/lib/scheduleFilters'
+import type {
+  RecurringSort,
+  ScheduleFilterSearch,
+} from '#/lib/scheduleFilters'
 import { useWeather, weatherKeyOf } from '#/lib/weather'
 import { WeatherCredit } from '#/components/schedule/WeatherCredit'
-import { jobsAhead, travelHintsFor } from '#/lib/travel'
+import { jobsAhead } from '#/lib/travel'
 import { Segmented } from '#/components/primitives/Segmented'
 import { useActing, useCan, useViewMode } from '#/lib/access'
 import {
@@ -60,7 +71,7 @@ import {
   warm,
 } from '#/lib/routeQueries'
 import { useToday } from '#/lib/useToday'
-import { WeekView } from '#/components/schedule/WeekView'
+import { WeekSummary, WeekView } from '#/components/schedule/WeekView'
 import { RecurringDueNote } from '#/components/schedule/RecurringDueNote'
 import {
   RecurringSummary,
@@ -89,7 +100,7 @@ import {
   SCHEDULE_VIEW_OPTIONS,
   openJobScroll,
 } from '#/lib/scheduleViews'
-import { weekDayKeys, weekTotals } from '#/lib/weekView'
+import { weekDayKeys } from '#/lib/weekView'
 import type { ScheduleView } from '#/lib/scheduleViews'
 import type { Access } from '#/lib/access'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -121,11 +132,17 @@ const searchSchema = z.object({
   // with `view=recurring`, and dropped on the way to another view.
   by: z.enum(['date']).optional().catch(undefined),
   // The day's filters (§5: views and filters live in the URL), each left
-  // out at its default (`useScheduleFilters`): a status, and whose jobs —
-  // a membership's id, or `all` where the device opens on someone's own.
-  // A status the day can't have opens the day unfiltered.
+  // out at its default (`useScheduleFilters`): a status, whose jobs — a
+  // membership's id, or `all` where the device opens on someone's own — and
+  // a service. A status the day can't have opens the day unfiltered. The
+  // person is the week's and the Recurring view's filter too.
   status: z.enum(SCHEDULE_FILTER_STATUSES).optional().catch(undefined),
   staff: z.string().optional(),
+  service: z.string().optional(),
+  // The Job view's sort, or the Recurring view's: one parameter, each view
+  // reading its own (`daySortOf`, `recurringSortOf`), at its default left
+  // out. A sort no longer offered opens the default.
+  sort: z.enum(SCHEDULE_SORTS).optional().catch(undefined),
   // Opens New Job on arrival — set-up's "Book your first job". Taken out of
   // the URL as it opens, so a refresh does not open it again.
   newJob: z.boolean().optional().catch(undefined),
@@ -307,8 +324,18 @@ function ScheduleBody({
   // The account being worked in, so the day opens on the right person's round.
   const acting = useActing()
   const mode = useViewMode()
-  const { date, jobId, view, by, newJob, outboxId, status, staff } =
-    Route.useSearch()
+  const {
+    date,
+    jobId,
+    view,
+    by,
+    newJob,
+    outboxId,
+    status,
+    staff,
+    service,
+    sort,
+  } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const openJobId = jobId ?? null
   // A replace gives the entry a new history key, and a new key scrolls the
@@ -484,7 +511,13 @@ function ScheduleBody({
   const setFilterSearch = useCallback(
     (next: ScheduleFilterSearch) =>
       void navigate({
-        search: (prev) => ({ ...prev, status: next.status, staff: next.staff }),
+        search: (prev) => ({
+          ...prev,
+          status: next.status,
+          staff: next.staff,
+          service: next.service,
+          sort: next.sort,
+        }),
         replace: true,
         resetScroll: false,
       }),
@@ -492,12 +525,20 @@ function ScheduleBody({
   )
   const filters = useScheduleFilters({
     jobs,
-    search: { status, staff },
+    search: { status, staff, service, sort },
     onSearchChange: setFilterSearch,
     defaultStaffId,
     resetKey: `${mode ?? ''}:${acting.membershipId}`,
   })
   const { staffId, filteredJobs } = filters
+  // The Recurring view's sort, beside the day's in the one parameter.
+  const recurringSort = recurringSortOf(sort)
+  const setRecurringSort = (next: RecurringSort) =>
+    navigate({
+      search: (prev) => ({ ...prev, sort: sortParamOf(next) }),
+      replace: true,
+      resetScroll: false,
+    })
   // No desktop/mobile special-case any more. The query is cached and keyed by
   // its (canonicalised) day set, so the desktop panel asking for the same day
   // shares this entry rather than issuing a second request — which is what the
@@ -513,9 +554,10 @@ function ScheduleBody({
     timezone: business.timezone,
     rows: notKept ? [] : jobs,
     drawsCards: shownView === 'job' && !notKept && filteredJobs.length > 0,
-    redrawKey: `${outboxDayKey}|${shownView}|${notKept}|${filters.status}|${staffId}|${mode ?? ''}|${acting.membershipId}`,
+    redrawKey: `${outboxDayKey}|${shownView}|${notKept}|${filters.status}|${staffId}|${filters.service}|${filters.sort}|${mode ?? ''}|${acting.membershipId}`,
     allStatuses: filters.status === 'all' && shownView === 'job',
     staffId,
+    service: filters.service,
     mineOnly: mode === 'mine' ? acting.membershipId : null,
   })
   // On a day not kept, under its "Not on this phone", with no forecast.
@@ -557,9 +599,11 @@ function ScheduleBody({
 
   // Coordinates come from the raw entries: a travel hint is geography, and
   // must not disappear just because a forecast is still in flight. Measured
-  // over the work still ahead only — see `jobsAhead`.
-  const travel = travelHintsFor(
+  // over the work still ahead only — see `jobsAhead` — along the route the
+  // sort lays out, if it lays one out (`dayTravelHints`).
+  const travel = dayTravelHints(
     jobsAhead(listedJobs),
+    filters.sort,
     (job) => weather.byKey[weatherKeyOf(job.suburb, job.postcode, selectedKey)],
   )
 
@@ -572,7 +616,7 @@ function ScheduleBody({
   const [weekFocusTick, setWeekFocusTick] = useState(0)
   // From the week, or the Recurring view, to a day. A push, unlike `setDay`:
   // Back returns to the view the day was opened from.
-  // The filters go with it, as they go with every day picked.
+  // The filters and the sort go with it, as they go with every day picked.
   const openDay = (dayKey: string) =>
     navigate({
       search: (prev) => ({
@@ -580,6 +624,8 @@ function ScheduleBody({
         view: 'job' as const,
         status: prev.status,
         staff: prev.staff,
+        service: prev.service,
+        sort: prev.sort,
       }),
     })
   const setDay = (dayKey: string) => {
@@ -595,6 +641,8 @@ function ScheduleBody({
         date: dayKey,
         status: prev.status,
         staff: prev.staff,
+        service: prev.service,
+        sort: prev.sort,
       }),
       replace: true,
       resetScroll: !inWeek,
@@ -612,6 +660,8 @@ function ScheduleBody({
         date: dayKey,
         status: prev.status,
         staff: prev.staff,
+        service: prev.service,
+        sort: prev.sort,
       }),
       replace: true,
       resetScroll: false,
@@ -671,24 +721,19 @@ function ScheduleBody({
       className={className}
     />
   )
-  const totals = weekTotals(week)
   // The line under the heading, one line on every view (`SummaryLine`).
   const summary = notKept ? (
     <SummaryLine />
   ) : shownView === 'recurring' ? (
-    <RecurringSummary business={business} />
+    <RecurringSummary business={business} staffId={staffId} />
   ) : shownView === 'week' ? (
-    <SummaryLine>
-      <span>
-        {totals.jobs} {totals.jobs === 1 ? 'job' : 'jobs'}
-      </span>
-      {totals.recurring > 0 && (
-        <span>
-          · {totals.recurring} recurring{' '}
-          {totals.recurring === 1 ? 'visit' : 'visits'}
-        </span>
-      )}
-    </SummaryLine>
+    <WeekSummary
+      businessId={business._id}
+      weekStart={weekStart}
+      timezone={business.timezone}
+      week={week}
+      staffId={staffId}
+    />
   ) : (
     <DaySummary
       jobs={jobs}
@@ -716,6 +761,7 @@ function ScheduleBody({
       focusTick={weekFocusTick}
       week={week}
       showTeam={mode !== 'mine'}
+      staffId={staffId}
       onOpenJob={setOpenJobId}
       onOpenDay={openDay}
     />
@@ -728,19 +774,42 @@ function ScheduleBody({
       onChange={setView}
     />
   )
-  // The day's filters, behind one icon at the end of the switch's row: only
-  // the day's cards are filtered, so only the Job view has it. It is one
-  // size whatever is chosen, and the switch never moves for it — on the
-  // phone the switch is first in the row, on a desktop last.
-  const filterButton = shownView === 'job' && !notKept && (
-    <ScheduleFilterButton
-      jobs={jobs}
-      members={members}
-      filters={filters}
-      hideStaff={mode === 'mine'}
-      disabled={!hydrated}
-    />
-  )
+  // Each view's filters, behind one icon at the end of the switch's row: the
+  // day's sort, status, service and person; the week's person; the
+  // Recurring view's sort and person. It is one size whatever is chosen,
+  // and the switch never moves for it — on the phone the switch is first in
+  // the row, on a desktop last.
+  const filterButton =
+    shownView === 'recurring' ? (
+      <RecurringFilterButton
+        business={business}
+        members={members}
+        filters={filters}
+        sort={recurringSort}
+        onSortChange={setRecurringSort}
+        byDate={by === 'date'}
+        hideStaff={mode === 'mine'}
+        disabled={!hydrated}
+      />
+    ) : notKept ? null : shownView === 'week' ? (
+      <WeekFilterButton
+        businessId={business._id}
+        weekStart={weekStart}
+        timezone={business.timezone}
+        members={members}
+        filters={filters}
+        hideStaff={mode === 'mine'}
+        disabled={!hydrated}
+      />
+    ) : (
+      <ScheduleFilterButton
+        jobs={jobs}
+        members={members}
+        filters={filters}
+        hideStaff={mode === 'mine'}
+        disabled={!hydrated}
+      />
+    )
   // The Job section's Recurring Job, the same component, under the Schedule's
   // own heading and View switch, its numbers in the line under the heading.
   // A visit opens over it as a job does here.
@@ -761,6 +830,9 @@ function ScheduleBody({
         </EmptyStateButton>
       }
       bar={false}
+      staffId={staffId}
+      sort={recurringSort}
+      onClearFilters={filters.clear}
     />
   )
 
@@ -832,7 +904,8 @@ function ScheduleBody({
           <div className="min-w-0">
             <div aria-busy={stale || undefined} className={dimmed}>
               {/* The day's own panel draws its heading as these do: the
-                  title and its line on the left, the switch flush right. */}
+                  title and its line on the left, the icon and the switch
+                  flush right. */}
               {notKept || shownView !== 'job' ? (
                 <div className="flex min-w-0 flex-col gap-3">
                   <div className="flex items-center justify-between gap-3">
@@ -842,7 +915,10 @@ function ScheduleBody({
                       </h2>
                       {summary}
                     </div>
-                    <div className="shrink-0">{viewSwitch}</div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      {filterButton}
+                      {viewSwitch}
+                    </div>
                   </div>
                   {notKept ? (
                     <>
@@ -948,9 +1024,9 @@ function ScheduleBody({
             className={`px-4 pt-4 pb-6 ${dimmed}`}
           >
             {/* The same two rows on every view, at the same height: the
-                switch (and on the Job view the filters' icon), then the
-                heading and its one line. So changing view, or a filter,
-                never moves the cards under a thumb. */}
+                switch and the view's filters' icon, then the heading and
+                its one line. So changing view, or a filter, never moves
+                the cards under a thumb. */}
             <div className="mb-3 flex min-h-9 items-center justify-between gap-3">
               {viewSwitch}
               {filterButton}

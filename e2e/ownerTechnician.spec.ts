@@ -53,7 +53,7 @@ test('a subcontractor who can see the schedule sees the owner by name', async ({
   await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
 
   // Each layout names people in its own place: the desktop month card's team
-  // legend, and the phone's Filters sheet (which opens on your own jobs, so
+  // legend, and the phone's filter sheet (which opens on your own jobs, so
   // the owner is one of two Technicians there). The desktop's leaves out its
   // Technician on a day with one, which this is.
   const isPhone = (page.viewportSize()?.width ?? 1280) < 1024
@@ -61,7 +61,7 @@ test('a subcontractor who can see the schedule sees the owner by name', async ({
   // business switcher) and the check below is only about who a job is for.
   let names = page.getByText('Team this month').locator('xpath=..')
   if (isPhone) {
-    await page.getByRole('button', { name: /^Filters/ }).click()
+    await page.getByRole('button', { name: /^Filter/ }).click()
     names = page.getByRole('dialog')
   }
   await expect(names.getByText('Terence')).toBeVisible()
