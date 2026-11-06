@@ -14,6 +14,7 @@ import {
   IDLE_SAVE_GUARD,
   SUBMIT_ARM_MS,
   createSaveGuard,
+  onScreen,
   panelFooter,
   panelOrder,
   startsHold,
@@ -29,7 +30,12 @@ import type {
   SourcedWarning,
 } from './saveWarningRules'
 
-export type { SaveCheck, SaveWarning, SaveWarningFix } from './saveWarningRules'
+export type {
+  SaveCheck,
+  SaveWarning,
+  SaveWarningFix,
+  SourcedWarning,
+} from './saveWarningRules'
 
 /**
  * "2 things to check before saving": the warnings a form collects from its
@@ -76,7 +82,9 @@ export type SaveWarningsController = {
    * submit, runs every registered check (in parallel, each given 3 s; one
    * that fails or is still going says nothing), then either calls `save` or
    * shows what the checks found. The next press with exactly the same
-   * things found saves.
+   * things found saves; while rows a refusal put on the list stand
+   * (`inject`), one that finds nothing it hasn't already shown, in the same
+   * words, saves, a set that only shrank too (`saveDecision`).
    *
    * When every check answers without the network — offline, under a test
    * runner, or no async checks registered — `save` runs in the same tick.
@@ -123,6 +131,43 @@ export type SaveWarningsController = {
   fixArmed: boolean
   /** @internal `fixArmed` at this moment, for the panel's tap. */
   fixIgnored: () => boolean
+  /**
+   * Rows from a refusal of the last save (`SaveGuard['inject']`): put on
+   * the list as `source`'s and shown alone, counted as shown by the next
+   * press. False, with nothing shown, where `source` was edited or gone, or
+   * the form reset, since that press began.
+   */
+  inject: (source: string, rows: ReadonlyArray<SaveWarning>) => boolean
+  /** Whether `inject(source, …)` would put rows on the list now
+   * (`SaveGuard['mayInject']`): a refusal's rows it would turn down wait
+   * for nothing. */
+  mayInject: (source: string) => boolean
+  /**
+   * A refusal's rows still on the list, put back as they read now
+   * (`SaveGuard['refresh']`): in place, the list otherwise as it was, the
+   * hold started where their words or fixes changed.
+   */
+  refresh: (source: string, rows: ReadonlyArray<SaveWarning>) => boolean
+  /** The rows refusals put on the list, still standing, as drawn: for
+   * what the panel's foot and last line say of them. */
+  injected: ReadonlyArray<SourcedWarning>
+  /** `injected` at this moment, for a save that goes before React draws. */
+  injectedNow: () => ReadonlyArray<SourcedWarning>
+  /**
+   * The rows refusals put on the list whose names go back with the next
+   * save, at this moment (`SaveGuard['refused']`): `injectedNow()`, and
+   * those a row the checks found again in other words took the place of
+   * (`carried`), while a row of their id is listed.
+   */
+  refusedNow: () => ReadonlyArray<SourcedWarning>
+  /** Every row shown and confirmed, on screen or not, as drawn: what a
+   * change that is about some rows reads, whether they show or not. */
+  listed: ReadonlyArray<SourcedWarning>
+  /** Every row shown and confirmed, on screen or not, at this moment. */
+  listedNow: () => ReadonlyArray<SourcedWarning>
+  /** Whether the form is as it was at the last press (`SaveGuard['asPressed']`):
+   * a save sent again by itself goes only then. */
+  asPressed: () => boolean
   /** @internal The registry the fields reach through the provider. */
   fields: Fields
 }
@@ -155,7 +200,7 @@ export function useSaveWarnings({
   // made once per form; React only renders what they say.
   const [core] = useState(() =>
     createSaveGuard((next) => {
-      const shown = next.open ? next.shown : []
+      const shown = onScreen(next)
       if (arm && startsHold(changed.current.shown, shown, fixingNow.current)) {
         const at = Date.now()
         changed.current = { shown, at }
@@ -223,8 +268,9 @@ export function useSaveWarnings({
     [core],
   )
 
-  const { shown, open, checking } = state
-  const visible = open && shown.length > 0
+  const { checking } = state
+  const shown = onScreen(state)
+  const visible = shown.length > 0
 
   const saveLabel = useCallback(
     (label: string) =>
@@ -245,10 +291,21 @@ export function useSaveWarnings({
       isArmed,
       fixArmed: arm && fixArmed,
       fixIgnored,
+      inject: core.inject,
+      mayInject: core.mayInject,
+      refresh: core.refresh,
+      injected: state.injected,
+      injectedNow: core.injected,
+      refusedNow: core.refused,
+      listed: state.shown,
+      listedNow: core.listed,
+      asPressed: core.asPressed,
       fields,
     }),
     [
       core,
+      state.injected,
+      state.shown,
       guard,
       saveLabel,
       checking,

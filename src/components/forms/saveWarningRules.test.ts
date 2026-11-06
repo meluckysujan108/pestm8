@@ -5,6 +5,7 @@ import {
   SUBMIT_ARM_MS,
   afterEdit,
   createSaveGuard,
+  onScreen,
   panelFooter,
   panelOrder,
   pressedForm,
@@ -13,6 +14,7 @@ import {
   startsHold,
   stillArmed,
   warningsSignature,
+  withInjected,
 } from './saveWarningRules'
 import type {
   SaveGuardState,
@@ -49,28 +51,58 @@ describe('warningsSignature', () => {
 
 describe('saveDecision', () => {
   test('nothing found saves', () => {
-    expect(saveDecision([], null)).toEqual({ save: true })
+    expect(saveDecision([], [])).toEqual({ save: true })
   })
 
   test('the first press with warnings stops and shows them', () => {
-    expect(saveDecision([typo], null)).toEqual({
+    expect(saveDecision([typo], [])).toEqual({
       save: false,
       signature: warningsSignature([typo]),
     })
   })
 
   test('the second press with exactly those warnings saves', () => {
-    expect(saveDecision([area, typo], warningsSignature([typo, area]))).toEqual(
-      {
-        save: true,
-      },
-    )
+    expect(saveDecision([area, typo], [typo, area])).toEqual({ save: true })
   })
 
-  test('a different set asks again', () => {
-    const shown = warningsSignature([typo])
-    expect(saveDecision([typo, area], shown)).toMatchObject({ save: false })
-    expect(saveDecision([area], shown)).toMatchObject({ save: false })
+  test('a set with something new asks again', () => {
+    expect(saveDecision([typo, area], [typo])).toMatchObject({ save: false })
+    expect(saveDecision([area], [typo])).toMatchObject({ save: false })
+  })
+
+  test('a warning in other words is new', () => {
+    expect(
+      saveDecision(
+        [{ ...typo, message: 'Did you mean bob@gmail.com.au?' }],
+        [typo],
+      ),
+    ).toMatchObject({ save: false })
+  })
+
+  test('a set that only shrank asks again, as it always has: the list shows what is left, and the press after it saves', () => {
+    expect(saveDecision([typo], [typo, area])).toEqual({
+      save: false,
+      signature: warningsSignature([typo]),
+    })
+    expect(saveDecision([typo], [typo])).toEqual({ save: true })
+  })
+
+  test('while a refusal’s rows stand, a set that only shrank saves: everything still wrong was shown', () => {
+    expect(saveDecision([typo], [typo, area], true)).toEqual({ save: true })
+    expect(saveDecision([area, typo], [typo, area], true)).toEqual({
+      save: true,
+    })
+    // Something new still asks, refusal or none.
+    expect(saveDecision([typo, area], [typo], true)).toMatchObject({
+      save: false,
+    })
+    expect(
+      saveDecision(
+        [{ ...typo, message: 'Did you mean bob@gmail.com.au?' }],
+        [typo],
+        true,
+      ),
+    ).toMatchObject({ save: false })
   })
 })
 
@@ -402,6 +434,32 @@ describe('createSaveGuard', () => {
     expect(save).toHaveBeenCalledTimes(1)
   })
 
+  test('with nothing a refusal put on the list, a set that only shrank with nothing edited asks again (every form but M7’s, as before it): what is left is shown, and the press after it saves', async () => {
+    // Edit client: an email-domain typo and a short phone shown. On one bar
+    // of signal the press after it finds the phone alone, the email check
+    // out of its time.
+    const { guard, save, press, state } = setup()
+    let domain: Array<SaveWarning> | Promise<Array<SaveWarning>> = [typo]
+    guard.register('email', () => domain)
+    guard.register('phone', () => [area])
+    press()
+    expect(state().shown.map((w) => w.id)).toEqual([typo.id, area.id])
+    domain = new Promise(() => {})
+    vi.useFakeTimers()
+    try {
+      press()
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(save).not.toHaveBeenCalled()
+      expect(state()).toMatchObject({ open: true, checking: false })
+      expect(state().shown.map((w) => w.id)).toEqual([area.id])
+      press()
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(save).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   test('a save that fails keeps the warnings confirmed', async () => {
     const { guard, press, settle, state } = setup()
     guard.register('email', () => [typo])
@@ -705,9 +763,472 @@ describe('what starts the hold (`startsHold`)', () => {
     expect(startsHold([a, b], [b], true)).toBe(true)
     expect(startsHold([a], [], true)).toBe(true)
   })
+  test('a row whose fix came in, or changed, as a refusal’s rows were read again: a tap meant for the row as it was lands on a fix it never saw', () => {
+    const fix = (label: string) => ({ label, apply: () => {} })
+    expect(
+      startsHold([a], [{ ...a, fix: fix('Book at 12 Wattle St') }], false),
+    ).toBe(true)
+    expect(
+      startsHold(
+        [{ ...a, fix: fix('Book at 12 Wattle St') }],
+        [{ ...a, fix: fix('Book at 14 Wattle St') }],
+        false,
+      ),
+    ).toBe(true)
+    expect(startsHold([a], [{ ...a, fix2: fix('Open #123') }], false)).toBe(
+      true,
+    )
+    // The same fix, given again as a new function, is no change.
+    expect(
+      startsHold(
+        [{ ...a, fix: fix('Book at 12 Wattle St') }],
+        [{ ...a, fix: fix('Book at 12 Wattle St') }],
+        false,
+      ),
+    ).toBe(false)
+  })
   test('not a list that only shrank, as a field was edited or the form reset', () => {
     expect(startsHold([a, b], [b], false)).toBe(false)
     expect(startsHold([a], [], false)).toBe(false)
     expect(startsHold([], [], false)).toBe(false)
+  })
+})
+
+describe('rows a refusal adds (`inject`, the matching plan’s M7)', () => {
+  const phoneRow: SaveWarning = {
+    id: 'match:c_ray',
+    kind: 'match',
+    label: 'Maybe a client',
+    message: 'Ray Smith, of Bayswater, has a name like this.',
+  }
+  const serverRow: SaveWarning = {
+    id: 'match:c_jane',
+    kind: 'match',
+    label: 'Already a client',
+    message:
+      'Jane Nguyen, of Nightcliff, has the same name and mobile. Open Jane Nguyen from Clients to book this job.',
+  }
+  const laterRow: SaveWarning = {
+    id: 'match:c_june',
+    kind: 'match',
+    label: 'Already a client',
+    message: 'June Nguyen, of Nightcliff, has the same mobile.',
+  }
+
+  /** A press of Book that the phone's check saw past: its rows shown, then
+   * the second press booking past them, refused by the server. */
+  function refusedPress() {
+    const at = setup()
+    at.guard.register('new-job-client-match', () => [phoneRow])
+    at.press()
+    expect(at.state()).toMatchObject({ open: true })
+    at.press()
+    expect(at.save).toHaveBeenCalledTimes(1)
+    return at
+  }
+
+  test('go on the list, open, shown alone: what the press saw past isn’t said again', () => {
+    const { guard, state } = refusedPress()
+    expect(guard.inject('new-job-client-match', [serverRow])).toBe(true)
+    expect(state().open).toBe(true)
+    expect(state().shown.map((w) => w.id)).toEqual([phoneRow.id, serverRow.id])
+    expect(onScreen(state()).map((w) => w.id)).toEqual([serverRow.id])
+    expect(guard.injected().map((w) => w.id)).toEqual([serverRow.id])
+    expect(guard.listed().map((w) => w.id)).toEqual([phoneRow.id, serverRow.id])
+  })
+
+  test('the press after it, nothing changed, finds them again and books (Book anyway), once', () => {
+    const { guard, press, save, state } = refusedPress()
+    guard.inject('new-job-client-match', [serverRow])
+    press()
+    expect(save).toHaveBeenCalledTimes(2)
+    // Still listed, as the phone's own confirmed rows are, for the send.
+    expect(guard.injected().map((w) => w.id)).toEqual([serverRow.id])
+    expect(state().open).toBe(false)
+  })
+
+  test('a second refusal shows only what is new; the first one’s rows still count', () => {
+    const { guard, press, save, state } = refusedPress()
+    guard.inject('new-job-client-match', [serverRow])
+    press()
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(guard.inject('new-job-client-match', [laterRow])).toBe(true)
+    expect(onScreen(state()).map((w) => w.id)).toEqual([laterRow.id])
+    expect(guard.injected().map((w) => w.id)).toEqual([
+      serverRow.id,
+      laterRow.id,
+    ])
+    press()
+    expect(save).toHaveBeenCalledTimes(3)
+  })
+
+  test('a row the press booked past gone meanwhile (a visit moved, a copy caught up), the next press books: nothing it finds is new, and nothing on screen would change', () => {
+    const at = setup()
+    const thu: SaveWarning = {
+      id: 'site:day:p1:2026-10-30',
+      kind: 'site',
+      label: 'Already booked',
+      message: '12 Wattle St has another job booked on Thu 30 Oct.',
+    }
+    const fri: SaveWarning = {
+      id: 'site:day:p1:2026-10-31',
+      kind: 'site',
+      label: 'Already booked',
+      message: '12 Wattle St has another job booked on Fri 31 Oct.',
+    }
+    let found: Array<SaveWarning> = [thu]
+    at.guard.register('new-job-site-work', () => found)
+    at.press()
+    at.press()
+    expect(at.save).toHaveBeenCalledTimes(1)
+    // The office moved the visit to Friday: the server names it there.
+    expect(at.guard.inject('new-job-site-work', [fri])).toBe(true)
+    expect(onScreen(at.state()).map((w) => w.id)).toEqual([fri.id])
+    // The phone's copy catches up: Thursday's row is gone, Friday's is the
+    // phone's own now.
+    found = [fri]
+    at.press()
+    expect(at.save).toHaveBeenCalledTimes(2)
+  })
+
+  test('…and so with a row of an earlier refusal still standing: it isn’t put back on screen for another press', () => {
+    const at = setup()
+    const unchecked: SaveWarning = {
+      id: 'site:unchecked:after',
+      kind: 'site',
+      label: 'Not checked',
+      message:
+        'Bookings at this site after Sun 15 Mar 2026 can’t be checked on this phone.',
+    }
+    const x: SaveWarning = {
+      id: 'site:day:p1:2026-03-16',
+      kind: 'site',
+      label: 'Already booked',
+      message: '12 Wattle St has another job booked on Mon 16 Mar.',
+    }
+    const y: SaveWarning = {
+      id: 'site:day:p1:2026-03-18',
+      kind: 'site',
+      label: 'Already booked',
+      message: '12 Wattle St has another job booked on Wed 18 Mar.',
+    }
+    let found: Array<SaveWarning> = [unchecked]
+    at.guard.register('new-job-site-work', () => found)
+    at.press()
+    at.press()
+    at.guard.inject('new-job-site-work', [x])
+    at.press()
+    expect(at.save).toHaveBeenCalledTimes(2)
+    at.guard.inject('new-job-site-work', [y])
+    expect(onScreen(at.state()).map((w) => w.id)).toEqual([y.id])
+    // Monday's answer reaches the date: nothing is unchecked now.
+    found = []
+    at.press()
+    expect(at.save).toHaveBeenCalledTimes(3)
+  })
+
+  test('an edit of what they were about takes them, with the rest of that check’s', () => {
+    const { guard, state } = refusedPress()
+    guard.inject('new-job-client-match', [serverRow])
+    guard.edited('new-job-client-match')
+    expect(guard.injected()).toEqual([])
+    expect(state()).toMatchObject({ open: false, fresh: null })
+  })
+
+  test('a refusal of a press whose fields were edited, or reset, since: not put on the list, and FormAlert says it', () => {
+    const edited = refusedPress()
+    edited.guard.edited('new-job-client-match')
+    expect(edited.guard.inject('new-job-client-match', [serverRow])).toBe(false)
+    expect(edited.guard.injected()).toEqual([])
+
+    const reset = refusedPress()
+    reset.guard.reset()
+    expect(reset.guard.inject('new-job-client-match', [serverRow])).toBe(false)
+    expect(reset.state()).toMatchObject({ shown: [], open: false })
+
+    // Another check's field edited isn't what the refusal was about.
+    const other = refusedPress()
+    other.guard.edited('new-job-site-work')
+    expect(other.guard.inject('new-job-client-match', [serverRow])).toBe(true)
+  })
+
+  test('whether rows would go on the list now (`mayInject`): as `inject` would answer, with nothing put on', () => {
+    const at = refusedPress()
+    expect(at.guard.mayInject('new-job-client-match')).toBe(true)
+    expect(at.guard.injected()).toEqual([])
+    // Another check's field edited: still.
+    at.guard.edited('new-job-site-work')
+    expect(at.guard.mayInject('new-job-client-match')).toBe(true)
+    // Its own: not, as `inject` turns them down.
+    at.guard.edited('new-job-client-match')
+    expect(at.guard.mayInject('new-job-client-match')).toBe(false)
+    expect(at.guard.inject('new-job-client-match', [serverRow])).toBe(false)
+
+    const reset = refusedPress()
+    reset.guard.reset()
+    expect(reset.guard.mayInject('new-job-client-match')).toBe(false)
+  })
+
+  test('a row with an id the list already has is replaced, not doubled', () => {
+    const { guard, state } = refusedPress()
+    guard.inject('new-job-client-match', [
+      { ...phoneRow, label: 'Already a client' },
+    ])
+    expect(state().shown.map((w) => [w.id, w.label])).toEqual([
+      [phoneRow.id, 'Already a client'],
+    ])
+  })
+
+  test('read again (`refresh`): each row still standing as a refusal’s is put back as it reads now, in place, the list open and on screen as it was', () => {
+    const { guard, press, save, state } = refusedPress()
+    guard.inject('new-job-client-match', [serverRow, laterRow])
+    const book = { label: 'Book for Jane Nguyen', apply: () => {} }
+    const held = { ...serverRow, fix: book }
+    expect(guard.refresh('new-job-client-match', [held])).toBe(true)
+    expect(state().open).toBe(true)
+    expect(state().shown.map((w) => w.id)).toEqual([
+      phoneRow.id,
+      serverRow.id,
+      laterRow.id,
+    ])
+    expect(onScreen(state()).map((w) => [w.id, w.fix?.label])).toEqual([
+      [serverRow.id, 'Book for Jane Nguyen'],
+      [laterRow.id, undefined],
+    ])
+    expect(guard.injected().map((w) => w.fix?.label)).toEqual([
+      'Book for Jane Nguyen',
+      undefined,
+    ])
+    // Still a refusal's: the press after it books past it, once.
+    press()
+    expect(save).toHaveBeenCalledTimes(2)
+  })
+
+  test('read again: a row no longer standing, or the phone’s own, or another source’s, isn’t put back', () => {
+    const { guard, state } = refusedPress()
+    guard.inject('new-job-client-match', [serverRow])
+    const before = state()
+    const book = { label: 'Book for Ray Smith', apply: () => {} }
+    // The phone's own row, not a refusal's.
+    expect(
+      guard.refresh('new-job-client-match', [{ ...phoneRow, fix: book }]),
+    ).toBe(false)
+    // Another source's row of the same id.
+    expect(
+      guard.refresh('new-job-site-work', [{ ...serverRow, fix: book }]),
+    ).toBe(false)
+    expect(state()).toBe(before)
+    // Gone with an edit of what it was about.
+    guard.edited('new-job-client-match')
+    expect(
+      guard.refresh('new-job-client-match', [{ ...serverRow, fix: book }]),
+    ).toBe(false)
+    expect(guard.injected()).toEqual([])
+    expect(state().shown).toEqual([])
+  })
+
+  test('read again with the list closed: it stays closed', () => {
+    const { guard, press, save, state } = refusedPress()
+    guard.inject('new-job-client-match', [serverRow])
+    press()
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(state().open).toBe(false)
+    const book = { label: 'Book for Jane Nguyen', apply: () => {} }
+    expect(
+      guard.refresh('new-job-client-match', [{ ...serverRow, fix: book }]),
+    ).toBe(true)
+    expect(state().open).toBe(false)
+    expect(guard.injected().map((w) => w.fix?.label)).toEqual([
+      'Book for Jane Nguyen',
+    ])
+  })
+
+  test('read again behind a later refusal’s rows, never drawn: the next press shows it, with its fix, and books nothing; the press after books', () => {
+    const { guard, press, save, state } = refusedPress()
+    // Jane, whom the list didn't hold: no fix.
+    guard.inject('new-job-client-match', [serverRow])
+    press()
+    expect(save).toHaveBeenCalledTimes(2)
+    // Refused again for the site's work: its row alone on screen.
+    const day: SaveWarning = {
+      id: 'site:day:p1:2026-10-29',
+      kind: 'site',
+      label: 'Already booked',
+      message: 'A job is booked at this address on Thu 29 Oct.',
+    }
+    expect(guard.inject('new-job-site-work', [day])).toBe(true)
+    // The list catches up behind it: Jane's row as it reads now.
+    const held: SaveWarning = {
+      ...serverRow,
+      message: 'Jane Nguyen, of Nightcliff, has the same name and mobile.',
+      fix: { label: 'Use Jane Nguyen', apply: () => {} },
+    }
+    expect(guard.refresh('new-job-client-match', [held])).toBe(true)
+    // Nothing moved on screen.
+    expect(onScreen(state()).map((w) => w.id)).toEqual([day.id])
+    // A later refusal reads Jane in the words she was shown in.
+    expect(guard.listed().find((w) => w.id === serverRow.id)?.message).toBe(
+      serverRow.message,
+    )
+    press()
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(onScreen(state()).map((w) => [w.id, w.fix?.label])).toContainEqual([
+      serverRow.id,
+      'Use Jane Nguyen',
+    ])
+    expect(guard.listed().find((w) => w.id === serverRow.id)?.message).toBe(
+      held.message,
+    )
+    // Shown now: Book anyway, nothing changed, books, once.
+    press()
+    expect(save).toHaveBeenCalledTimes(3)
+  })
+
+  test('read again with the list closed after a save that failed, its fix alone new: the retry shows it, and books nothing; the press after books', () => {
+    const at = setup()
+    at.guard.register('add-property-own-site', () => [])
+    at.press()
+    expect(at.save).toHaveBeenCalledTimes(1)
+    // The server: the address is Jane's exactly; the sheet doesn't hold
+    // that site yet, so the row has no Use.
+    const own: SaveWarning = {
+      id: 'match:own-site',
+      kind: 'match',
+      label: 'Already theirs',
+      message: 'Jane Nguyen already has 12 Watle St, Bayswater.',
+    }
+    expect(at.guard.inject('add-property-own-site', [own])).toBe(true)
+    // Save anyway, and the save fails (no signal): the list closes.
+    const failing = vi.fn(() => Promise.reject(new Error('offline')))
+    at.guard.guard({ preventDefault: () => {} }, failing)
+    expect(failing).toHaveBeenCalledTimes(1)
+    expect(at.state().open).toBe(false)
+    // The sheet's sites catch up: the same words, with Use 12 Wattle St.
+    expect(
+      at.guard.refresh('add-property-own-site', [
+        { ...own, fix: { label: 'Use 12 Wattle St', apply: () => {} } },
+      ]),
+    ).toBe(true)
+    expect(at.state().open).toBe(false)
+    at.press()
+    expect(at.save).toHaveBeenCalledTimes(1)
+    expect(onScreen(at.state()).map((w) => w.fix?.label)).toEqual([
+      'Use 12 Wattle St',
+    ])
+    at.press()
+    expect(at.save).toHaveBeenCalledTimes(2)
+  })
+
+  test('a refusal’s row stands in place of the phone’s own found again by id, in words it or the row it took the place of said; the rest are added', () => {
+    const injected = [{ ...serverRow, source: 'm' }]
+    // In the refusal's own words, or those of the row it took the place
+    // of (`said`): the refusal's row, counted as shown.
+    expect(withInjected([{ ...serverRow, source: 'm' }], injected).all).toEqual(
+      injected,
+    )
+    expect(
+      withInjected(
+        [{ ...serverRow, message: 'before', source: 'm' }],
+        injected,
+        (row) => [row.message, 'before'],
+      ),
+    ).toEqual({ all: injected, carried: [] })
+    // Another row: both.
+    expect(
+      withInjected([{ ...phoneRow, source: 'm' }], injected).all.map(
+        (w) => w.id,
+      ),
+    ).toEqual([phoneRow.id, serverRow.id])
+  })
+
+  test('the phone’s own row of a refusal’s id in words neither said is news: it stands in the refusal’s row’s place, which is carried (the lens’s rule b)', () => {
+    const injected = [{ ...serverRow, source: 'm' }]
+    const later = { ...serverRow, message: 'later', source: 'm' }
+    expect(withInjected([later], injected)).toEqual({
+      all: [later],
+      carried: injected,
+    })
+  })
+
+  test('a phone row of an injected id in other words asks again: the list caught up, and the phone’s row names the work at the site (FW13); what the refusal named still goes back', () => {
+    // Jane wasn't on the phone at the press: the server found her.
+    const at = setup()
+    let found: Array<SaveWarning> = []
+    at.guard.register('new-job-client-match', () => found)
+    at.press()
+    expect(at.save).toHaveBeenCalledTimes(1)
+    expect(at.guard.inject('new-job-client-match', [serverRow])).toBe(true)
+    // The list catches up: the phone's own row for Jane, by her id, names
+    // the job at her site.
+    const named: SaveWarning = {
+      ...serverRow,
+      label: 'Already a client',
+      message:
+        '12 Wattle St, Bayswater is Jane Nguyen’s. Same name and mobile. It has a job on Thu 29 Oct (#123).',
+    }
+    found = [named]
+    at.press()
+    // Not booked: shown, in the refusal's row's place.
+    expect(at.save).toHaveBeenCalledTimes(1)
+    expect(onScreen(at.state()).map((w) => w.message)).toEqual([named.message])
+    expect(at.guard.injected()).toEqual([])
+    // What the refusal named still goes with the save (`refusedNow`).
+    expect(at.guard.refused().map((w) => w.message)).toEqual([
+      serverRow.message,
+    ])
+    // Book anyway, nothing changed: books, once.
+    at.press()
+    expect(at.save).toHaveBeenCalledTimes(2)
+    expect(at.guard.refused().map((w) => w.id)).toEqual([serverRow.id])
+    // An edit of what it was about takes it with the rest.
+    at.guard.edited('new-job-client-match')
+    expect(at.guard.refused()).toEqual([])
+  })
+
+  test('…but the phone’s own row in the words it was shown in before the refusal took its place counts as shown: the press after it, nothing changed, books', () => {
+    const { guard, press, save } = refusedPress()
+    // The press refused had the phone's row for Ray on the list; the
+    // server's row of that id took its place, in other words.
+    guard.inject('new-job-client-match', [
+      {
+        ...phoneRow,
+        label: 'Already a client',
+        message: 'Ray, from the server.',
+      },
+    ])
+    press()
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(guard.refused().map((w) => w.message)).toEqual([
+      'Ray, from the server.',
+    ])
+  })
+
+  test('read again (`refresh`), the words it read before still count', () => {
+    const { guard, press, save } = refusedPress()
+    guard.inject('new-job-client-match', [
+      { ...phoneRow, message: 'Ray, from the server.' },
+    ])
+    guard.refresh('new-job-client-match', [
+      { ...phoneRow, message: 'Ray, read again.' },
+    ])
+    // The phone's own row, as it was shown at the press refused.
+    press()
+    expect(save).toHaveBeenCalledTimes(2)
+  })
+
+  test('whether the form is as it was at the press (`asPressed`): not once a check’s field is edited or gone, or the form reset; again at the next press', () => {
+    const at = setup()
+    at.guard.register('new-job-client-match', () => [])
+    at.press()
+    expect(at.guard.asPressed()).toBe(true)
+    at.guard.edited('new-job-site-work')
+    expect(at.guard.asPressed()).toBe(false)
+    at.press()
+    expect(at.guard.asPressed()).toBe(true)
+    at.guard.removed('email')
+    expect(at.guard.asPressed()).toBe(false)
+    at.press()
+    at.guard.reset()
+    expect(at.guard.asPressed()).toBe(false)
   })
 })

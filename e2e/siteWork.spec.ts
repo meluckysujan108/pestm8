@@ -27,8 +27,10 @@ import type { Id } from '../convex/_generated/dataModel'
  * a match row that named the site's work books on the one press after its
  * fix (FW13).
  *
- * The server checks nothing of this yet (the plan's M7): every booking here
- * goes as the phone sends it. On a phone's screen.
+ * The server checks it again as each booking here goes, with what the
+ * phone showed and booked past (`siteCheck`, the plan's M7), so it refuses
+ * none of them; what it finds that the phone didn't is sheetChecks.spec.ts.
+ * On a phone's screen.
  */
 
 const TZ = 'Australia/Perth'

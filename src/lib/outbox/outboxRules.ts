@@ -1,4 +1,5 @@
 import { ConvexError } from 'convex/values'
+import { convexCode } from '#/components/forms/describeError'
 import { UNAUTHENTICATED } from '#/lib/signInSettling'
 import { MFA_ENROLMENT_REQUIRED } from '#/lib/twoStep'
 import {
@@ -75,18 +76,15 @@ export type Classified = {
 }
 
 /**
- * The refusal's code: a ConvexError's data. Nothing else is read. On prod,
- * every other error, an ArgumentValidationError included, reaches the phone
- * as a bare "Server Error", so no message is ever matched.
+ * The refusal's code: a ConvexError's data (`convexCode`, the one reader
+ * the forms use too, RK16), or `CONVEX_ERROR` for one whose data says none.
+ * Nothing else is read. On prod, every other error, an
+ * ArgumentValidationError included, reaches the phone as a bare "Server
+ * Error", so no message is ever matched.
  */
 export function codeOf(error: unknown): string | null {
-  if (typeof error !== 'object' || error === null) return null
-  const data = (error as { data?: unknown }).data
-  if (typeof data === 'string') return data
-  if (typeof data === 'object' && data !== null) {
-    const code = (data as { code?: unknown }).code
-    if (typeof code === 'string') return code
-  }
+  const code = convexCode(error)
+  if (code !== null) return code
   return error instanceof ConvexError ? 'CONVEX_ERROR' : null
 }
 

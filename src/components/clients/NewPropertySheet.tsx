@@ -38,19 +38,35 @@ import { rq } from '#/lib/routeQueries'
 import { useMatchIndexWhenRead } from '#/lib/useMatchIndex'
 import {
   blurLine,
+  bookingDismissed,
+  candidateHeld,
   matchFooter,
   matchName,
   matchNotes,
   matchShownCounts,
   newClientRows,
+  noClientsIndex,
   openFromNewClient,
+  openUnheld,
+  refusedMatchRows,
 } from '#/lib/clientMatchRows'
 import type {
   MatchFix,
   MatchRow,
   MatchRowsContext,
 } from '#/lib/clientMatchRows'
-import { logConnectionChange } from '#/lib/connectionLog'
+import { logConnection, logConnectionChange } from '#/lib/connectionLog'
+import {
+  FOUND_WHEN_SAVING,
+  createHoldWait,
+  createPressReads,
+  joinSends,
+  matchCheckFor,
+  sendChecked,
+  sendsByRow,
+  standingSends,
+} from '#/lib/sheetChecks'
+import type { PressNote, SheetRefusal, SheetSends } from '#/lib/sheetChecks'
 import { todayKey } from '#/lib/format'
 import { keeper } from '#/lib/offline/keeper'
 import { answerMayBeBehind } from '#/lib/offline/useKept'
@@ -129,6 +145,20 @@ export function keepsDraftAfterOpen(
   return opened.keepDraft || (opened.addSite !== undefined && lineDown !== null)
 }
 
+/** The client as typed, as the matcher reads it. */
+function typedOf(value: NewClientFieldsValue) {
+  return {
+    name: value.clientName,
+    phone: value.phone,
+    email: value.email,
+    site: {
+      addressLine: value.addressLine,
+      suburb: value.suburb,
+      postcode: value.postcode,
+    },
+  }
+}
+
 /**
  * Creates a client and its first property together in one step — a client
  * without at least one address is meaningless in this domain, so splitting
@@ -181,6 +211,9 @@ export function NewPropertySheet({
   // Read when the save runs, which may be after the checks at Save have
   // answered: what was typed while they ran is what gets saved.
   const latestValue = useLatest(value)
+  // Which draft this is: each blanking of the form starts the next
+  // (`clear`), and a save goes with the draft it was pressed for.
+  const draftNo = useRef(0)
 
   const hydrated = useHydrated()
   const lineDown = useLineDown()
@@ -195,10 +228,9 @@ export function NewPropertySheet({
   // a closed sheet must not subscribe it to one ('skip', since a query only
   // disabled keeps its subscription). Until they are here, a field left has
   // its line once they come (NewClientFields), and a press of Save waits for
-  // them, up to the 3 s any check at Save is given: until the online sheet
-  // sends its check with the booking (the matching plan's M7), the server
-  // doesn't look for the caller among the clients, so this is the only
-  // check there is.
+  // them, up to the 3 s any check at Save is given. The server looks again
+  // as the client is saved (`matchCheck`, the matching plan's M7): what it
+  // finds that this list didn't is said as rows of their own.
   const { data: answer } = useQuery(
     convexQuery(api.clients.directory, open ? { businessId } : 'skip'),
   )
@@ -227,28 +259,37 @@ export function NewPropertySheet({
   // client kept as typed when something in it went nowhere
   // (`openFromNewClient`).
   const latestOpen = useLatest((fix: MatchFix) => {
-    if (fix.kind !== 'open' || !onOpenClient || !index || !directory) return
-    const typed = latestValue.current
-    const opened = openFromNewClient(index, directory.contacts, fix, {
-      name: typed.clientName,
-      phone: typed.phone,
-      email: typed.email,
-      addressLine: typed.addressLine,
-      suburb: typed.suburb,
-      state: typed.state,
-      postcode: typed.postcode,
-      addressCheck: typed.addressCheck,
+    if (fix.kind !== 'open' || !onOpenClient) return
+    const form = latestValue.current
+    const typed = {
+      name: form.clientName,
+      phone: form.phone,
+      email: form.email,
+      addressLine: form.addressLine,
+      suburb: form.suburb,
+      state: form.state,
+      postcode: form.postcode,
+      addressCheck: form.addressCheck,
       // A business's, as the form shows them (`newClientArgs`).
-      ...(typed.kind === 'business' && {
-        abn: typed.abn,
-        contactPerson: typed.contactPerson,
-        siteContactName: typed.siteContactName,
-        siteContactPhone: typed.siteContactPhone,
+      ...(form.kind === 'business' && {
+        abn: form.abn,
+        contactPerson: form.contactPerson,
+        siteContactName: form.siteContactName,
+        siteContactPhone: form.siteContactPhone,
       }),
-    })
+    }
+    // A client the server found that the list on the phone isn't holding
+    // yet (`refusedMatchRows`): their sheet, opened by the server's id, on
+    // Add property with the address typed where it isn't theirs, with New
+    // client kept as typed (`openUnheld`).
+    const opened =
+      !index || !directory
+        ? openUnheld(fix, typed)
+        : openFromNewClient(index, directory.contacts, fix, typed)
     if (keepsDraftAfterOpen(opened, lineDown)) {
       saveWarnings.reset()
-      setKeptFrom(matchName(index.clients.get(fix.clientId)))
+      const held = index?.clients.get(fix.clientId)
+      setKeptFrom(held || !fix.name ? matchName(held) : fix.name)
       onClose()
     } else close()
     onOpenClient(fix.clientId, { addSite: opened.addSite })
@@ -265,8 +306,18 @@ export function NewPropertySheet({
     rows: ReadonlyMap<string, MatchRow>
   }>({ notes: [], rows: new Map() })
 
-  /** The rows at Save for the client as typed, from the client list. */
-  function matchWarnings(ctx: MatchRowsContext): Array<SaveWarning> {
+  // What each press's check found, as it answered: what its save sends
+  // (`matchCheckNow`).
+  const [pressReads] = useState(() =>
+    createPressReads<{ dismissed: ReadonlyArray<Id<'clients'>> }>(),
+  )
+
+  /** The rows at Save for the client as typed, from the client list; and
+   * every client the matcher returned, noted for the press (`note`). */
+  function matchWarnings(
+    ctx: MatchRowsContext,
+    note: PressNote<{ dismissed: ReadonlyArray<Id<'clients'>> }>,
+  ): Array<SaveWarning> {
     const typed = latestValue.current
     const rows = newClientRows(ctx, {
       name: typed.clientName,
@@ -278,6 +329,10 @@ export function NewPropertySheet({
         postcode: typed.postcode,
       },
     })
+    note(
+      'dismissed',
+      bookingDismissed(ctx, { mode: 'new', typed: typedOf(typed) }),
+    )
     if (rows.length > 0) {
       const directoryKey = rq.directory(businessId).queryKey
       setMatchShown({
@@ -321,12 +376,14 @@ export function NewPropertySheet({
   useSaveCheck(
     'new-client-match',
     matchCtx
-      ? () => matchWarnings(matchCtx)
-      : (signal) =>
-          answerOnceRead(waitingForList.current, signal, () => {
+      ? (signal) => matchWarnings(matchCtx, pressReads.begin(signal))
+      : (signal) => {
+          const note = pressReads.begin(signal)
+          return answerOnceRead(waitingForList.current, signal, () => {
             const ctx = latestMatchCtx.current
-            return ctx ? latestMatchWarnings.current(ctx) : []
-          }),
+            return ctx ? latestMatchWarnings.current(ctx, note) : []
+          })
+        },
     [
       value.clientName,
       value.phone,
@@ -374,25 +431,172 @@ export function NewPropertySheet({
     onClose()
   }
 
-  /** Blank again: what was kept is for no one now, and a press still
-   * waiting for the client list is for nothing. */
+  /** Blank again, a new draft: what was kept is for no one now, and a
+   * press still waiting for the client list is for nothing. So is a save
+   * still out: the sheet stays mounted while closed, so without
+   * `create.reset()` its error would show in FormAlert above the next
+   * draft, and its "Saving…" on the button, until the next Save. Reset,
+   * Save takes the next draft's press while that save may still be
+   * waiting for signal, so what it does as it answers is tied to its own
+   * draft (`draftNo`): a refusal of it never goes on the next draft's
+   * panel (once that draft's press has begun, `inject` alone can't tell),
+   * and its success neither blanks nor closes the next draft. */
   function clear() {
+    draftNo.current += 1
     saveWarnings.reset()
+    create.reset()
     waitingForList.current = []
     setValue(empty)
     setKeptFrom(null)
   }
 
+  // ── What the server found as the client was saved (M7) ──────────────
+  // A refusal's rows, by id, for the foot; what they send back as
+  // dismissed with the next press, read as the save goes; and the refusal
+  // whose rows are on the panel, which FormAlert doesn't say again.
+  const [refused, setRefused] = useState<ReadonlyMap<string, MatchRow>>(
+    new Map(),
+  )
+  const refusedSends = useRef<ReadonlyMap<string, SheetSends>>(new Map())
+  const [shownRefusal, setShownRefusal] = useState<unknown>(null)
+  // Asked again as the list's answers land, and after every edit, once the
+  // check above has told the panel of it (each commit: its effect runs
+  // before this one), so a wait whose rows the panel would turn down ends.
+  const [holdWait] = useState(createHoldWait)
+  useEffect(() => holdWait.poke())
+
+  /** Every client the phone's matcher found for the client as typed at
+   * the press, as its check answered (`pressReads`: none where it found
+   * nothing in time), never the list read again as the save goes; and
+   * every one a refusal named that is still on the panel (`extra`: one an
+   * earlier send of this press was refused for). */
+  function matchCheckNow(extra: SheetSends) {
+    const dismissed = pressReads.last().dismissed ?? []
+    const standing = standingSends(
+      refusedSends.current,
+      saveWarnings.refusedNow(),
+    )
+    return matchCheckFor([
+      ...dismissed,
+      ...joinSends(extra, standing).dismissed,
+    ])
+  }
+  const latestMatchCheck = useLatest(matchCheckNow)
+  const latestHeld = useLatest(
+    (refusal: SheetRefusal) =>
+      refusal.code !== 'MATCHED_CLIENT' ||
+      (index !== null &&
+        refusal.candidates.every((c) => candidateHeld(index, c))),
+  )
+  /** A refusal's rows, every fix Open {client} by the server's id. */
+  const latestRefusalRows = useLatest((refusal: SheetRefusal) => {
+    const source = 'new-client-match'
+    if (refusal.code !== 'MATCHED_CLIENT') return { source, rows: [] }
+    const ctx: MatchRowsContext = matchCtx ?? {
+      index: noClientsIndex(),
+      contacts: [],
+      verb: 'open',
+    }
+    const rows = refusedMatchRows(ctx, refusal, {
+      mode: 'new',
+      typed: typedOf(latestValue.current),
+    })
+    return {
+      source,
+      rows: rows.map((row) => {
+        const fix = fixFor(row.fix)
+        return {
+          id: row.id,
+          kind: 'match' as const,
+          label: row.label,
+          message: row.message,
+          ...(fix ? { fix } : {}),
+          foot: row,
+        }
+      }),
+    }
+  })
+  const latestShowRefusal = useLatest(
+    (
+      source: string,
+      rows: ReadonlyArray<SaveWarning & { foot: MatchRow }>,
+      sends: SheetSends,
+      error: unknown,
+    ) => {
+      const before = saveWarnings.refusedNow()
+      const shown = rows.length > 0 && saveWarnings.inject(source, rows)
+      logConnection('sheet-refused', {
+        code: 'MATCHED_CLIENT',
+        rows: rows.length,
+        shown,
+      })
+      if (!shown) return
+      refusedSends.current = sendsByRow(
+        refusedSends.current,
+        before,
+        source,
+        rows,
+        sends,
+      )
+      setRefused((feet) => {
+        const next = new Map(feet)
+        for (const row of rows) next.set(row.id, row.foot)
+        return next
+      })
+      setShownRefusal(error)
+    },
+  )
+
   const convexCreate = useConvexMutation(api.properties.create)
   const create = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'> } & NewClientArgs) =>
-      convexCreate(args),
-    onSuccess: () => {
+    // With the check at Save (`matchCheck`, M7): what the server finds
+    // beyond it is said as rows, and Save anyway sends them back as
+    // dismissed (lib/sheetChecks.ts `sendChecked`). "Saving…" stays while
+    // their fixes wait for the client list to hold who they open. The
+    // draft it was pressed for (`draftNo`) goes no further than here.
+    mutationFn: ({
+      draft,
+      ...args
+    }: { draft: number; businessId: Id<'businesses'> } & NewClientArgs) =>
+      sendChecked({
+        send: (extra) =>
+          convexCreate({
+            ...args,
+            matchCheck: latestMatchCheck.current(extra),
+          }),
+        rowsOf: (refusal) => latestRefusalRows.current(refusal),
+        // Until the list holds who they open, or the panel would turn the
+        // rows down (`mayShow`, below: an edit, a draft begun since).
+        hold: (refusal, turnedDown) =>
+          holdWait.until(() => turnedDown() || latestHeld.current(refusal)),
+        // Rows the panel would turn down wait for nothing.
+        mayShow: (source) =>
+          draft === draftNo.current && saveWarnings.mayInject(source),
+        listed: saveWarnings.listedNow,
+        // Not on a draft begun since (`clear`).
+        inject: (source, rows, sends, error) => {
+          if (draft !== draftNo.current) return
+          latestShowRefusal.current(source, rows, sends, error)
+        },
+      }),
+    onSuccess: (_saved, { draft }) => {
+      if (draft !== draftNo.current) return
       setValue(empty)
       setKeptFrom(null)
       onClose()
     },
   })
+  // Rows a refusal put on the panel: the server's, so the note about the
+  // copy on the phone isn't theirs; theirs is FOUND_WHEN_SAVING.
+  const fromServer = new Set(saveWarnings.injected.map((w) => w.id))
+  const showsPhoneRows = saveWarnings.warnings.some(
+    (w) => w.kind === 'match' && !fromServer.has(w.id),
+  )
+  const showsRefused = saveWarnings.warnings.some((w) => fromServer.has(w.id))
+  const panelNote = [
+    ...(showsPhoneRows ? matchShown.notes : []),
+    ...(showsRefused ? [FOUND_WHEN_SAVING] : []),
+  ]
 
   return (
     <SheetShell open={open} onClose={close}>
@@ -409,6 +613,7 @@ export function NewPropertySheet({
             // confirmed and Retry does not ask about them again.
             saveWarnings.guard(e, () =>
               create.mutateAsync({
+                draft: draftNo.current,
                 businessId,
                 ...newClientArgs(latestValue.current),
               }),
@@ -431,8 +636,13 @@ export function NewPropertySheet({
             matchLine={matchCtx ? matchLine : undefined}
           />
 
+          {/* Not for a refusal whose rows the panel shows: they say it. */}
           <FormAlert
-            error={create.isError ? create.error : null}
+            error={
+              create.isError && create.error !== shownRefusal
+                ? create.error
+                : null
+            }
             copy={NEW_CLIENT_ERROR_COPY}
             className="mt-3"
           />
@@ -442,17 +652,16 @@ export function NewPropertySheet({
               matchFooter(
                 // Without a way to open the client, no row has a fix.
                 shown.map((w) =>
-                  onOpenClient ? (matchShown.rows.get(w.id) ?? {}) : {},
+                  onOpenClient
+                    ? ((fromServer.has(w.id)
+                        ? refused.get(w.id)
+                        : matchShown.rows.get(w.id)) ?? {})
+                    : {},
                 ),
                 { anyway: 'Save anyway', adds: 'client' },
               )
             }
-            note={
-              saveWarnings.warnings.some((w) => w.kind === 'match') &&
-              matchShown.notes.length > 0
-                ? matchShown.notes.join(' ')
-                : undefined
-            }
+            note={panelNote.length > 0 ? panelNote.join(' ') : undefined}
           />
 
           <div className="mt-5">

@@ -10,6 +10,7 @@ import {
 import { JOB_TYPES_LIST, JOB_TYPES_MANAGE } from './jobTypeFixtures'
 import { resolveMatch } from './matchFixtures'
 import { openWorkFixture, resolveSiteBook } from './siteWorkFixtures'
+import { resolveSheetCheckBook, sheetCheckMutation } from './sheetCheckFixtures'
 import { clientFacets } from '../../convex/lib/clientFacets'
 import { XERO_FIXTURES, XERO_LIVE, XERO_MUTATIONS } from './xeroFixtures'
 
@@ -1139,7 +1140,10 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
 export function resolveFixture(fn: string, args: unknown): unknown {
   const busy = resolveBusy(fn, args)
   if (busy !== undefined) return busy
-  const match = resolveMatch(fn, args) ?? resolveSiteBook(fn, args)
+  const match =
+    resolveMatch(fn, args) ??
+    resolveSiteBook(fn, args) ??
+    resolveSheetCheckBook(fn, args)
   if (match !== undefined) return match
   const f = FIXTURES[fn]
   return f ? f(args) : undefined
@@ -1162,6 +1166,9 @@ export async function resolveMutation(
   fn: string,
   args: unknown,
 ): Promise<unknown> {
+  // The online sheet's checks (sheetCheckFixtures.ts): refused, or made.
+  const checked = sheetCheckMutation(fn, args)
+  if (checked !== undefined) return checked
   const f = (
     XERO_MUTATIONS as Partial<Record<string, (args: unknown) => unknown>>
   )[fn]

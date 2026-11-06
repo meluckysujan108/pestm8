@@ -1181,6 +1181,48 @@ const PLAN = {
       await p.waitForTimeout(700)
     },
   },
+  // What the server found as the booking went (the matching plan's M7):
+  // Nadia Hussain, added on another phone. Book waits 3 s for the list to hold
+  // her, then the row says where to find her, "And 2 more", and "PestM8
+  // found this when saving."
+  'newjob-sheet-refused-match': {
+    before: async (p) => {
+      await typeCaller(p, {
+        name: 'Nadia Hussain',
+        phone: '0491 570 177',
+        street: '40 Coode St',
+        suburb: 'Bayswater',
+        postcode: '6053',
+      })
+      await pressBook(p, 3800)
+    },
+  },
+  // 12 Wattle St booked since the phone's copy: the person's own job with
+  // Open #124, and someone else's by its date alone.
+  'newjob-sheet-refused-site': {
+    before: async (p) => {
+      await chooseSite(p, 'Jane Nguyen', /12 Wattle St/)
+      await pressBook(p, 1200)
+    },
+  },
+  // Clients → New client, refused for Nadia Hussain: Open Nadia Hussain.
+  'newproperty-sheet-refused': {
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await fillCaller(p, {
+        name: 'Nadia Hussain',
+        phone: '0491 570 177',
+        street: '40 Coode St',
+        suburb: 'Bayswater',
+        postcode: '6053',
+      })
+      await p.getByRole('button', { name: 'Save client' }).click()
+      await p.waitForTimeout(3800)
+      await p
+        .getByRole('heading', { name: /to check before saving/ })
+        .scrollIntoViewIfNeeded()
+    },
+  },
   // Clients → New client: the line under Phone, then Open Jane Nguyen.
   'newproperty-match-open-client': {
     before: async (p) => {

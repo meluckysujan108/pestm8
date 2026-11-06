@@ -5,6 +5,7 @@ import {
   EMPTY_NEW_CLIENT,
   EMPTY_NEW_SITE,
   NEW_CLIENT_ERROR_COPY,
+  addPropertyErrorCopy,
   movesToAnotherField,
   newClientArgs,
   newSiteArgs,
@@ -159,6 +160,35 @@ describe('NEW_CLIENT_ERROR_COPY', () => {
     expect(
       describeError(new Error('NO_ACCESS'), NEW_CLIENT_ERROR_COPY),
     ).not.toMatch(/ABN/)
+  })
+})
+
+describe('a save refused for who the server found as it went (M7), where the panel couldn’t show its rows', () => {
+  const refused = new ConvexError({
+    code: 'MATCHED_CLIENT',
+    candidates: [
+      { clientId: 'c-jane', name: 'Jane Nguyen', evidence: ['name'] },
+    ],
+  })
+
+  test('Clients → New client: nothing saved, and nothing promised of the next save, which checks the form as it is now (the phone put right while it saved finds no one, and saves)', () => {
+    const words = describeError(refused, NEW_CLIENT_ERROR_COPY)
+    expect(words).toBe(
+      'Could not save: the caller may already be a client. Nothing was saved — save it again.',
+    )
+    expect(words).not.toMatch(/\bsee\b|signal|connection|'/)
+    expect(words).toMatch(/ — /)
+  })
+
+  test('Add property on a client’s sheet: the client named, the address as it was before it was changed while it saved, nothing added, and no button named', () => {
+    const words = describeError(refused, addPropertyErrorCopy('Jane Nguyen'))
+    expect(words).toBe(
+      'Could not add this property: Jane Nguyen already has the address as it was before the form changed. Nothing was added — check the address and add it again.',
+    )
+    // No button named: the one pressed read Add property or Save anyway.
+    expect(words).not.toMatch(/\bpressed\b|\bAdd\b(?! property)/)
+    expect(words).not.toMatch(/signal|connection|'|\b(?:they|their|them)\b/)
+    expect(words).toMatch(/ — /)
   })
 })
 
