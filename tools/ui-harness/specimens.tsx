@@ -56,6 +56,7 @@ import { EmailInput } from '#/components/forms/EmailInput'
 import { JobCard } from '#/components/schedule/JobCard'
 import type { WeatherCell } from '#/lib/weather'
 import { RecurringServices } from '#/components/schedule/RecurringServices'
+import { RecurringView } from '#/components/schedule/RecurringView'
 import { useBusinessDay } from '#/lib/useBusinessDay'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import {
@@ -993,6 +994,49 @@ function RecurringServicesBusy() {
       </section>
     </Phone>
   )
+}
+
+/**
+ * The Schedule's Recurring view (6 Nov 2026): the Job section's Recurring
+ * Job, the same component (`RecurringView`), under the Schedule's heading and
+ * View switch, with no week strip, as the page draws it on a phone.
+ */
+function scheduleRecurring(byDate: boolean) {
+  return function ScheduleRecurring() {
+    return (
+      <Phone>
+        <AccessProvider businessId={bizId}>
+          <Header kicker={formatMonthLabel(perthTodayKey())} title="Schedule" />
+          <section className="px-4 pt-4 pb-6">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="section-label">Recurring Jobs</h2>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Segmented
+                  label="View"
+                  value="recurring"
+                  options={SCHEDULE_VIEW_OPTIONS}
+                  onChange={() => {}}
+                />
+              </div>
+            </div>
+            <RecurringView
+              business={{
+                _id: bizId,
+                slug: 'demo',
+                state: 'WA',
+                timezone: TZ,
+              }}
+              byDate={byDate}
+              onByDateChange={() => {}}
+              onOpenJob={() => {}}
+            />
+          </section>
+        </AccessProvider>
+      </Phone>
+    )
+  }
 }
 
 function RecurringBusy() {
@@ -3266,6 +3310,8 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   jobdetailbusy: JobDetailBusy,
   recurringbusy: RecurringBusy,
   recurringservices: RecurringServicesBusy,
+  'schedule-recurring': scheduleRecurring(false),
+  'schedule-recurring-date': scheduleRecurring(true),
   sign: Sign,
   'sign-client': SignClient,
   'sign-row-saved': SignRowSaved,

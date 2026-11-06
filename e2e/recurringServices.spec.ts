@@ -1,10 +1,11 @@
 import { expect, test } from '@playwright/test'
-import { api, setupBusinessWithSub, signInViaUi } from './fixtures'
+import { api, clickUntil, setupBusinessWithSub, signInViaUi } from './fixtures'
 
 /**
  * The Recurring Job page by service (30 Sept 2026): one card per running
  * service that opens to its visits, a visit opening its job on the page, and
- * "By date" keeping the list of visits.
+ * "By date" keeping the list of visits. The Schedule's Recurring view (6 Nov
+ * 2026) is the same view, beside its Week.
  */
 
 const DAY = 24 * 60 * 60 * 1000
@@ -72,4 +73,73 @@ test('the Recurring Job page lists each service, and opens it to its visits', as
   await expect(
     page.getByRole('button', { name: /General Pest Control/ }).first(),
   ).toContainText('Every week')
+})
+
+test('the Schedule’s Recurring view is the Recurring Job page, beside its Week', async ({
+  page,
+}) => {
+  const s = await setupBusinessWithSub('schedule-recurring')
+  await s.owner.client.mutation(api.recurrences.create, {
+    businessId: s.businessId,
+    propertyId: s.propertyId,
+    assignedMembershipId: s.ownerMembershipId,
+    intervalCount: 1,
+    intervalUnit: 'week',
+    jobType: 'General Pest Control',
+    price: 18500,
+    anchorDate: Date.now() + DAY,
+    durationMinutes: 60,
+  })
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/schedule`)
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
+
+  const view = page.getByRole('tablist', { name: 'View' })
+  await clickUntil(view.getByRole('tab', { name: 'Recurring' }), () =>
+    expect(page).toHaveURL(/view=recurring/, { timeout: 2_000 }),
+  )
+  await expect(page.getByText('1 Recurring Job', { exact: true })).toBeVisible()
+  // The phone's week strip is the day's, and this view is no day's.
+  const strip = page.getByRole('button', { name: 'Previous week' })
+  const phone = test.info().project.name === 'mobile'
+  if (phone) await expect(strip).toHaveCount(0)
+  const weekly = page.getByRole('button', {
+    name: /^J\. Nguyen General Pest Control · Every week/,
+  })
+  await expect(weekly).toContainText(/Next \w{3} \d+ \w+/)
+
+  // A visit opens its job over the view, which stays put under it.
+  await expect(weekly).toBeEnabled()
+  await weekly.click()
+  const card = page.locator('li').filter({ has: weekly })
+  await card
+    .getByRole('button', { name: /Booked|Pending|Recurring/ })
+    .first()
+    .click()
+  await expect(page).toHaveURL(/view=recurring.*jobId=|jobId=.*view=recurring/)
+  await expect(
+    page
+      .getByRole('dialog')
+      .getByRole('heading', { name: 'General Pest Control', exact: true }),
+  ).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+
+  // By date in the URL, through a reload; gone on the way to another view.
+  await page.getByRole('tab', { name: 'By date' }).click()
+  await expect(page).toHaveURL(/[?&]by=date/)
+  await page.reload()
+  await expect(page.getByRole('tab', { name: 'By date' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await expect(
+    page.getByRole('button', { name: /General Pest Control/ }).first(),
+  ).toContainText('Every week')
+  await clickUntil(view.getByRole('tab', { name: 'Week' }), () =>
+    expect(page).toHaveURL(/view=week/, { timeout: 2_000 }),
+  )
+  await expect(page).not.toHaveURL(/by=date/)
+  if (phone) await expect(strip).toBeVisible()
 })

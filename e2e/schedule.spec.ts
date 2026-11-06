@@ -198,7 +198,7 @@ async function seedOneJob(prefix: string) {
  * the detail sheet prints it in full — but it is no longer read off the card.
  * The day reads one way now, as cards: the Table view was retired.
  */
-test('the job card shows the suburb alone, and the views are Job and Week', async ({
+test('the job card shows the suburb alone, and the views are Job, Week and Recurring', async ({
   page,
 }) => {
   const { email, slug } = await seedOneJob('cardvariant')
@@ -214,8 +214,9 @@ test('the job card shows the suburb alone, and the views are Job and Week', asyn
     'aria-selected',
     'true',
   )
-  await expect(view.getByRole('tab')).toHaveCount(2)
+  await expect(view.getByRole('tab')).toHaveCount(3)
   await expect(view.getByRole('tab', { name: 'Week' })).toBeVisible()
+  await expect(view.getByRole('tab', { name: 'Recurring' })).toBeVisible()
   await expect(view.getByRole('tab', { name: 'Table' })).toHaveCount(0)
   await expect(view.getByRole('tab', { name: 'List' })).toHaveCount(0)
   await expect(page.getByRole('table')).toHaveCount(0)

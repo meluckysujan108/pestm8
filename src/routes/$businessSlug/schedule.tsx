@@ -50,6 +50,10 @@ import {
 import { useToday } from '#/lib/useToday'
 import { WeekView } from '#/components/schedule/WeekView'
 import { RecurringDueNote } from '#/components/schedule/RecurringDueNote'
+import {
+  RecurringView,
+  warmRecurring,
+} from '#/components/schedule/RecurringView'
 import { NotKeptDay } from '#/components/schedule/NotKeptDay'
 import { ScheduleNotKept } from '#/components/schedule/ScheduleNotKept'
 import { KeptCopyNote } from '#/components/shell/KeptCopyNote'
@@ -99,6 +103,10 @@ const searchSchema = z.object({
   // a tech prefers to read their day should survive a refresh (§5.1). A link
   // to a view that no longer exists opens the default rather than erroring.
   view: z.enum(SCHEDULE_VIEWS).optional().catch(undefined),
+  // The Recurring view by date rather than by service, as the Job section's
+  // Recurring Job has it (`?view=date` there, where `view` was free). Only
+  // with `view=recurring`, and dropped on the way to another view.
+  by: z.enum(['date']).optional().catch(undefined),
   // Opens New Job on arrival — set-up's "Book your first job". Taken out of
   // the URL as it opens, so a refresh does not open it again.
   newJob: z.boolean().optional().catch(undefined),
@@ -177,6 +185,16 @@ export const Route = createFileRoute('/$businessSlug/schedule')({
       ...weekDays,
       rq.roster(business._id),
     )
+    // The Recurring view's own, with the day it makes way for: the page
+    // reads that day still, to go back to it.
+    const recurring =
+      searchParam(location, 'view') === 'recurring'
+        ? warmRecurring(
+            queryClient,
+            business,
+            searchParam(location, 'by') === 'date',
+          )
+        : Promise.resolve()
     const news = owner
       ? warm(
           queryClient,
@@ -192,7 +210,11 @@ export const Route = createFileRoute('/$businessSlug/schedule')({
     // the page says what it doesn't.
     await settleInBrowser(
       keeper.lineDown() ? 0 : loaderWaitMs(),
-      Promise.all([essentials, settleInBrowser(OWNER_NEWS_WAIT_MS, news)]),
+      Promise.all([
+        essentials,
+        recurring,
+        settleInBrowser(OWNER_NEWS_WAIT_MS, news),
+      ]),
     )
     return { today, joinSince }
   },
@@ -266,7 +288,7 @@ function ScheduleBody({
   // The account being worked in, so the day opens on the right person's round.
   const acting = useActing()
   const mode = useViewMode()
-  const { date, jobId, view, newJob, outboxId } = Route.useSearch()
+  const { date, jobId, view, by, newJob, outboxId } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const openJobId = jobId ?? null
   // A replace gives the entry a new history key, and a new key scrolls the
@@ -305,7 +327,14 @@ function ScheduleBody({
   const setView = (next: ScheduleView) => {
     restoreViewFocus.current =
       document.activeElement?.closest('[role="tablist"]') != null
-    navigate({ search: (prev) => ({ ...prev, view: next }), replace: true })
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        view: next,
+        by: next === 'recurring' ? prev.by : undefined,
+      }),
+      replace: true,
+    })
   }
   useEffect(() => {
     if (!restoreViewFocus.current) return
@@ -410,8 +439,10 @@ function ScheduleBody({
           : Math.round((Date.now() - keptNote.asOf) / 60_000),
     })
   }, [keptNote.phase, keptNote.tone, keptNote.asOf])
+  // The Recurring view draws no day, and notes its own (`RecurringView`).
   useEffect(() => {
-    if (notKept) logConnection('kept-not-here', { what: activeView })
+    if (notKept && activeView !== 'recurring')
+      logConnection('kept-not-here', { what: activeView })
   }, [notKept, requestedKey, activeView])
   /**
    * The phone opens on your own jobs — for everyone but the owner looking at
@@ -440,9 +471,9 @@ function ScheduleBody({
     dayShown: outboxDayKey,
     timezone: business.timezone,
     rows: notKept ? [] : jobs,
-    drawsCards: shownView !== 'week' && !notKept && filteredJobs.length > 0,
+    drawsCards: shownView === 'job' && !notKept && filteredJobs.length > 0,
     redrawKey: `${outboxDayKey}|${shownView}|${notKept}|${status}|${staffId}|${mode ?? ''}|${acting.membershipId}`,
-    allStatuses: status === 'all' && shownView !== 'week',
+    allStatuses: status === 'all' && shownView === 'job',
     staffId,
     mineOnly: mode === 'mine' ? acting.membershipId : null,
   })
@@ -498,7 +529,14 @@ function ScheduleBody({
   // than the page jumping back to the top — and picked again (Today, say)
   // it is scrolled to again, which the count below is for.
   const [weekFocusTick, setWeekFocusTick] = useState(0)
+  // From the week, or the Recurring view, to a day. A push, unlike `setDay`:
+  // Back returns to the view the day was opened from.
+  const openDay = (dayKey: string) =>
+    navigate({ search: { date: dayKey, view: 'job' } })
   const setDay = (dayKey: string) => {
+    // The Recurring view is no day's: a day picked from it (the month, Go
+    // to today) opens that day's list, as one opened from the week does.
+    if (activeView === 'recurring') return openDay(dayKey)
     const inWeek = activeView === 'week'
     if (inWeek) setWeekFocusTick((tick) => tick + 1)
     navigate({
@@ -528,10 +566,6 @@ function ScheduleBody({
       resetScroll,
     })
   }
-  // From the week to one of its days. A push, unlike `setDay`: Back returns
-  // to the week the day was opened from.
-  const openDay = (dayKey: string) =>
-    navigate({ search: { date: dayKey, view: 'job' } })
 
   // Projected visits on the selected day, when it is still ahead: not on its
   // list and in no count, but worth saying so the day does not look clear.
@@ -594,6 +628,34 @@ function ScheduleBody({
       onOpenDay={openDay}
     />
   )
+  // The Job section's Recurring Job, the same component, under the Schedule's
+  // own heading and View switch. A visit opens over it as a job does here.
+  const viewSwitch = (
+    <Segmented
+      label="View"
+      value={activeView}
+      options={SCHEDULE_VIEW_OPTIONS}
+      onChange={setView}
+    />
+  )
+  const recurringView = (
+    <RecurringView
+      business={business}
+      byDate={by === 'date'}
+      onByDateChange={(byDate) =>
+        navigate({
+          search: (prev) => ({ ...prev, by: byDate ? 'date' : undefined }),
+          replace: true,
+        })
+      }
+      onOpenJob={setOpenJobId}
+      notKeptAction={
+        <EmptyStateButton onClick={() => setDay(today)}>
+          Go to today
+        </EmptyStateButton>
+      }
+    />
+  )
 
   return (
     <>
@@ -639,7 +701,22 @@ function ScheduleBody({
         <InstallCard />
       </div>
 
-      {isDesktop ? (
+      {isDesktop && shownView === 'recurring' ? (
+        // The Recurring view is no day's, so the month makes way for it, and
+        // it has the page's whole width, as on the Job section.
+        <section
+          aria-busy={stale || undefined}
+          className={`px-4 pt-4 pb-6 ${dimmed}`}
+        >
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="min-w-0 text-sheet-title text-ink">
+              Recurring Jobs
+            </h2>
+            {viewSwitch}
+          </div>
+          {recurringView}
+        </section>
+      ) : isDesktop ? (
         // Desktop (§2.4): a persistent month grid + team legend beside a
         // filterable day agenda, in place of the week strip and its sheet.
         // Same JobCard rows, same colours-are-per-subcontractor model —
@@ -668,12 +745,7 @@ function ScheduleBody({
                     <h2 className="min-w-0 text-sheet-title text-ink">
                       {notKeptLabel}
                     </h2>
-                    <Segmented
-                      label="View"
-                      value={activeView}
-                      options={SCHEDULE_VIEW_OPTIONS}
-                      onChange={setView}
-                    />
+                    {viewSwitch}
                   </div>
                   {notKeptDay}
                   {notKeptOutbox}
@@ -687,12 +759,7 @@ function ScheduleBody({
                       </h2>
                       {weekSummary}
                     </div>
-                    <Segmented
-                      label="View"
-                      value={activeView}
-                      options={SCHEDULE_VIEW_OPTIONS}
-                      onChange={setView}
-                    />
+                    {viewSwitch}
                   </div>
                   {weekView}
                 </div>
@@ -722,62 +789,67 @@ function ScheduleBody({
         </section>
       ) : (
         <>
-          <div
-            data-schedule-chrome
-            // Scrolls away with the page rather than pinning under the header:
-            // once the day is picked, the strip is only in the way of the
-            // jobs. The header's tint, so at rest the two still read as one
-            // band; no blur, as nothing ever passes beneath it.
-            className="border-b border-hairline bg-chrome"
-          >
-            <div className="flex items-center justify-between px-3 pt-2">
-              <button
-                type="button"
-                aria-label="Previous week"
-                onClick={() => setDay(addDaysToKey(requestedKey, -7))}
-                className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
-              >
-                <ChevronLeft size={20} strokeWidth={2} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setDay(today)}
-                className="relative tap-target text-body font-semibold text-blue"
-              >
-                Today
-              </button>
-              <button
-                type="button"
-                aria-label="Next week"
-                onClick={() => setDay(addDaysToKey(requestedKey, 7))}
-                className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
-              >
-                <ChevronRight size={20} strokeWidth={2} />
-              </button>
+          {/* The strip and the note under it are the day's: the Recurring
+              view is no day's, so they make way for it, as on the Job
+              section. */}
+          {shownView !== 'recurring' && (
+            <div
+              data-schedule-chrome
+              // Scrolls away with the page rather than pinning under the header:
+              // once the day is picked, the strip is only in the way of the
+              // jobs. The header's tint, so at rest the two still read as one
+              // band; no blur, as nothing ever passes beneath it.
+              className="border-b border-hairline bg-chrome"
+            >
+              <div className="flex items-center justify-between px-3 pt-2">
+                <button
+                  type="button"
+                  aria-label="Previous week"
+                  onClick={() => setDay(addDaysToKey(requestedKey, -7))}
+                  className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+                >
+                  <ChevronLeft size={20} strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDay(today)}
+                  className="relative tap-target text-body font-semibold text-blue"
+                >
+                  Today
+                </button>
+                <button
+                  type="button"
+                  aria-label="Next week"
+                  onClick={() => setDay(addDaysToKey(requestedKey, 7))}
+                  className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+                >
+                  <ChevronRight size={20} strokeWidth={2} />
+                </button>
+              </div>
+              <WeekStrip
+                startKey={weekStart}
+                // The tapped day, unless it belongs to a week not up yet — then
+                // the strip on screen has no such day to mark, and marking none
+                // would read as nothing having happened.
+                selectedKey={
+                  startOfWeekKey(requestedKey) === weekStart
+                    ? requestedKey
+                    : selectedKey
+                }
+                todayKey={today}
+                load={week}
+                onSelect={setDay}
+                monochrome={mode === 'mine'}
+              />
             </div>
-            <WeekStrip
-              startKey={weekStart}
-              // The tapped day, unless it belongs to a week not up yet — then
-              // the strip on screen has no such day to mark, and marking none
-              // would read as nothing having happened.
-              selectedKey={
-                startOfWeekKey(requestedKey) === weekStart
-                  ? requestedKey
-                  : selectedKey
-              }
-              todayKey={today}
-              load={week}
-              onSelect={setDay}
-              monochrome={mode === 'mine'}
-            />
-          </div>
+          )}
 
           {/* Under the strip, clear of the no-signal notice's band. While
               it says the line is down, the can't-reach notice gives way to
               it unless a change is waiting to save; then that notice, taller
               for Try again and the save, can cover its first line, and says
               when the screen was last updated itself. */}
-          {note()}
+          {shownView !== 'recurring' && note()}
 
           <section
             aria-busy={stale || undefined}
@@ -786,23 +858,21 @@ function ScheduleBody({
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
                 <h2 className="section-label">
-                  {notKept
-                    ? notKeptLabel
-                    : shownView === 'week'
-                      ? formatWeekRange(weekStart)
-                      : formatDayLabel(selectedKey)}
+                  {shownView === 'recurring'
+                    ? 'Recurring Jobs'
+                    : notKept
+                      ? notKeptLabel
+                      : shownView === 'week'
+                        ? formatWeekRange(weekStart)
+                        : formatDayLabel(selectedKey)}
                 </h2>
                 {shownView === 'week' && !notKept && weekSummary}
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Segmented
-                  label="View"
-                  value={activeView}
-                  options={SCHEDULE_VIEW_OPTIONS}
-                  onChange={setView}
-                />
-                {/* The week is unfiltered: its numbers are the week's. */}
-                {shownView !== 'week' && !notKept && (
+                {viewSwitch}
+                {/* The week is unfiltered: its numbers are the week's. The
+                    Recurring view has its own way of reading it. */}
+                {shownView === 'job' && !notKept && (
                   <ScheduleFilterBar
                     jobs={jobs}
                     members={members}
@@ -816,7 +886,7 @@ function ScheduleBody({
               </div>
             </div>
 
-            {shownView !== 'week' && !notKept && (
+            {shownView === 'job' && !notKept && (
               <div className="mb-3 empty:hidden">
                 <RecurringDueNote
                   count={recurringDue}
@@ -826,7 +896,9 @@ function ScheduleBody({
               </div>
             )}
 
-            {notKept ? (
+            {shownView === 'recurring' ? (
+              recurringView
+            ) : notKept ? (
               <>
                 {notKeptDay}
                 {notKeptOutbox}

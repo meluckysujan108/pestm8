@@ -1279,6 +1279,9 @@ const PLAN = {
       await p.waitForTimeout(300)
     },
   },
+  // The Schedule's Recurring view, by service and by date.
+  'schedule-recurring': { before: async (p) => p.waitForTimeout(800) },
+  'schedule-recurring-date': { before: async (p) => p.waitForTimeout(1200) },
   // The busy client: a summary under the name, then Jobs, Notes, Details.
   clientbusy: { before: async (p) => p.waitForTimeout(1200) },
   'clientbusy-jobs': {
