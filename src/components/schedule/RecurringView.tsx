@@ -11,12 +11,17 @@ import {
   NoMatches,
 } from '#/components/primitives/EmptyState'
 import { Segmented } from '#/components/primitives/Segmented'
+import {
+  FilterButton,
+  FilterPeople,
+  FilterSort,
+} from '#/components/primitives/FilterSheet'
 import { ListPending } from '#/components/shell/Pending'
 import { useAccess } from '#/lib/access'
 import { logConnection } from '#/lib/connectionLog'
 import { todayKey } from '#/lib/format'
 import { isSignInRefusal, listsEverythingOf } from '#/lib/jobListView'
-import { isOnJob } from '#/lib/scheduleFilters'
+import { RECURRING_SORT_OPTIONS, isOnJob } from '#/lib/scheduleFilters'
 import { useReadable, useReadableAll } from '#/lib/offline/useKept'
 import { rq, warm } from '#/lib/routeQueries'
 import { useBusinessDay } from '#/lib/useBusinessDay'
@@ -24,9 +29,13 @@ import { useHydrated } from '#/lib/useHydrated'
 import { useJobsWeather } from '#/lib/weather'
 import { startOfDayInZone } from '../../../convex/lib/dates'
 import type { ReactNode } from 'react'
+import type { FilterPerson } from '#/components/primitives/FilterSheet'
 import type { QueryClient } from '@tanstack/react-query'
 import type { RecurringSort } from '#/lib/scheduleFilters'
 import type { Id } from '../../../convex/_generated/dataModel'
+
+/** Someone on the roster, as a filter names them. */
+type RosterMember = { _id: string; name: string; colour: string }
 
 type RecurringBusiness = {
   _id: Id<'businesses'>
@@ -563,4 +572,94 @@ function VisitsByDate({
       {weather.showsAny(jobs) && <WeatherCredit className="mt-4" />}
     </>
   )
+}
+
+/**
+ * The Recurring view's: how its services are sorted (By service only — By
+ * date is in date order), and whose they are. Each person's count is of the
+ * services they lead.
+ */
+export function RecurringFilterButton({
+  business,
+  members,
+  staffId,
+  onStaffChange,
+  onClear,
+  sort,
+  onSortChange,
+  byDate,
+  hideStaff = false,
+  disabled = false,
+}: {
+  business: { _id: Id<'businesses'>; timezone: string }
+  members: ReadonlyArray<RosterMember>
+  /** Whose services: a membership's id, or 'all'. */
+  staffId: string
+  onStaffChange: (membershipId: string) => void
+  /** Clear filters: the person back to everyone's. */
+  onClear: () => void
+  sort: RecurringSort
+  onSortChange: (sort: RecurringSort) => void
+  byDate: boolean
+  hideStaff?: boolean
+  disabled?: boolean
+}) {
+  const day = useBusinessDay(business.timezone)
+  // Over the window the view beside it reads, fixed where it opened.
+  const [readFrom] = useState(() => day.startOfToday)
+  const { data } = useQuery(rq.recurringServices(business._id, readFrom))
+  const services = data?.services ?? []
+  const people = peopleOfServices(services, members, staffId)
+  const showStaff = !hideStaff && people.length >= 2
+  if (!showStaff && byDate) return null
+  return (
+    <FilterButton
+      title={byDate ? 'Filters' : 'Filter and sort'}
+      on={Number(showStaff && staffId !== 'all')}
+      disabled={disabled}
+      onClear={onClear}
+    >
+      {!byDate && (
+        <FilterSort
+          value={sort}
+          options={RECURRING_SORT_OPTIONS}
+          onChange={onSortChange}
+        />
+      )}
+      {showStaff && (
+        <FilterPeople
+          value={staffId}
+          everyone={services.length}
+          people={people}
+          onChange={onStaffChange}
+        />
+      )}
+    </FilterButton>
+  )
+}
+
+/**
+ * Who leads the services, with how many each, most first; and the person
+ * chosen, at 0 if they lead none. Named from the roster: someone no longer
+ * on it is left out of the list, their services still under Everyone.
+ */
+function peopleOfServices(
+  services: ReadonlyArray<{ assignedMembershipId: string }>,
+  members: ReadonlyArray<RosterMember>,
+  staffId: string,
+): Array<FilterPerson> {
+  const counts = new Map<string, number>()
+  for (const service of services) {
+    const id = service.assignedMembershipId
+    counts.set(id, (counts.get(id) ?? 0) + 1)
+  }
+  if (staffId !== 'all' && !counts.has(staffId)) counts.set(staffId, 0)
+  return [...counts]
+    .flatMap(([membershipId, count]) => {
+      const member = members.find((m) => m._id === membershipId)
+      return member
+        ? [{ membershipId, name: member.name, colour: member.colour, count }]
+        : []
+    })
+    .sort((a, b) => b.count - a.count)
 }

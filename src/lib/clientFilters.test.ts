@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'vitest'
 import {
+  clientFilterCounts,
+  clientFilterSearchOf,
+  clientFilterValuesOf,
+  clientFiltersOn,
   computeSuburbLoad,
   filterClientRows,
   matchesClientSearch,
@@ -278,6 +282,32 @@ describe('the Clients page filters', () => {
     expect(names({ kind: 'business', tag: 'GPC' })).toEqual([])
   })
 
+  test('each choice is counted among what the other filters let through', () => {
+    // Residential: Alan and Jo. Among them, one lead or inactive each —
+    // Mahal's lead isn't counted, being commercial.
+    const counts = clientFilterCounts(ROWS, { ...NO_FILTERS, kind: 'person' })
+    expect(counts.statuses).toEqual({ all: 2, active: 1, lead: 0, inactive: 1 })
+    expect(counts.tags).toEqual({ all: 2, each: [{ tag: 'GPC', count: 1 }] })
+    expect(counts.suburbs).toEqual({
+      all: 2,
+      each: [{ suburb: 'Canning Vale', count: 1 }],
+    })
+    // The type's own counts ignore the type chosen, so Commercial still says
+    // what picking it would show.
+    expect(counts.kinds).toEqual({ all: 3, person: 2, business: 1 })
+  })
+
+  test('with nothing set, every count is of the whole list', () => {
+    const counts = clientFilterCounts(ROWS, NO_FILTERS)
+    expect(counts.kinds).toEqual({ all: 3, person: 2, business: 1 })
+    expect(counts.statuses).toEqual({ all: 3, active: 1, lead: 1, inactive: 1 })
+    expect(counts.suburbs.each.map((s) => s.suburb)).toEqual([
+      'Canning Vale',
+      'Midland',
+      'Morley',
+    ])
+  })
+
   test('counts a client once per suburb, however many sites it has there', () => {
     // Still found here, where the page and its tests have always looked.
     expect(
@@ -286,5 +316,61 @@ describe('the Clients page filters', () => {
         { properties: [{ suburb: 'Morley' }, { suburb: '' }] },
       ]),
     ).toEqual([{ suburb: 'Morley', count: 2 }])
+  })
+})
+
+describe('the Clients page filters in its address', () => {
+  test('leave every default out, so a plain link to Clients stays plain', () => {
+    expect(
+      clientFilterSearchOf({
+        kind: 'all',
+        status: 'all',
+        tag: 'all',
+        suburb: 'all',
+      }),
+    ).toEqual({
+      type: undefined,
+      status: undefined,
+      tag: undefined,
+      suburb: undefined,
+    })
+    expect(clientFilterValuesOf({})).toEqual({
+      kind: 'all',
+      status: 'all',
+      tag: 'all',
+      suburb: 'all',
+    })
+  })
+
+  test('name the type as it is said, and read it back as the schema’s', () => {
+    const values = {
+      kind: 'business',
+      status: 'lead',
+      tag: 'Real estate',
+      suburb: 'Morley',
+    } as const
+    const search = clientFilterSearchOf(values)
+    expect(search).toEqual({
+      type: 'commercial',
+      status: 'lead',
+      tag: 'Real estate',
+      suburb: 'Morley',
+    })
+    expect(clientFilterValuesOf(search)).toEqual(values)
+    expect(clientFilterValuesOf({ type: 'residential' }).kind).toBe('person')
+  })
+
+  test('an empty tag or suburb in a link is no filter', () => {
+    expect(clientFilterValuesOf({ tag: ' ', suburb: '' })).toMatchObject({
+      tag: 'all',
+      suburb: 'all',
+    })
+  })
+
+  test('count how many are on, for the icon’s badge', () => {
+    expect(clientFiltersOn(clientFilterValuesOf({}))).toBe(0)
+    expect(
+      clientFiltersOn(clientFilterValuesOf({ type: 'commercial', tag: 'GPC' })),
+    ).toBe(2)
   })
 })

@@ -58,6 +58,7 @@ import { JobCard } from '#/components/schedule/JobCard'
 import type { WeatherCell } from '#/lib/weather'
 import { RecurringServices } from '#/components/schedule/RecurringServices'
 import {
+  RecurringFilterButton,
   RecurringSummary,
   RecurringView,
 } from '#/components/schedule/RecurringView'
@@ -126,13 +127,13 @@ import {
 } from '#/components/primitives/EmptyState'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import {
-  RecurringFilterButton,
   ScheduleFilterButton,
   WeekFilterButton,
 } from '#/components/schedule/ScheduleFilterButton'
 import type { JobRow } from '#/components/schedule/JobCard'
 import { DaySummary, SummaryLine } from '#/components/schedule/DaySummary'
-import { ClientFilterBar } from '#/components/clients/ClientFilterBar'
+import { ClientFilterButton } from '#/components/clients/ClientFilterButton'
+import type { ClientSort } from '#/components/clients/ClientFilterButton'
 import { clientFacets } from '../../convex/lib/clientFacets'
 import {
   useQuery,
@@ -141,7 +142,12 @@ import {
 } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
 import { ClientCard } from '#/components/clients/ClientCard'
-import { searchClientRows, useClientFilters } from '#/lib/clientFilters'
+import {
+  filterClientRows,
+  searchClientRows,
+  useClientFilters,
+} from '#/lib/clientFilters'
+import type { ClientFilterSearch } from '#/lib/clientFilters'
 import { usePagedList } from '#/lib/usePagedList'
 import { CLIENTS_PAGE, clientsFirstPage, rq } from '#/lib/routeQueries'
 import { FormAlert } from '#/components/forms/FormAlert'
@@ -170,10 +176,6 @@ import {
 } from 'lucide-react'
 import { recurringSortOf, useScheduleFilters } from '#/lib/scheduleFilters'
 import type { RecurringSort, ScheduleFilterSearch } from '#/lib/scheduleFilters'
-import type {
-  KindFilter,
-  StatusFilter as ClientStatusFilter,
-} from '#/lib/clientFilters'
 import { InstallSteps } from '#/components/install/InstallSteps'
 import { InstallSettings } from '#/components/install/InstallSettings'
 import { InstallCardView } from '#/components/install/InstallCard'
@@ -589,6 +591,135 @@ function NewJobPickerDetailTwo() {
   )
 }
 
+const NO_CLIENT_FACETS = {
+  suburbs: [],
+  tags: [],
+  statuses: { active: 0, lead: 0, inactive: 0 },
+}
+
+/** The Clients page's search box with its filter icon beside it. */
+function ClientsSearchRow({
+  value = '',
+  children,
+}: {
+  value?: string
+  children: ReactNode
+}) {
+  return (
+    <div className="flex items-center gap-3 px-4 pt-3">
+      <div className="flex min-w-0 flex-1">
+        <SearchBox
+          value={value}
+          onChange={() => {}}
+          label="Search clients by name, address, phone or email"
+          placeholder="Name, address, phone or #number"
+        />
+      </div>
+      {children}
+    </div>
+  )
+}
+
+/**
+ * The Clients page's filter icon, its address held here: what the route
+ * keeps in `?type=`, `?status=`, `?tag=`, `?suburb=` and `?sort=`.
+ */
+function HarnessClientFilter({
+  facets,
+  total,
+  rows,
+  initial = {},
+  initialSort = 'newest',
+}: {
+  facets: Parameters<typeof ClientFilterButton>[0]['facets']
+  total?: number
+  rows?: Parameters<typeof ClientFilterButton>[0]['rows']
+  initial?: ClientFilterSearch
+  initialSort?: ClientSort
+}) {
+  const [search, setSearch] = useState<ClientFilterSearch>(initial)
+  const [sort, setSort] = useState<ClientSort>(initialSort)
+  const filters = useClientFilters(search, setSearch)
+  return (
+    <ClientFilterButton
+      facets={facets}
+      total={total}
+      rows={rows}
+      values={filters}
+      setKind={filters.setKind}
+      setStatus={filters.setStatus}
+      setTag={filters.setTag}
+      setSuburb={filters.setSuburb}
+      filtersOn={filters.filtersOn}
+      onClear={filters.clearFilters}
+      sort={sort}
+      onSortChange={setSort}
+    />
+  )
+}
+
+/**
+ * The Clients page filtered to its commercial clients, A–Z: the count says
+ * how many of the whole book that leaves, in the line it always has, and
+ * the icon is blue with one filter on. Every client is here, so the sheet
+ * counts each choice among what the others let through.
+ */
+function ClientsFiltered() {
+  const { data } = useQuery(rq.directory(bizId))
+  const [search, setSearch] = useState<ClientFilterSearch>({
+    type: 'commercial',
+  })
+  const [sort, setSort] = useState<ClientSort>('az')
+  const filters = useClientFilters(search, setSearch)
+  const rows = data
+    ? clientRows(data).sort((a, b) =>
+        sort === 'az'
+          ? a.client.name.localeCompare(b.client.name)
+          : b.client.createdAt - a.client.createdAt,
+      )
+    : []
+  const shown = filterClientRows(rows, filters)
+  return (
+    <Phone>
+      <Header
+        kicker={
+          data
+            ? `${shown.length} of ${clientCountLabel(directoryCount(data))}`
+            : '\u00a0'
+        }
+        title="Clients"
+      />
+      <ClientsSearchRow>
+        <ClientFilterButton
+          facets={clientFacets(rows)}
+          rows={rows}
+          values={filters}
+          setKind={filters.setKind}
+          setStatus={filters.setStatus}
+          setTag={filters.setTag}
+          setSuburb={filters.setSuburb}
+          filtersOn={filters.filtersOn}
+          onClear={filters.clearFilters}
+          sort={sort}
+          onSortChange={setSort}
+        />
+      </ClientsSearchRow>
+      <section className="px-4 pb-6 pt-3">
+        <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch">
+          {shown.slice(0, CLIENTS_PAGE).map((row) => (
+            <ClientCard
+              key={row.client._id}
+              client={row.client}
+              properties={row.properties}
+              onOpen={() => {}}
+            />
+          ))}
+        </div>
+      </section>
+    </Phone>
+  )
+}
+
 /** The Clients page searched by a client's own mobile, as the route draws
  * it with every client to search: their card, found by the number. */
 function ClientsSearchPhone() {
@@ -598,29 +729,17 @@ function ClientsSearchPhone() {
   return (
     <Phone>
       <Header
-        kicker={data ? clientCountLabel(directoryCount(data)) : '\u00a0'}
+        kicker={
+          data
+            ? `${rows.length} of ${clientCountLabel(directoryCount(data))}`
+            : '\u00a0'
+        }
         title="Clients"
       />
-      <div className="flex px-4 pt-3">
-        <SearchBox
-          value={term}
-          onChange={() => {}}
-          label="Search clients by name, address, phone or email"
-          placeholder="Search by name, address, phone, email or #number"
-        />
-      </div>
-      <div className="px-4 pt-3">
-        <Segmented
-          label="Sort clients"
-          value="newest"
-          onChange={() => {}}
-          options={[
-            { value: 'newest', label: 'Newest first' },
-            { value: 'az', label: 'A–Z' },
-          ]}
-        />
-      </div>
-      <section className="px-4 pb-6 pt-4">
+      <ClientsSearchRow value={term}>
+        <HarnessClientFilter facets={clientFacets(rows)} rows={rows} />
+      </ClientsSearchRow>
+      <section className="px-4 pb-6 pt-3">
         <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch">
           {rows.map((row) => (
             <ClientCard
@@ -1093,7 +1212,9 @@ function scheduleRecurring(byDate: boolean) {
               <RecurringFilterButton
                 business={{ _id: bizId, timezone: TZ }}
                 members={MEMBERS}
-                filters={filters}
+                staffId={filters.staffId}
+                onStaffChange={filters.setStaffId}
+                onClear={filters.clear}
                 sort={sort}
                 onSortChange={setSort}
                 byDate={byDate}
@@ -1357,10 +1478,6 @@ function useHarnessFilters(
 
 function Filters() {
   const scheduleFilters = useHarnessFilters(JOBS as never)
-  const [kind, setKind] = useState<KindFilter>('all')
-  const [suburb, setSuburb] = useState('all')
-  const [clientStatus, setClientStatus] = useState<ClientStatusFilter>('all')
-  const [tag, setTag] = useState('all')
   const [seg, setSeg] = useState('day')
   const [q, setQ] = useState('crawley')
   return (
@@ -1383,8 +1500,8 @@ function Filters() {
           members={MEMBERS}
           filters={scheduleFilters}
         />
-        <p className="section-label">Client filter bar</p>
-        <ClientFilterBar
+        <p className="section-label">Client filters</p>
+        <HarnessClientFilter
           facets={clientFacets([
             {
               client: { status: 'lead', tags: ['GPC', 'Real estate'] },
@@ -1392,26 +1509,7 @@ function Filters() {
             },
             { client: { tags: ['GPC'] }, properties: [{ suburb: 'Crawley' }] },
           ])}
-          kind={kind}
-          setKind={setKind}
-          suburb={suburb}
-          setSuburb={setSuburb}
-          status={clientStatus}
-          setStatus={setClientStatus}
-          tag={tag}
-          setTag={setTag}
-          filtered={
-            kind !== 'all' ||
-            suburb !== 'all' ||
-            clientStatus !== 'all' ||
-            tag !== 'all'
-          }
-          onClear={() => {
-            setKind('all')
-            setSuburb('all')
-            setClientStatus('all')
-            setTag('all')
-          }}
+          total={2}
         />
         <p className="section-label">Search box</p>
         <SearchBox value={q} onChange={setQ} label="Search clients" />
@@ -2130,7 +2228,6 @@ function ClientSheetNotKept() {
  */
 function ClientsKept({ notice }: { notice?: ReachNoticeModel }) {
   const { data } = useQuery(rq.directory(bizId))
-  const filters = useClientFilters()
   const rows = data
     ? clientRows(data).sort(
         (a, b) =>
@@ -2145,14 +2242,9 @@ function ClientsKept({ notice }: { notice?: ReachNoticeModel }) {
         kicker={data ? clientCountLabel(directoryCount(data)) : '\u00a0'}
         title="Clients"
       />
-      <div className="flex px-4 pt-3">
-        <SearchBox
-          value=""
-          onChange={() => {}}
-          label="Search clients by name, address, phone or email"
-          placeholder="Search by name, address, phone, email or #number"
-        />
-      </div>
+      <ClientsSearchRow>
+        <HarnessClientFilter facets={clientFacets(rows)} rows={rows} />
+      </ClientsSearchRow>
       <KeptCopyNote
         phase="shown"
         tone="no-signal"
@@ -2160,33 +2252,7 @@ function ClientsKept({ notice }: { notice?: ReachNoticeModel }) {
         timezone={TZ}
         todayKey={today}
       />
-      <div className="px-4 pt-3">
-        <Segmented
-          label="Sort clients"
-          value="newest"
-          onChange={() => {}}
-          options={[
-            { value: 'newest', label: 'Newest first' },
-            { value: 'az', label: 'A–Z' },
-          ]}
-        />
-      </div>
-      <section className="px-4 pb-6 pt-4">
-        <div className="mb-3">
-          <ClientFilterBar
-            facets={clientFacets(rows)}
-            kind={filters.kind}
-            setKind={filters.setKind}
-            suburb={filters.suburb}
-            setSuburb={filters.setSuburb}
-            status={filters.status}
-            setStatus={filters.setStatus}
-            tag={filters.tag}
-            setTag={filters.setTag}
-            filtered={filters.filtersActive}
-            onClear={filters.clearFilters}
-          />
-        </div>
+      <section className="px-4 pb-6 pt-3">
         <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch">
           {rows.slice(0, CLIENTS_PAGE).map((row) => (
             <ClientCard
@@ -2415,7 +2481,6 @@ function LoadMoreLive() {
  */
 function ClientsList() {
   const { data: overview } = useQuery(rq.clientOverview(bizId))
-  const filters = useClientFilters()
   const paged = usePagedList({
     query: api.clients.page,
     args: { businessId: bizId },
@@ -2428,24 +2493,13 @@ function ClientsList() {
         kicker={overview && `${overview.total} clients`}
         title="Clients"
       />
-      <section className="px-4 pb-6 pt-4">
-        {overview && (
-          <div className="mb-3">
-            <ClientFilterBar
-              facets={overview}
-              kind={filters.kind}
-              setKind={filters.setKind}
-              suburb={filters.suburb}
-              setSuburb={filters.setSuburb}
-              status={filters.status}
-              setStatus={filters.setStatus}
-              tag={filters.tag}
-              setTag={filters.setTag}
-              filtered={filters.filtersActive}
-              onClear={filters.clearFilters}
-            />
-          </div>
-        )}
+      <ClientsSearchRow>
+        <HarnessClientFilter
+          facets={overview ?? NO_CLIENT_FACETS}
+          total={overview?.total}
+        />
+      </ClientsSearchRow>
+      <section className="px-4 pb-6 pt-3">
         <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch">
           {paged.rows.map((row) => (
             <ClientCard
@@ -3486,6 +3540,7 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'newjob-picker-detail-two': NewJobPickerDetailTwo,
   'newjob-picker-10k': NewJobPicker10k,
   'clients-search-phone': ClientsSearchPhone,
+  'clients-filtered': ClientsFiltered,
   // Is the caller already a client? (the matching plan's M3, 1 Nov 2026).
   'newjob-match-same-site': NewJobMatch,
   'newjob-match-same-contact': NewJobMatch,

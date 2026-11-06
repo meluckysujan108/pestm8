@@ -23,11 +23,7 @@ import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
 import type { OpenedFromNewClient } from '#/components/clients/clientSheetOpening'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { ClientCard } from '#/components/clients/ClientCard'
-import {
-  ClientFilterBar,
-  choosingAnotherSegment,
-} from '#/components/clients/ClientFilterBar'
-import { Segmented } from '#/components/primitives/Segmented'
+import { ClientFilterButton } from '#/components/clients/ClientFilterButton'
 import { useHydrated } from '#/lib/useHydrated'
 import { useToday } from '#/lib/useToday'
 import { todayKey as todayKeyIn } from '#/lib/format'
@@ -57,6 +53,8 @@ import {
 } from '#/lib/offline/useKept'
 import { useStillPendingAfter } from '#/components/products/hooks'
 import {
+  CLIENT_STATUS_PARAMS,
+  CLIENT_TYPE_PARAMS,
   filterClientRows,
   searchClientRows,
   useClientFilters,
@@ -93,6 +91,12 @@ export const Route = createFileRoute('/$businessSlug/clients/')({
     // Newest first unless A–Z is chosen. Absent is the default, so a plain
     // link to Clients stays plain; a stale or mistyped value falls back to it.
     sort: z.enum(['newest', 'az']).optional().catch(undefined),
+    // The filters, as every list keeps its own (§5, Filters and views):
+    // absent is any. Lenient too: a stale link opens the whole list.
+    type: z.enum(CLIENT_TYPE_PARAMS).optional().catch(undefined),
+    status: z.enum(CLIENT_STATUS_PARAMS).optional().catch(undefined),
+    tag: z.string().optional().catch(undefined),
+    suburb: z.string().optional().catch(undefined),
   }),
   // The header's counts and the list the address asks for, together, before
   // the page renders: the newest clients' first page, or every client for a
@@ -118,7 +122,10 @@ export const Route = createFileRoute('/$businessSlug/clients/')({
     const everyClient =
       down ||
       (searchParam(location, 'q') ?? '').trim() !== '' ||
-      searchParam(location, 'sort') === 'az'
+      searchParam(location, 'sort') === 'az' ||
+      ['type', 'status', 'tag', 'suburb'].some(
+        (key) => (searchParam(location, key) ?? '') !== '',
+      )
     await settleInBrowser(
       loaderHoldMs({
         lineDown: down,
@@ -139,6 +146,15 @@ export const Route = createFileRoute('/$businessSlug/clients/')({
   },
   component: ClientsPage,
 })
+
+type ClientsSearch = ReturnType<typeof Route.useSearch>
+
+/** What this page keeps of its address: the search, the sort and the
+ * filters. Anything else an old link carried (a retired `?view=`) goes with
+ * the next change. */
+function keptSearch({ q, sort, type, status, tag, suburb }: ClientsSearch) {
+  return { q, sort, type, status, tag, suburb }
+}
 
 /** A client as a card shows it, from either of the page's two lists. */
 type CardRow = {
@@ -187,7 +203,8 @@ function ClientsPage() {
   const [openedAt] = useState(() => openingWaitSince(loaded, Date.now()))
   const canManageClients = useCan('clients.manage')
   const canRenumber = useCan('business.manage')
-  const { q, sort = 'newest' } = Route.useSearch()
+  const search = Route.useSearch()
+  const { q, sort = 'newest' } = search
   const navigate = useNavigate({ from: Route.fullPath })
   const queryClient = useQueryClient()
   const [newOpen, setNewOpen] = useState(false)
@@ -201,6 +218,8 @@ function ClientsPage() {
 
   const searchTerm = q ?? ''
   const searching = searchTerm.trim() !== ''
+  // Only what this page keeps: the search, the sort and the filters.
+  // Anything else an old link carried (a retired `?view=`) is dropped.
   const {
     kind,
     setKind,
@@ -211,8 +230,17 @@ function ClientsPage() {
     tag,
     setTag,
     clearFilters,
+    filtersOn,
     filtersActive,
-  } = useClientFilters()
+  } = useClientFilters(search, (next) =>
+    navigate({
+      search: (prev) => ({ q: prev.q, sort: prev.sort, ...next }),
+      replace: true,
+      resetScroll: false,
+    }),
+  )
+  // The filter sheet is open: it counts every client the search finds.
+  const [sheetOpen, setSheetOpen] = useState(false)
 
   /**
    * Two ways to read the clients.
@@ -229,10 +257,9 @@ function ClientsPage() {
    * name, an ABN or a site contact's number, which the server's search
    * could not do. It shows those 30 at a time.
    *
-   * Neither read suspends: a filter is local state, and a list that
-   * suspended on changing it would swap the whole page for the route's
-   * placeholder, header and search box included. Each shows its own
-   * placeholder in the list's place instead.
+   * Neither read suspends: a list that suspended on changing a filter would
+   * swap the whole page for the route's placeholder, header and search box
+   * included. Each shows its own placeholder in the list's place instead.
    *
    * With the line down, the page reads every client (`keptMode`): the phone
    * keeps the directory, and neither the first page nor the server's counts.
@@ -309,9 +336,10 @@ function ClientsPage() {
   })
 
   // 'skip' rather than `enabled`: a disabled query still holds its Convex
-  // subscription open.
+  // subscription open. Read too while the filter sheet is open, for its
+  // counts — the list keeps its source.
   const directory = useQuery(
-    everyClient
+    everyClient || sheetOpen
       ? rq.directory(business._id)
       : convexQuery(api.clients.directory, 'skip'),
   )
@@ -341,6 +369,9 @@ function ClientsPage() {
   // count from the server (the line down), every client the phone holds.
   const count =
     overview ?? (directory.data ? directoryCount(directory.data) : undefined)
+
+  // What a search or a filter leaves, once every client is here to say.
+  const narrowed = searching || filtersActive ? filtered : undefined
 
   // A new search, order or filter starts the list again from its first 30.
   const listKey = everyClient
@@ -415,8 +446,8 @@ function ClientsPage() {
   const directoryBehind = useBehindOnce(directoryKey, view.noMatches, about)
 
   // Every client, asked for the moment the page knows it will want them — a
-  // first letter typed, a press on A–Z or on a filter — so the list is
-  // usually here by the time the choice is made. Not on focusing the search
+  // first letter typed, a press on the filter icon — so the list is usually
+  // here by the time the choice is made. Not on focusing the search
   // box: a tap there to look costs every client, held for a quarter of an
   // hour (the cache's gcTime), whether a word is typed or not.
   const wantEveryClient = () =>
@@ -451,7 +482,15 @@ function ClientsPage() {
         businessSlug={business.slug}
         // A line kept for the count while it is on its way, so the title
         // doesn't move when it lands.
-        kicker={count ? clientCountLabel(count) : '\u00a0'}
+        // Searched or filtered, how many of them that leaves, in the same
+        // line: nothing moves for it.
+        kicker={
+          !count
+            ? '\u00a0'
+            : narrowed
+              ? `${narrowed.length} of ${clientCountLabel(count)}`
+              : clientCountLabel(count)
+        }
         title="Clients"
         action={
           <>
@@ -483,28 +522,56 @@ function ClientsPage() {
         }
       />
 
-      <div
-        className="flex px-4 pt-3"
-        onInput={everyClient ? undefined : wantEveryClient}
-      >
+      <div className="flex items-center gap-3 px-4 pt-3">
         {/* The shared box, not a bare input bound to the URL: that navigated
             on every keystroke and, while a navigation was in flight, put the
-            committed term back over whatever had been typed since. The
-            search is `q` alone now — the only thing this page keeps in the
-            URL — which also drops a retired `?view=` an old link brought in,
-            since the router carries unknown keys along otherwise. */}
-        <SearchBox
-          value={q ?? ''}
-          onChange={(term) =>
-            // Only what this page keeps: the search and the sort. Anything
-            // else an old link carried (a retired `?view=`) is dropped.
+            committed term back over whatever had been typed since. */}
+        <div
+          className="flex min-w-0 flex-1"
+          onInput={everyClient ? undefined : wantEveryClient}
+        >
+          <SearchBox
+            value={q ?? ''}
+            onChange={(term) =>
+              navigate({
+                search: (prev) => ({
+                  ...keptSearch(prev),
+                  q: term || undefined,
+                }),
+                replace: true,
+              })
+            }
+            label="Search clients by name, address, phone or email"
+            placeholder="Name, address, phone or #number"
+          />
+        </div>
+        {/* The sort and the filters, behind one icon that is one size
+            whatever is chosen: the cards under it never move for them. */}
+        <ClientFilterButton
+          facets={facets}
+          total={overview?.total}
+          rows={searched}
+          values={{ kind, status, tag, suburb }}
+          setKind={setKind}
+          setStatus={setStatus}
+          setTag={setTag}
+          setSuburb={setSuburb}
+          filtersOn={filtersOn}
+          onClear={clearFilters}
+          sort={sort}
+          onSortChange={(next) =>
             navigate({
-              search: (prev) => ({ q: term || undefined, sort: prev.sort }),
+              search: (prev) => ({
+                ...keptSearch(prev),
+                sort: next === 'newest' ? undefined : next,
+              }),
               replace: true,
+              resetScroll: false,
             })
           }
-          label="Search clients by name, address, phone or email"
-          placeholder="Search by name, address, phone, email or #number"
+          onIntent={everyClient ? undefined : wantEveryClient}
+          onOpenChange={setSheetOpen}
+          disabled={!hydrated}
         />
       </div>
 
@@ -518,50 +585,7 @@ function ClientsPage() {
         todayKey={today}
       />
 
-      <div
-        className="px-4 pt-3"
-        onPointerDown={(event) => {
-          if (!everyClient && choosingAnotherSegment(event)) wantEveryClient()
-        }}
-      >
-        <Segmented
-          label="Sort clients"
-          value={sort}
-          onChange={(next) =>
-            navigate({
-              search: (prev) => ({
-                q: prev.q,
-                sort: next === 'newest' ? undefined : next,
-              }),
-              replace: true,
-            })
-          }
-          disabled={!hydrated}
-          options={[
-            { value: 'newest', label: 'Newest first' },
-            { value: 'az', label: 'A–Z' },
-          ]}
-        />
-      </div>
-
-      <section className="px-4 pt-4 pb-6">
-        <div className="mb-3">
-          <ClientFilterBar
-            facets={facets}
-            kind={kind}
-            setKind={setKind}
-            suburb={suburb}
-            setSuburb={setSuburb}
-            status={status}
-            setStatus={setStatus}
-            tag={tag}
-            setTag={setTag}
-            filtered={filtersActive}
-            onClear={clearFilters}
-            onIntent={everyClient ? undefined : wantEveryClient}
-          />
-        </div>
-
+      <section className="px-4 pt-3 pb-6">
         {failed ? (
           <LoadFailed
             what={wantsEveryClient ? 'every client to search' : 'the clients'}
@@ -579,13 +603,15 @@ function ClientsPage() {
               // length over Clear search.
               hint={noMatchesHint(directoryBehind)}
               clearLabel={q ? 'Clear search' : 'Clear filters'}
-              onClear={() => {
-                clearFilters()
+              // The search and the filters together, in one step: two
+              // navigations would each start from the address before
+              // either.
+              onClear={() =>
                 void navigate({
-                  search: (prev) => ({ q: undefined, sort: prev.sort }),
+                  search: (prev) => ({ sort: prev.sort }),
                   replace: true,
                 })
-              }}
+              }
             />
           ) : (
             <EmptyState

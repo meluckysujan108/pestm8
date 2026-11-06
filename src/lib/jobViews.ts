@@ -45,3 +45,26 @@ export function activeJobView(pathname: string): JobView {
     .find((view) => pathname === view.path || pathname.endsWith(view.path))
   return match?.value ?? 'job'
 }
+
+/**
+ * The Recurring Job view's orders other than its default (what is to book
+ * first), as its address names them: `?sort=next`, `?sort=client`.
+ */
+export const RECURRING_JOB_SORTS = ['next', 'client'] as const
+
+/**
+ * Whose Recurring Jobs and in what order, as the Recurring Job view's
+ * address says, read where that view's own route isn't the one asking (the
+ * section's switch row, which draws its filter icon). Anything else there is
+ * the default: everyone's, to book first.
+ */
+export function recurringJobFiltersOf(search: Record<string, unknown>): {
+  staffId: string
+  sort: 'toBook' | (typeof RECURRING_JOB_SORTS)[number]
+} {
+  const { staff, sort } = search
+  return {
+    staffId: typeof staff === 'string' && staff !== '' ? staff : 'all',
+    sort: RECURRING_JOB_SORTS.find((s) => s === sort) ?? 'toBook',
+  }
+}

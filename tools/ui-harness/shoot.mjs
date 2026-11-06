@@ -942,6 +942,24 @@ const PLAN = {
     },
   },
   'clients-search-phone': { before: async (p) => p.waitForTimeout(500) },
+  // Clients filtered to commercial, A–Z: "x of N clients", and the sheet.
+  'clients-filtered': { before: async (p) => p.waitForTimeout(600) },
+  'clients-filtered-open': {
+    spec: 'clients-filtered',
+    before: async (p) => {
+      await p.waitForTimeout(600)
+      await p.getByRole('button', { name: /^Filter/ }).click()
+      await p.waitForTimeout(700)
+    },
+  },
+  'clients-filter-open': {
+    spec: 'clients',
+    before: async (p) => {
+      await p.waitForTimeout(600)
+      await p.getByRole('button', { name: /^Filter/ }).click()
+      await p.waitForTimeout(700)
+    },
+  },
   // Is the caller already a client? (the matching plan's M3, 1 Nov 2026).
   // At one of her sites: Book at 12 Wattle St.
   'newjob-match-same-site': {

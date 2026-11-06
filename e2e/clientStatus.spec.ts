@@ -167,8 +167,16 @@ test('the newest client is first on the Clients page and in New Job’s picker',
     .locator('main button')
     .filter({ hasText: /Zara Hussain|J\. Nguyen/ })
   await expect(names.first()).toContainText('Zara Hussain')
-  await page.getByRole('tab', { name: 'A–Z' }).click()
+  // The sort is behind the filter icon, beside the search box.
+  await clickUntil(page.getByRole('button', { name: /^Filter and sort/ }), () =>
+    expect(page.getByRole('dialog', { name: 'Filter and sort' })).toBeVisible({
+      timeout: 2_000,
+    }),
+  )
+  const sheet = page.getByRole('dialog', { name: 'Filter and sort' })
+  await sheet.getByRole('radio', { name: 'A–Z' }).click()
   await expect(page).toHaveURL(/[?&]sort=az/)
+  await sheet.getByRole('button', { name: 'Done' }).click()
   await expect(names.first()).toContainText('J. Nguyen')
 
   // New Job's picker opens on the newest, under "Added recently".
@@ -186,4 +194,67 @@ test('the newest client is first on the Clients page and in New Job’s picker',
   await expect(
     picker.getByRole('button', { name: /Zara Hussain/ }),
   ).toContainText(/Added /)
+})
+
+test('the Clients page’s filters are one icon, kept in its address, and say what they leave', async ({
+  page,
+}) => {
+  const s = await setupBusinessWithSub('client-filters')
+  await s.owner.client.mutation(api.properties.create, {
+    businessId: s.businessId,
+    kind: 'business',
+    clientName: 'Mahal Mart',
+    addressLine: '14 Kewdale Road',
+    suburb: 'Kewdale',
+    state: 'WA',
+    postcode: '6105',
+  })
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/clients`)
+
+  const mahal = page.locator('main').getByRole('button', { name: /Mahal Mart/ })
+  const nguyen = page
+    .locator('main')
+    .getByRole('button', { name: /J\. Nguyen/ })
+  await expect(mahal).toBeVisible()
+  await expect(nguyen).toBeVisible()
+  await expect(page.getByText('2 clients', { exact: true })).toBeVisible()
+
+  const icon = page.getByRole('button', { name: /^Filter and sort/ })
+  const sheet = page.getByRole('dialog', { name: 'Filter and sort' })
+  await clickUntil(icon, () => expect(sheet).toBeVisible({ timeout: 2_000 }))
+  // Every client is read while the sheet is open, so each type has its count.
+  const type = sheet.getByRole('group', { name: 'Type' })
+  const commercial = type.getByRole('button', { name: /^Commercial/ })
+  await expect(commercial).toHaveAccessibleName(/^Commercial\s?1$/)
+  await commercial.click()
+  await expect(page).toHaveURL(/[?&]type=commercial/)
+  await sheet.getByRole('button', { name: 'Done' }).click()
+
+  await expect(icon).toHaveAccessibleName('Filter and sort, 1 on')
+  await expect(nguyen).toHaveCount(0)
+  await expect(mahal).toBeVisible()
+  // The line over the heading says how many of the whole book that leaves.
+  await expect(page.getByText('1 of 2 clients', { exact: true })).toBeVisible()
+
+  // A refresh keeps the filter.
+  await page.reload()
+  await expect(mahal).toBeVisible()
+  await expect(nguyen).toHaveCount(0)
+  await expect(icon).toHaveAccessibleName('Filter and sort, 1 on')
+  // Typed before the page hydrates, a search is lost to the markup it
+  // replaces; the icon is enabled once it has.
+  await expect(icon).toBeEnabled()
+
+  // A search keeps it too, and Clear filters in the sheet lets everyone back.
+  await page.getByRole('searchbox', { name: /Search clients/ }).fill('Kewdale')
+  await expect(page).toHaveURL(/[?&]q=Kewdale/)
+  await expect(page).toHaveURL(/[?&]type=commercial/)
+  await page.getByRole('searchbox', { name: /Search clients/ }).fill('')
+  await clickUntil(icon, () => expect(sheet).toBeVisible({ timeout: 2_000 }))
+  await sheet.getByRole('button', { name: 'Clear filters' }).click()
+  await expect(page).not.toHaveURL(/type=/)
+  await sheet.getByRole('button', { name: 'Done' }).click()
+  await expect(nguyen).toBeVisible()
+  await expect(icon).toHaveAccessibleName('Filter and sort')
 })
