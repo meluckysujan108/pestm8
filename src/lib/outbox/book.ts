@@ -6,6 +6,7 @@ import { KEEP_WAIT_MS } from './outboxSet'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type {
   BookingCall,
+  BookingCallExtra,
   OutboxDisplay,
   OutboxItem,
   SendableBooking,
@@ -303,6 +304,14 @@ export function canKeepNow(at: {
   )
 }
 
+/**
+ * What New Job open with signal showed and booked past (lib/sheetChecks.ts,
+ * the matching plan's M7): sent with the straight call alone, never kept
+ * with the booking, so a booking kept on the phone and sent by the sender
+ * goes as it always has, without them, until 2c-J.
+ */
+export type BookingChecks = Pick<BookingCallExtra, 'matchCheck' | 'siteCheck'>
+
 /** A draft's ids: new each time New Job opens (`useDraftRequestId`). */
 export type BookingDraft = {
   /** The `clientRequestId` every send of this draft carries. */
@@ -455,6 +464,14 @@ export class BookingSession {
   private decidingId: string | null = null
   /** Where the sheet was last told the booking is. */
   private path: BookingPath = null
+  /**
+   * Whether the last straight call of the last press said whose booking it
+   * was (`asMembership`); null before one went. A send again of that press
+   * (`straight`) is that call again, so it says the same: the draft a
+   * sheet hands back then is the one the press began with, whose
+   * `keepable` predates a `stopKeeping` the press itself called.
+   */
+  private straightAsOwn: boolean | null = null
   private readonly handles: Array<{ release: () => void }> = []
   /** A press waiting for the screen to show what it was told (`onScreen`). */
   private readonly waiting: Array<() => void> = []
@@ -522,31 +539,55 @@ export class BookingSession {
   /**
    * One press of Book. Resolves with how it ended; a refusal that made
    * nothing throws, for the sheet's FormAlert, and the draft keeps its ids.
+   *
+   * `straight`: the same press sent again at once, after a refusal of its
+   * straight call that named only what the person had already booked past
+   * (lib/sheetChecks.ts `sendChecked`): straight again, never kept first,
+   * as nothing of the press was kept the first time. A keep tried again
+   * would only flash "keeping" (with the server's kill switch on, say)
+   * before the same straight call. And it is no press of the person's: a
+   * "Discard your changes?" confirmed since the refusal (while its rows
+   * waited for the client list), or the sheet gone, and nothing is sent.
+   * Whose it is goes as the call refused said (`straightAsOwn`): one that
+   * went as the person's own, after a keep that took too long, goes so
+   * again, so it is still refused rather than booked once PestM8 is
+   * working in someone else's account.
    */
   async book(
     args: SendableBooking,
     draft: BookingDraft,
     who: BookingWho,
+    checks: BookingChecks = {},
+    { straight = false }: { straight?: boolean } = {},
   ): Promise<BookResult> {
     const deps = this.deps
     const localId = draft.localId
+    if (straight && (this.disposed || this.discarded)) {
+      return { outcome: 'discarded' }
+    }
     // A press after a refusal: the booking it refused is gone from the
     // phone, and its answer is in. After a Discard the sheet didn't close
     // on (a Back whose move never landed), a new press of its own.
     for (const handle of this.handles.splice(0)) handle.release()
     this.discarded = false
     const facts: BookFacts = {
-      canKeep: canKeepNow({
-        enabled: deps.enabled,
-        locks: deps.locks !== null,
-        readable: deps.readable(),
-        notes: deps.notes(),
-        keepable: draft.keepable,
-        lens: who.lens,
-        userId: who.userId,
-      }),
-      asOwn: !draft.keepable,
+      canKeep:
+        !straight &&
+        canKeepNow({
+          enabled: deps.enabled,
+          locks: deps.locks !== null,
+          readable: deps.readable(),
+          notes: deps.notes(),
+          keepable: draft.keepable,
+          lens: who.lens,
+          userId: who.userId,
+        }),
+      asOwn:
+        straight && this.straightAsOwn !== null
+          ? this.straightAsOwn
+          : !draft.keepable,
     }
+    if (!straight) this.straightAsOwn = null
     this.setPath(facts.canKeep ? 'keeping' : 'direct')
     let lock: HeldLock | null = null
     // Whether this press has the saying of when the day's list may draw its
@@ -680,7 +721,9 @@ export class BookingSession {
         const call = bookingCall(args, {
           clientRequestId: draft.requestId,
           ...(next.asMembership && { asMembership: who.membershipId }),
+          ...checks,
         })
+        this.straightAsOwn = next.asMembership
         facts.direct = {
           answer: await answerOf(Promise.resolve().then(() => deps.call(call))),
           asMembership: next.asMembership,

@@ -38,7 +38,7 @@ describe('Add property opened from Clients → New client', () => {
     // Taken from what was typed as Open is tapped (`openFromNewClient`
     // carries it into `addSite`).
     expect(source('./NewPropertySheet.tsx')).toMatch(
-      /openFromNewClient\(index, directory\.contacts, fix, \{[^}]*addressCheck: typed\.addressCheck,/,
+      /const typed = \{[^}]*addressCheck: form\.addressCheck,[\s\S]*?\? openUnheld\(fix, typed\)\s+: openFromNewClient\(index, directory\.contacts, fix, typed\)/,
     )
     const form = functionText(
       source('./ClientSheet.tsx'),
@@ -58,7 +58,7 @@ describe('Clients → New client, a Save waiting for the client list', () => {
   test('goes with its press: given up on at 3 s (`answerOnceRead`, with the check’s signal), or as the sheet is cleared', () => {
     const sheet = source('./NewPropertySheet.tsx')
     expect(sheet).toMatch(
-      /: \(signal\) =>\s+answerOnceRead\(waitingForList\.current, signal,/,
+      /: \(signal\) => \{\s+const note = pressReads\.begin\(signal\)\s+return answerOnceRead\(waitingForList\.current, signal,/,
     )
     expect(sheet).toMatch(
       /function clear\(\) \{[^}]*waitingForList\.current = \[\]/,
@@ -101,7 +101,7 @@ describe('New Job, once a line’s fix is taken', () => {
     // checked beside it read, so the press after it isn't asked about any
     // of it again.
     expect(sheet).toMatch(
-      /const panelFix = \(\s+fix: MatchFix,\s+sees: Shows \| undefined,\s+beside: ReadonlyArray<string>,\s+\): SaveWarningFix => \(\{\s+label: fix\.label,\s+apply: \(\) => \{\s+lineFixHold\.taken\(\)\s+if \(sees\) setSeen\(\(s\) => withSeen\(s, sees\)\)\s+seeUnchecked\(beside, workDay\)\s+latestApplyMatchFix\.current\(fix\)/,
+      /const panelFix = \(\s+fix: MatchFix,\s+sees: Shows \| undefined,\s+beside: ReadonlyArray<string>,\s+\): SaveWarningFix => \(\{\s+label: fix\.label,\s+apply: \(\) => \{\s+lineFixHold\.taken\(\)\s+(?:\/\/[^\n]*\s+)*const refusedThere = refusedSiteSends\(\)\s+setSeen\(\(s\) => withSent\(sees \? withSeen\(s, sees\) : s, refusedThere\)\)\s+seeUnchecked\(beside, workDay\)\s+latestApplyMatchFix\.current\(fix\)/,
     )
     expect(sheet).toMatch(
       /const beside = uncheckedKeysOf\(\s+checks\.site\?\.unchecked \?\? \[\],\s+checks\.site\?\.targets \?\? \[\],\s+\)[\s\S]*?\.\.\.\(row\.fix\s+\? \{ fix: panelFix\(row\.fix, fixSees\.get\(row\.id\), beside\) \}\s+: \{\}\),\s+\.\.\.\(row\.fix2\s+\? \{ fix2: panelFix\(row\.fix2, fixSees\.get\(row\.id\), beside\) \}\s+: \{\}\),/,
@@ -115,12 +115,12 @@ describe('New Job’s check at Book, is this site already booked (M5)', () => {
 
   test('Book at from an “Already booked” row books past every row the panel showed of the site’s work, and the work a match row named there, before the fix moves the form, so the press after it books (FW13)', () => {
     expect(sheet()).toMatch(
-      /const siteFix = \(\s*fix: SiteFix,\s*shown: ReadonlyArray<SiteRow>,\s*named: ReadonlyMap<string, ReadonlyArray<OpenWorkRow>>,\s*read: ReadonlyArray<string>,?\s*\): SaveWarningFix =>[\s\S]*?: \{\s+label: fix\.label,\s+apply: \(\) => \{\s+lineFixHold\.taken\(\)\s+setSeen\(\(s\) =>\s+withSeenAll\(s, bookAtSees\(fix\.propertyId, shown, named\)\),?\s+\)\s+seeUnchecked\(read, workDay\)\s+latestApplyMatchFix\.current\(fix\)\s+\},\s+focusAfter: \(\) => latestFocusAfterMatchFix\.current\(\),/,
+      /const siteFix = \(\s*fix: SiteFix,\s*shown: ReadonlyArray<SiteRow>,\s*named: ReadonlyMap<string, ReadonlyArray<OpenWorkRow>>,\s*read: ReadonlyArray<string>,?\s*\): SaveWarningFix =>[\s\S]*?: \{\s+label: fix\.label,\s+apply: \(\) => \{\s+lineFixHold\.taken\(\)\s+(?:\/\/[^\n]*\s+)*const refusedThere = refusedSiteSends\(\)\s+setSeen\(\(s\) =>\s+withSent\(\s+withSeenAll\(s, bookAtSees\(fix\.propertyId, shown, named\)\),\s+refusedThere,\s+\),?\s+\)\s+seeUnchecked\(read, workDay\)\s+latestApplyMatchFix\.current\(fix\)\s+\},\s+focusAfter: \(\) => latestFocusAfterMatchFix\.current\(\),/,
     )
     // Every row of the panel's, not the one tapped alone, and what the
     // match rows of the same press named.
     expect(sheet()).toMatch(
-      /const \{ named, site \} = checks[\s\S]*?const read = site \? uncheckedKeysOf\(site\.unchecked, site\.targets\) : \[\]\s+return rows\.map\(\(row\) => \(\{[\s\S]*?\.\.\.\(row\.fix \? \{ fix: siteFix\(row\.fix, rows, named, read\) \} : \{\}\),\s+\.\.\.\(row\.fix2 \? \{ fix2: siteFix\(row\.fix2, rows, named, read\) \} : \{\}\),/,
+      /const \{ named, site \} = checks[\s\S]*?const read = site \? uncheckedKeysOf\(site\.unchecked, site\.targets\) : \[\][\s\S]*?return rows\.map\(\(row\) => \(\{[\s\S]*?\.\.\.\(row\.fix \? \{ fix: siteFix\(row\.fix, rows, named, read\) \} : \{\}\),\s+\.\.\.\(row\.fix2 \? \{ fix2: siteFix\(row\.fix2, rows, named, read\) \} : \{\}\),/,
     )
   })
 
@@ -129,7 +129,7 @@ describe('New Job’s check at Book, is this site already booked (M5)', () => {
       /const seeUnchecked = \(keys: ReadonlyArray<string>, readFor: string\) => \{\s+if \(keys\.length === 0\) return\s+setUncheckedSeen\(\(s\) => \(\{\s+workDay: readFor,\s+keys: new Set\(\[\.\.\.\(s\.workDay === readFor \? s\.keys : \[\]\), \.\.\.keys\]\),\s+\}\)\)\s+\}/,
     )
     expect(sheet()).toMatch(
-      /const work = bookingWork\(\{[\s\S]*?\},\s+uncheckedSeen:\s+uncheckedSeen\.workDay === workDay \? uncheckedSeen\.keys : undefined,\s+\}\)/,
+      /const work = bookingWork\(\{[\s\S]*?\},\s+uncheckedSeen:\s+uncheckedSeen\.workDay === workDay \? uncheckedSeen\.keys : undefined,\s+(?:\/\/[^\n]*\s+)*serverChecks: seesEveryJob && !OUTBOX_ENABLED,\s+\}\)/,
     )
     expect(sheet()).toMatch(
       /function switchMode\([\s\S]*?setSeen\(NOTHING_SEEN\)\s+setUncheckedSeen\(\{ workDay: '', keys: new Set\(\) \}\)[\s\S]*?setMode\(next\)\s+\}/,
@@ -174,7 +174,7 @@ describe('New Job’s check at Book, is this site already booked (M5)', () => {
     ]) {
       expect(sheet()).toMatch(
         new RegExp(
-          `useSaveCheck\\(\\s+'${source_}',[\\s\\S]*?const checks = bookingChecks\\(\\)\\s+return waitsForWork\\(checks\\)\\s+\\? untilWorkHeld\\(\\)\\.then\\(\\(\\) => ${warnings}\\.current\\(\\)\\)`,
+          `useSaveCheck\\(\\s+'${source_}',[\\s\\S]*?const checks = bookingChecks\\(\\)\\s+return waitsForWork\\(checks\\)\\s+\\? untilWorkHeld\\(\\)\\.then\\(\\(\\) => ${warnings}\\.current\\(note\\)\\)`,
         ),
       )
     }
@@ -226,9 +226,15 @@ describe('New Job’s check at Book, is this site already booked (M5)', () => {
     // Not the date at all: a dependency takes every row the check gave,
     // and a row that named no work stays as the date moves under it (M3).
     expect(match.join(', ')).not.toMatch(/namedWorkMoved|workDay/)
-    // Only the rows that named the work go, once the date or repeat moves.
+    // Only the rows that named the work go, once the date or repeat moves:
+    // every such row listed, on screen or not (a refusal's rows shown
+    // alone, or the list closed), never a refusal's row in a match row's
+    // place, whose words name none of it.
     expect(sheet()).toMatch(
-      /const matchNamesWork = saveWarnings\.warnings\.some\(\s+\(w\) => w\.kind === 'match' && siteShown\.named\.has\(w\.id\),\s+\)\s+const namedMoved = namedWorkMoved\(\{\s+naming: matchNamesWork,\s+workDay,\s+readFor: siteShown\.readFor,\s+\}\)\s+const namedRows = siteShown\.named\s+const dropRows = saveWarnings\.drop\s+useEffect\(\(\) => \{\s+if \(namedMoved === null\) return\s+dropRows\('new-job-client-match', \(w\) => namedRows\.has\(w\.id\)\)\s+\}, \[dropRows, namedMoved, namedRows\]\)/,
+      /const refusedRows = saveWarnings\.injected\s+const matchNamesWork = saveWarnings\.listed\.some\(\s+\(w\) =>\s+w\.kind === 'match' &&\s+siteShown\.named\.has\(w\.id\) &&\s+!refusedRows\.includes\(w\),\s+\)\s+const namedMoved = namedWorkMoved\(\{\s+naming: matchNamesWork,\s+workDay,\s+readFor: siteShown\.readFor,\s+\}\)\s+const namedRows = siteShown\.named\s+const dropRows = saveWarnings\.drop\s+const injectedNow = saveWarnings\.injectedNow\s+useEffect\(\(\) => \{\s+if \(namedMoved === null\) return\s+const refused = injectedNow\(\)\s+dropRows\(\s+'new-job-client-match',\s+\(w\) => namedRows\.has\(w\.id\) && !refused\.some\(\(r\) => r === w\),\s+\)\s+\}, \[dropRows, namedMoved, namedRows, injectedNow\]\)/,
+    )
+    expect(sheet()).not.toMatch(
+      /saveWarnings\.warnings\.some\(\s+\(w\) => w\.kind === 'match' && siteShown\.named/,
     )
     // Read for the day as it was at the press.
     expect(sheet()).toMatch(

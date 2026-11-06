@@ -49,6 +49,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type {
   BookFacts,
   BookingDeps,
+  BookingChecks,
   BookingDraft,
   BookingPath,
   BookingWho,
@@ -518,11 +519,13 @@ function press(
   d = draft(),
   session = p.session,
   args: SendableBooking = ARGS,
+  checks?: BookingChecks,
+  how?: { straight?: boolean },
 ) {
   const outcome: { value?: unknown; error?: unknown; done: boolean } = {
     done: false,
   }
-  void session.book(args, d, WHO).then(
+  void session.book(args, d, WHO, checks, how).then(
     (value) => {
       outcome.value = value
       outcome.done = true
@@ -893,6 +896,193 @@ describe('kept on the phone', () => {
     p.convex.calls[0].resolve('job-1')
     await flush()
     expect(outcome.value).toEqual({ outcome: 'sent', id: 'job-1' })
+  })
+})
+
+describe('the sheet’s own checks (`matchCheck`, `siteCheck`; the matching plan’s M7)', () => {
+  const CHECKS: BookingChecks = {
+    matchCheck: { by: 'sheet', dismissed: ['c-ray' as Id<'clients'>] },
+    siteCheck: {
+      seen: [{ propertyId: 'p1' as Id<'properties'>, at: NOW }],
+      seenSeries: [],
+    },
+  }
+
+  test('sent with the straight call, under the draft’s request id; Book anyway sends them again, under the same id, with what the refusal named', async () => {
+    const p = await phone({ enabled: false })
+    const d = draft()
+    press(p, d, p.session, ARGS, CHECKS)
+    await flush()
+    expect(p.convex.calls[0].args).toMatchObject({
+      clientRequestId: REQUEST,
+      ...CHECKS,
+    })
+    p.convex.calls[0].reject(
+      new ConvexError({
+        code: 'MATCHED_CLIENT',
+        candidates: [
+          { clientId: 'c-jane', name: 'Jane Nguyen', evidence: ['name'] },
+        ],
+      }),
+    )
+    await flush()
+    const anyway: BookingChecks = {
+      ...CHECKS,
+      matchCheck: {
+        by: 'sheet',
+        dismissed: ['c-ray', 'c-jane'] as Array<Id<'clients'>>,
+      },
+    }
+    const again = press(p, d, p.session, ARGS, anyway)
+    await flush()
+    expect(p.convex.calls).toHaveLength(2)
+    expect(p.convex.calls[1].args.clientRequestId).toBe(REQUEST)
+    expect(p.convex.calls[1].args.matchCheck).toEqual(anyway.matchCheck)
+    p.convex.calls[1].resolve('job-1')
+    await flush()
+    expect(again.outcome.value).toEqual({ outcome: 'sent', id: 'job-1' })
+    expect(p.sheet.booked).toHaveBeenCalledTimes(1)
+  })
+
+  test('a booking kept on the phone goes without them, as it always has, until 2c-J', async () => {
+    const p = await phone()
+    press(p, draft(), p.session, ARGS, CHECKS)
+    await flush()
+    expect(p.convex.calls).toHaveLength(1)
+    expect(p.convex.calls[0].args).toMatchObject({ asMembership: M1 })
+    expect(p.convex.calls[0].args).not.toHaveProperty('matchCheck')
+    expect(p.convex.calls[0].args).not.toHaveProperty('siteCheck')
+    expect(stored(p)).not.toHaveProperty('matchCheck')
+    expect(JSON.stringify(stored(p))).not.toContain('siteCheck')
+  })
+
+  test('sent again at once after a refusal that named only what was booked past (`straight`): straight, never kept first, so the sheet says nothing of keeping it and it isn’t on the phone even for a moment', async () => {
+    const p = await phone()
+    const { outcome } = press(p, draft(), p.session, ARGS, CHECKS, {
+      straight: true,
+    })
+    await flush()
+    expect(p.sheet.path.mock.calls).toEqual([['direct']])
+    expect(stored(p)).toBeUndefined()
+    expect(p.convex.calls).toHaveLength(1)
+    expect(p.convex.calls[0].args).toMatchObject({
+      clientRequestId: REQUEST,
+      ...CHECKS,
+    })
+    expect(p.convex.calls[0].args).not.toHaveProperty('asMembership')
+    p.convex.calls[0].resolve('job-1')
+    await flush()
+    expect(outcome.value).toEqual({ outcome: 'sent', id: 'job-1' })
+    expect(p.sheet.booked).toHaveBeenCalledTimes(1)
+  })
+
+  test('the send again says whose booking it is as the call refused did: gone straight as the person’s own after a keep that failed, it goes so again, though the draft handed back is the one the press began with', async () => {
+    const p = await phone()
+    p.deps.keep = () => Promise.reject(new Error('storage'))
+    // As the sheet's own: `stopKeeping` changes its state, not this object.
+    const d = draft()
+    press(p, d, p.session, ARGS, CHECKS)
+    await flush()
+    expect(p.convex.calls).toHaveLength(1)
+    expect(p.convex.calls[0].args).toMatchObject({ asMembership: M1 })
+    expect(d.stopKeeping).toHaveBeenCalledTimes(1)
+    expect(d.keepable).toBe(true)
+    p.convex.calls[0].reject(
+      new ConvexError({
+        code: 'SITE_BOOKED',
+        rows: [{ propertyId: 'p1', at: NOW, scheduledAt: NOW }],
+      }),
+    )
+    await flush()
+    const again = press(p, d, p.session, ARGS, CHECKS, { straight: true })
+    await flush()
+    expect(p.convex.calls).toHaveLength(2)
+    expect(p.convex.calls[1].args).toMatchObject({
+      clientRequestId: REQUEST,
+      asMembership: M1,
+    })
+    // Refused for the account PestM8 is in now: refused again, never booked.
+    p.convex.calls[1].reject(new ConvexError('NOT_OWN_ACCOUNT'))
+    await flush()
+    expect(again.outcome.error).toBeInstanceOf(ConvexError)
+    expect(p.convex.calls).toHaveLength(2)
+
+    // A press of the person's own reads the draft afresh.
+    for (const stop of stops.splice(0)) stop()
+    const q = await phone({ enabled: false })
+    press(q, draft(), q.session, ARGS, CHECKS)
+    await flush()
+    expect(q.convex.calls[0].args).not.toHaveProperty('asMembership')
+    q.convex.calls[0].reject(
+      new ConvexError({
+        code: 'SITE_BOOKED',
+        rows: [{ propertyId: 'p1', at: NOW, scheduledAt: NOW }],
+      }),
+    )
+    await flush()
+    press(q, draft(), q.session, ARGS, CHECKS, { straight: true })
+    await flush()
+    expect(q.convex.calls[1].args).not.toHaveProperty('asMembership')
+  })
+
+  test('the send again is no press of the person’s: “Discard your changes?” confirmed after the refusal, or the sheet gone, and nothing is sent', async () => {
+    for (const close of ['discard', 'dispose'] as const) {
+      for (const stop of stops.splice(0)) stop()
+      const p = await phone({ enabled: false })
+      const d = draft()
+      const first = press(p, d, p.session, ARGS, CHECKS)
+      await flush()
+      p.convex.calls[0].reject(
+        new ConvexError({
+          code: 'SITE_BOOKED',
+          rows: [{ propertyId: 'p1', at: NOW, scheduledAt: NOW }],
+        }),
+      )
+      await flush()
+      expect(first.outcome.error).toBeInstanceOf(ConvexError)
+      // While the refusal's rows wait for the client list, ✕ and Discard
+      // (a Back whose move hasn't landed yet), or the sheet gone.
+      if (close === 'discard') p.session.discard()
+      else p.session.dispose()
+      const again = press(p, d, p.session, ARGS, CHECKS, { straight: true })
+      await flush()
+      expect(p.convex.calls, close).toHaveLength(1)
+      expect(again.outcome.value, close).toEqual({ outcome: 'discarded' })
+      expect(p.sheet.booked, close).not.toHaveBeenCalled()
+    }
+  })
+
+  test('a press of the person’s own after a Discard the sheet didn’t close on is theirs, and goes', async () => {
+    const p = await phone({ enabled: false })
+    const d = draft()
+    press(p, d, p.session, ARGS, CHECKS)
+    await flush()
+    p.convex.calls[0].reject(new ConvexError({ code: 'SITE_BOOKED' }))
+    await flush()
+    p.session.discard()
+    press(p, d, p.session, ARGS, CHECKS)
+    await flush()
+    expect(p.convex.calls).toHaveLength(2)
+  })
+
+  test('every straight call carries them: a keep that throws, and OUTBOX_PAUSED’s', async () => {
+    const thrown = await phone()
+    thrown.deps.keep = () => Promise.reject(new Error('storage'))
+    press(thrown, draft(), thrown.session, ARGS, CHECKS)
+    await flush()
+    expect(thrown.convex.calls[0].args).toMatchObject(CHECKS)
+
+    for (const stop of stops.splice(0)) stop()
+    const paused = await phone()
+    press(paused, draft(), paused.session, ARGS, CHECKS)
+    await flush()
+    expect(paused.convex.calls[0].args).not.toHaveProperty('matchCheck')
+    paused.convex.calls[0].reject(new ConvexError('OUTBOX_PAUSED'))
+    await flush()
+    expect(paused.convex.calls[1].args).toMatchObject({
+      clientRequestId: REQUEST,
+      ...CHECKS,
+    })
   })
 })
 

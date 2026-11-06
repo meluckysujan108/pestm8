@@ -44,6 +44,7 @@ import {
   newSiteArgs,
 } from '#/components/clients/NewClientFields'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { convexCode } from '#/components/forms/describeError'
 import {
   SaveWarningsPanel,
   SaveWarningsProvider,
@@ -67,6 +68,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { SendableBooking } from '#/lib/outbox/outboxItem'
 import { bookingDisplay, contactPersonFor } from '#/lib/outbox/outboxRow'
 import { useCanKeep, useDraftRequestId } from '#/lib/outbox/useOutbox'
+import { OUTBOX_ENABLED } from '#/lib/outbox/outboxSet'
 import { saysKept } from '#/lib/outbox/book'
 import type { BookingWho } from '#/lib/outbox/book'
 import { useHydrated } from '#/lib/useHydrated'
@@ -113,6 +115,8 @@ import {
   bookingWork,
   matchClientsOf,
   namedWorkMoved,
+  refusedMatchSees,
+  refusedSiteRows,
   siteBehindNote,
   siteFooter,
   siteTargets,
@@ -123,20 +127,42 @@ import {
 } from '#/lib/siteWorkRows'
 import type {
   OpenWorkRow,
+  RefusedSiteRow,
   Seen,
   Shows,
   SiteFix,
   SiteRow,
 } from '#/lib/siteWorkRows'
+import {
+  FOUND_WHEN_SAVING,
+  bookingSheetChecks,
+  createHoldWait,
+  createPressReads,
+  joinSends,
+  namedOnPanel,
+  namedRowsOnPanel,
+  pressChecks,
+  rowKey,
+  seesWholeSchedule,
+  sendChecked,
+  sendsByRow,
+  sheetRefusalOf,
+  standingSends,
+  withSent,
+} from '#/lib/sheetChecks'
+import type { PressNote, SheetRefusal, SheetSends } from '#/lib/sheetChecks'
 import { useMatchIndex } from '#/lib/useMatchIndex'
 import {
   blurLine,
+  bookingDismissed,
   bookingMatchRows,
+  candidateHeld,
   carryAfter,
   matchFooter,
   matchNotes,
   matchShownCounts,
   planMatchFix,
+  refusedMatchRows,
   withoutCallerLine,
 } from '#/lib/clientMatchRows'
 import type {
@@ -148,7 +174,7 @@ import type {
   MatchRow,
   MatchRowsContext,
 } from '#/lib/clientMatchRows'
-import { logConnectionChange } from '#/lib/connectionLog'
+import { logConnection, logConnectionChange } from '#/lib/connectionLog'
 import { todayKey } from '#/lib/format'
 import { rq } from '#/lib/routeQueries'
 import { personLabel, roleLabel, useAssigneeOptions } from '#/lib/assignees'
@@ -156,7 +182,7 @@ import { OffViewNote } from './OffViewNote'
 import { JobTimeFields, useJobTimes } from './JobTimeFields'
 import { SheetPending } from '#/components/shell/Pending'
 import { EmptyState } from '#/components/primitives/EmptyState'
-import { BOOKING_ERROR_COPY } from './bookingCopy'
+import { bookingErrorCopy } from './bookingCopy'
 import { dayKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
 import { MAX_JOB_NOTES_LENGTH } from '../../../convex/lib/jobNotes'
@@ -171,6 +197,36 @@ import { isOffline } from '#/lib/online'
 
 /** 'site' is a new site for an existing client (Prompt 6.3). */
 type ClientMode = 'existing' | 'new' | 'site'
+
+/** What New Job's checks found at a press (lib/sheetChecks.ts
+ * `createPressReads`), for the booking it sends (`sheetChecksFor`). */
+type BookingPressRead = {
+  /** Every client the matcher returned, and the work its rows named at
+   * their sites (FW13), by row. */
+  match: {
+    dismissed: ReadonlyArray<Id<'clients'>>
+    named: ReadonlyMap<string, ReadonlyArray<OpenWorkRow>>
+  }
+  /** What is seen once the site's rows are booked past. */
+  site: Seen
+  /**
+   * What the site's rows showed, for a refused row's fix to book past as
+   * the phone's own does (`refusedSiteFix`, `refusedMatchFix`): the rows,
+   * the work match rows named at their sites, by row, and the "Not
+   * checked" rows at the sites they were said for (`uncheckedKeysOf`),
+   * with the day and repeat they were read for. The press's own, so a
+   * press dropped since (the client mode switched while it waited)
+   * answering late never says what a later one showed; read by the fix
+   * from the press whose booking went (`pressShown`), never a later one
+   * still checking, whose rows aren't drawn yet.
+   */
+  shown: {
+    rows: ReadonlyArray<SiteRow>
+    namedWork: ReadonlyMap<string, ReadonlyArray<OpenWorkRow>>
+    read: ReadonlyArray<string>
+    readFor: string
+  }
+}
 
 const PROPERTY_ERROR_ID = 'new-job-property-error'
 const CLIENT_ERROR_ID = 'new-job-client-error'
@@ -603,6 +659,10 @@ function NewJobForm({
   // be submitted as-is and refused.
   const { options: assignees, preferred } = useAssigneeOptions(members)
   const access = useAccess()
+  // Whether every job is theirs to see, as the server's check reads it
+  // (`jobScope`: an owner in their own account, or "can see everyone's
+  // schedule", intersected across a switch).
+  const seesEveryJob = seesWholeSchedule(access)
   // Who may go beside the lead: whoever this person may book, but the lead.
   const alsoGoingOptions = assignees
     .filter((m) => m._id !== assignee)
@@ -658,9 +718,50 @@ function NewJobForm({
   // with the draft's request id either way (lib/outbox/book.ts): the sheet
   // closes on the job, or on the booking kept, and a refusal that made
   // nothing is thrown for FormAlert, as it always was.
+  //
+  // Sent straight, it goes with the checks at Book (the matching plan's M7,
+  // `sheetChecksFor` below): what the phone found and the person booked
+  // past, for the server to check again with the book as it is now. What
+  // the server finds beyond it comes back as rows of the panel, in the
+  // phone's own words (`showRefusal`), and Book anyway sends them back as
+  // seen, under the same request id (lib/sheetChecks.ts `sendChecked`).
+  // "Booking…" stays while a refusal's fixes wait for the client list to
+  // hold what they book at (`refusalHeld`, up to HOLD_WAIT_MS), and no
+  // longer than the panel would take their rows: an edit meanwhile ends it.
   const create = useMutation({
-    mutationFn: (args: SendableBooking) =>
-      booking.session.book(args, draft, whoFor(args)),
+    mutationFn: (args: SendableBooking) => {
+      // The first send carries what the press's checks found
+      // (`sheetChecksFor`); sent again, what that send carried and what the
+      // refusal named, never read afresh (`pressChecks`).
+      const checks = pressChecks((extra) =>
+        latestSheetChecks.current(args, extra),
+      )
+      return sendChecked({
+        // Sent again at once, straight, as the send refused went.
+        send: (extra, again) =>
+          booking.session.book(
+            args,
+            draft,
+            whoFor(args),
+            checks(extra, again),
+            { straight: again },
+          ),
+        // Only while nothing a check reads was edited since the press.
+        asPressed: saveWarnings.asPressed,
+        rowsOf: (refusal) => latestRefusalRows.current(refusal),
+        // Only for rows to be shown: one sent again, or rows the panel
+        // would turn down (`mayShow`), wait for nothing; and the wait ends
+        // as soon as the panel would turn them down (an edit meanwhile).
+        hold: (refusal, turnedDown) =>
+          holdWait.until(
+            () => turnedDown() || latestRefusalHeld.current(refusal),
+          ),
+        mayShow: saveWarnings.mayInject,
+        listed: saveWarnings.listedNow,
+        inject: (source, rows, sends, error) =>
+          latestShowRefusal.current(source, rows, sends, error),
+      })
+    },
   })
 
   /**
@@ -1129,7 +1230,10 @@ function NewJobForm({
     label: fix.label,
     apply: () => {
       lineFixHold.taken()
-      if (sees) setSeen((s) => withSeen(s, sees))
+      // And what refused rows of the site's work standing named: the fix
+      // takes them off with the rest, read beside this row.
+      const refusedThere = refusedSiteSends()
+      setSeen((s) => withSent(sees ? withSeen(s, sees) : s, refusedThere))
       seeUnchecked(beside, workDay)
       latestApplyMatchFix.current(fix)
     },
@@ -1144,33 +1248,36 @@ function NewJobForm({
     },
   })
 
-  /** Who the caller may already be, as the form holds it now. */
-  function matchRowsNow(): Array<MatchRow> {
-    return bookingMatchRows(
-      matchCtx,
-      mode === 'site'
+  /** Who the caller may be is asked of, as the form holds it now: the new
+   * client as typed, or the new site for the client chosen. */
+  function matchAtNow(): Parameters<typeof bookingMatchRows>[1] {
+    return mode === 'site'
+      ? {
+          mode,
+          clientId: siteClient?._id ?? null,
+          site: newSite,
+          added: addedAnyway,
+        }
+      : mode === 'new'
         ? {
             mode,
-            clientId: siteClient?._id ?? null,
-            site: newSite,
-            added: addedAnyway,
-          }
-        : mode === 'new'
-          ? {
-              mode,
-              typed: {
-                name: newClient.clientName,
-                phone: newClient.phone,
-                email: newClient.email,
-                site: {
-                  addressLine: newClient.addressLine,
-                  suburb: newClient.suburb,
-                  postcode: newClient.postcode,
-                },
+            typed: {
+              name: newClient.clientName,
+              phone: newClient.phone,
+              email: newClient.email,
+              site: {
+                addressLine: newClient.addressLine,
+                suburb: newClient.suburb,
+                postcode: newClient.postcode,
               },
-            }
-          : { mode },
-    )
+            },
+          }
+        : { mode }
+  }
+
+  /** Who the caller may already be, as the form holds it now. */
+  function matchRowsNow(): Array<MatchRow> {
+    return bookingMatchRows(matchCtx, matchAtNow())
   }
 
   // ── Is the site already booked? (the matching plan's M5) ──────────────
@@ -1180,11 +1287,25 @@ function NewJobForm({
   // site chosen, or at the address typed, whoever's it is; and for a
   // Recurring Job, one already running there (lib/siteWorkRows.ts).
   // Synchronously, but for a phone with signal that holds nothing of it
-  // yet, which waits a moment for it (`untilWorkHeld`). Nothing of it is
-  // sent with the booking yet (the online sheet's `siteCheck`, M7): `seen`
-  // is what has been shown and booked past, by a fix that named it.
+  // yet, which waits a moment for it (`untilWorkHeld`). What it showed goes
+  // with the booking (`siteCheck`, M7: `sheetChecksFor`), with `seen`, what
+  // has been shown and booked past by a fix that named it.
   const openWork = useOpenWork(businessId, timezone)
   const [seen, setSeen] = useState<Seen>(NOTHING_SEEN)
+  // What each press's checks found, as they answered: what its booking
+  // sends (`sheetChecksFor`).
+  const [pressReads] = useState(() => createPressReads<BookingPressRead>())
+  // What each row a refusal put on the panel sends back with the next
+  // press, by its check and id (`rowKey`), read as the save goes (before
+  // React draws); and, for a fix that takes the site's rows off the panel,
+  // what those of them still standing named (`refusedSiteSends`).
+  const refusedSends = useRef<ReadonlyMap<string, SheetSends>>(new Map())
+  const refusedSiteSends = () =>
+    standingSends(
+      refusedSends.current,
+      saveWarnings.refusedNow(),
+      'new-job-site-work',
+    )
   // The "Not checked" rows a fix was taken beside, by the day and repeat
   // they were read for, at the sites they were said for (`uncheckedKeysOf`):
   // the press after the fix isn't asked them again, as it isn't the work
@@ -1248,6 +1369,12 @@ function NewJobForm({
    */
   function bookingChecks() {
     const matchRows = mode === 'existing' ? [] : matchRowsNow()
+    // Seen: what fixes booked past, and what refused rows of the site's
+    // work still standing named (`refusedSiteSends`). Once the phone's copy
+    // holds that work too, its own row for it says more (the services, who)
+    // than the server sent, and would read as news, so Book anyway past the
+    // refused row would only show it again: it is the same work, shown.
+    const checkSeen = withSent(seen, refusedSiteSends())
     const when = bookingWhen()
     if (!when) {
       return {
@@ -1255,6 +1382,7 @@ function NewJobForm({
         named: new Map<string, ReadonlyArray<OpenWorkRow>>(),
         fixSees: new Map<string, Shows>(),
         site: null,
+        seen: checkSeen,
       }
     }
     const today = todayKey(timezone)
@@ -1292,7 +1420,7 @@ function NewJobForm({
         at: when.at,
         repeats: chosenInterval !== null,
         targets,
-        seen,
+        seen: checkSeen,
         index: matchIndex,
         people,
         typedAddress: typed.addressLine.trim(),
@@ -1301,12 +1429,21 @@ function NewJobForm({
       },
       uncheckedSeen:
         uncheckedSeen.workDay === workDay ? uncheckedSeen.keys : undefined,
+      // A date wholly past the weeks held is the server's to check (M7),
+      // for someone who sees the whole schedule, where the booking goes
+      // straight with `siteCheck`: only with the outbox off, as with it on
+      // whether a press keeps the booking on the phone (which sends none
+      // until 2c-J) is decided at the press itself, not here. The server
+      // checks only work already on its books: a Recurring Job's visits
+      // are made HORIZON_DAYS ahead (`uncheckedRows`).
+      serverChecks: seesEveryJob && !OUTBOX_ENABLED,
     })
     return {
       matchRows: work.matchRows,
       named: work.named,
       fixSees: work.fixSees,
       site: { ...work, today, targets },
+      seen: checkSeen,
     }
   }
 
@@ -1345,11 +1482,19 @@ function NewJobForm({
     return workWait.until()
   }
 
-  /** The rows at Book, as warnings of the panel's last kind. */
+  /** The rows at Book, as warnings of the panel's last kind; and what they
+   * found, noted for the press (`note`): every client the matcher returned,
+   * and the work its rows named at their sites, which the booking sends
+   * (`sheetChecksFor`). */
   function matchWarnings(
+    note: PressNote<BookingPressRead>,
     checks: ReturnType<typeof bookingChecks> = bookingChecks(),
   ): Array<SaveWarning> {
     const { matchRows: rows, fixSees } = checks
+    note('match', {
+      dismissed: bookingDismissed(matchCtx, matchAtNow()),
+      named: checks.named,
+    })
     // What couldn't be checked, said beside them, at the sites it was
     // said for (`seeUnchecked`).
     const beside = uncheckedKeysOf(
@@ -1391,8 +1536,15 @@ function NewJobForm({
   // the date: moved, or the repeat changed, those rows go, as the site's
   // own do; rows naming no work stay, as they always have (M3), and so not
   // a dependency of the check below, which would take every row it gave.
-  const matchNamesWork = saveWarnings.warnings.some(
-    (w) => w.kind === 'match' && siteShown.named.has(w.id),
+  // Every such row listed, on screen or not (a refusal's rows shown alone,
+  // the list closed after a Book anyway that failed); never a refusal's
+  // row in a match row's place, whose words name none of the work.
+  const refusedRows = saveWarnings.injected
+  const matchNamesWork = saveWarnings.listed.some(
+    (w) =>
+      w.kind === 'match' &&
+      siteShown.named.has(w.id) &&
+      !refusedRows.includes(w),
   )
   const namedMoved = namedWorkMoved({
     naming: matchNamesWork,
@@ -1401,19 +1553,25 @@ function NewJobForm({
   })
   const namedRows = siteShown.named
   const dropRows = saveWarnings.drop
+  const injectedNow = saveWarnings.injectedNow
   useEffect(() => {
     if (namedMoved === null) return
-    dropRows('new-job-client-match', (w) => namedRows.has(w.id))
-  }, [dropRows, namedMoved, namedRows])
+    const refused = injectedNow()
+    dropRows(
+      'new-job-client-match',
+      (w) => namedRows.has(w.id) && !refused.some((r) => r === w),
+    )
+  }, [dropRows, namedMoved, namedRows, injectedNow])
   useSaveCheck(
     'new-job-client-match',
     mode === 'existing'
       ? null
-      : () => {
+      : (signal) => {
+          const note = pressReads.begin(signal)
           const checks = bookingChecks()
           return waitsForWork(checks)
-            ? untilWorkHeld().then(() => latestMatchWarnings.current())
-            : matchWarnings(checks)
+            ? untilWorkHeld().then(() => latestMatchWarnings.current(note))
+            : matchWarnings(note, checks)
         },
     [
       mode,
@@ -1477,8 +1635,14 @@ function NewJobForm({
           label: fix.label,
           apply: () => {
             lineFixHold.taken()
+            // With what refused rows beside them named: Book at takes
+            // those off too.
+            const refusedThere = refusedSiteSends()
             setSeen((s) =>
-              withSeenAll(s, bookAtSees(fix.propertyId, shown, named)),
+              withSent(
+                withSeenAll(s, bookAtSees(fix.propertyId, shown, named)),
+                refusedThere,
+              ),
             )
             seeUnchecked(read, workDay)
             latestApplyMatchFix.current(fix)
@@ -1487,8 +1651,11 @@ function NewJobForm({
         }
 
   /** The site's rows at Book, as warnings of the panel's very last kind:
-   * the work found, then what couldn't be checked (`uncheckedRows`). */
+   * the work found, then what couldn't be checked (`uncheckedRows`); and
+   * what is seen once they are booked past, noted for the press (`note`),
+   * which the booking sends (`sheetChecksFor`). */
   function siteWarnings(
+    note: PressNote<BookingPressRead>,
     checks: ReturnType<typeof bookingChecks> = bookingChecks(),
   ): Array<SaveWarning> {
     const { named, site } = checks
@@ -1496,6 +1663,7 @@ function NewJobForm({
       ? openWorkStanding(site.read)
       : { behind: false, asOf: null }
     const found = site?.found ?? []
+    note('site', withSeenAll(checks.seen, found))
     const rows = site ? [...found, ...site.unchecked] : []
     const behind = site
       ? siteBehindNote({
@@ -1514,11 +1682,18 @@ function NewJobForm({
     })
     // What couldn't be checked, at the sites it was said for.
     const read = site ? uncheckedKeysOf(site.unchecked, site.targets) : []
+    // And for a refused row's fix, in the press's own record, read only
+    // once this press's booking has gone (`pressShown`): never while it is
+    // still checking, nor once it is dropped (the client mode switched
+    // while it waited); nothing goes in where it ran out of time
+    // (`createPressReads`).
+    note('shown', { rows, namedWork: named, read, readFor: workDay })
     return rows.map((row) => ({
       id: row.id,
       kind: 'site',
       label: row.label,
       message: row.message,
+      ...(row.counts ? { counts: row.counts } : {}),
       ...(row.fix ? { fix: siteFix(row.fix, rows, named, read) } : {}),
       ...(row.fix2 ? { fix2: siteFix(row.fix2, rows, named, read) } : {}),
     }))
@@ -1526,11 +1701,12 @@ function NewJobForm({
   const latestSiteWarnings = useLatest(siteWarnings)
   useSaveCheck(
     'new-job-site-work',
-    () => {
+    (signal) => {
+      const note = pressReads.begin(signal)
       const checks = bookingChecks()
       return waitsForWork(checks)
-        ? untilWorkHeld().then(() => latestSiteWarnings.current())
-        : siteWarnings(checks)
+        ? untilWorkHeld().then(() => latestSiteWarnings.current(note))
+        : siteWarnings(note, checks)
     },
     [
       mode,
@@ -1552,6 +1728,355 @@ function NewJobForm({
     // This form's own, as the check above.
     saveWarnings,
   )
+  // ── What the server found as the booking went (the matching plan's M7) ──
+  // A refusal's rows, by id, for the panel's foot (`matchFooter`,
+  // `siteFooter`); what each sends back as seen with the next press
+  // (`refusedSends`, above); the refusal whose rows are on the panel, which
+  // FormAlert doesn't say again; and the refusals shown, newest first, with
+  // whether the client list held what their fixes book at when they were
+  // read: one that didn't is read again once it does (`refreshRefused`).
+  const [refused, setRefused] = useState<{
+    match: ReadonlyMap<string, MatchRow>
+    site: ReadonlyMap<string, RefusedSiteRow>
+  }>({ match: new Map(), site: new Map() })
+  const [shownRefusal, setShownRefusal] = useState<unknown>(null)
+  const refusalsShown = useRef<
+    Array<{
+      source: string
+      refusal: SheetRefusal
+      ids: ReadonlyArray<string>
+      held: boolean
+    }>
+  >([])
+  // A refusal's fixes wait for the live client list to hold what they book
+  // at (the picker needs the option), or for the panel to turn their rows
+  // down: asked again as each answer lands, and after every edit, once the
+  // checks above have told the panel of it (each commit: their effects run
+  // before this one).
+  const [holdWait] = useState(createHoldWait)
+  useEffect(() => holdWait.poke())
+
+  /**
+   * What the booking sends with it (lib/sheetChecks.ts `bookingSheetChecks`):
+   * what the press's checks found as they answered (`pressReads`), never
+   * the form read again as it goes, so a client or job the phone took in
+   * while a slower check was still looking is the server's to name: every
+   * client the phone's matcher returned, with a new client or site; the
+   * work the site rows showed, and what match rows named, with what fixes
+   * booked past (`seen`); and what refusals named that is still on the
+   * panel, shown or confirmed, with what an earlier send of this press was
+   * refused for (`extra`).
+   */
+  function sheetChecksFor(args: SendableBooking, extra: SheetSends) {
+    // Kept as the press whose booking went, for a refused row's fix
+    // (`pressShown`).
+    const read = pressReads.sending()
+    const injected = saveWarnings.injectedNow()
+    // The work match rows say in the phone's own words; not where a
+    // refusal's row stands in a match row's place, which says none of it,
+    // so the server names it (`namedOnPanel`).
+    const named = namedOnPanel(
+      read.match?.named ?? new Map(),
+      injected,
+      'new-job-client-match',
+    )
+    return bookingSheetChecks({
+      property: args.property,
+      // None where the match check found nothing in time, or isn't asked
+      // (a site chosen).
+      dismissed: read.match?.dismissed ?? [],
+      // The site check's, or, where it found nothing in time, what fixes
+      // booked past.
+      seen: withSeenAll(read.site ?? seen, [
+        { shows: { rows: named, series: [] } },
+      ]),
+      sends: joinSends(
+        extra,
+        standingSends(refusedSends.current, saveWarnings.refusedNow()),
+      ),
+    })
+  }
+  const latestSheetChecks = useLatest(sheetChecksFor)
+
+  /** Whether the client list holds what a refusal's fixes book at: each
+   * client the server found, and the site it matched them at; at an
+   * address typed, each site the work is at. */
+  function refusalHeld(refusal: SheetRefusal): boolean {
+    if (refusal.code === 'MATCHED_CLIENT') {
+      return refusal.candidates.every((c) => candidateHeld(matchIndex, c))
+    }
+    if (refusal.code === 'SITE_BOOKED' && mode !== 'existing') {
+      return refusal.rows.every((r) => matchIndex.siteKeys.has(r.propertyId))
+    }
+    return true
+  }
+  const latestRefusalHeld = useLatest(refusalHeld)
+
+  /**
+   * What the press refused showed, read as a refused row's fix is tapped:
+   * the own record (`siteWarnings`' `shown`) of the newest press whose
+   * booking went (`sent`), every row of which was on the panel and booked
+   * past before it could go. Never the newest press's: one still
+   * "Checking…" (an email's domain, a street) has noted rows the panel
+   * hasn't drawn, and the refused rows can still be tapped meanwhile; nor
+   * one dropped since and answering late. Its site's rows; the work match
+   * rows named at their sites in the phone's own words, while their rows
+   * stand (FW13, `namedRowsOnPanel`: a refusal's row in one's place names
+   * none); and its "Not checked" rows, with the day and repeat they were
+   * read for. Null where its site check found nothing in time.
+   */
+  function pressShown() {
+    const shown = pressReads.sent()?.shown
+    if (!shown) return null
+    return {
+      rows: shown.rows,
+      named: namedRowsOnPanel(
+        shown.namedWork,
+        saveWarnings.injectedNow(),
+        'new-job-client-match',
+      ),
+      read: shown.read,
+      readFor: shown.readFor,
+    }
+  }
+
+  /** A refused row's fix about the site's work: open the job; or book at
+   * the site, past what every refused row of the site's work standing named
+   * (this refusal's and an earlier one's: Book at takes them all off the
+   * panel), and what the press refused showed (`pressShown`), as the
+   * phone's Book at does (`siteFix`): the panel's own rows, the work a
+   * match row named there, and its "Not checked" rows, read. */
+  const refusedSiteFix = (fix: SiteFix): SaveWarningFix =>
+    fix.kind === 'openJob'
+      ? {
+          label: fix.label,
+          apply: () => latestOpenJob.current(fix),
+          keepsRow: true,
+        }
+      : {
+          label: fix.label,
+          apply: () => {
+            lineFixHold.taken()
+            const refusedThere = refusedSiteSends()
+            const shown = pressShown()
+            setSeen((s) =>
+              withSent(
+                shown
+                  ? withSeenAll(
+                      s,
+                      bookAtSees(fix.propertyId, shown.rows, shown.named),
+                    )
+                  : s,
+                refusedThere,
+              ),
+            )
+            if (shown) seeUnchecked(shown.read, shown.readFor)
+            latestApplyMatchFix.current(fix)
+          },
+          focusAfter: () => latestFocusAfterMatchFix.current(),
+        }
+
+  /** A refused match row's fix: as the phone's own (`panelFix`), but what
+   * it books past is read as it is tapped, from what the press refused
+   * showed (`pressShown`): the work at the site it books at
+   * (`refusedMatchSees`; by then these rows stand in the place of any
+   * phone row of their id, whose words are gone), and its "Not checked"
+   * rows, for the day and repeat they were read for, never the form's as
+   * the row was read (the date moved while "Booking…" showed). */
+  const refusedMatchFix = (fix: MatchFix, row: MatchRow): SaveWarningFix => ({
+    label: fix.label,
+    apply: () => {
+      lineFixHold.taken()
+      const refusedThere = refusedSiteSends()
+      const shown = pressShown()
+      const sees = shown && refusedMatchSees(row, shown.rows, shown.named)
+      setSeen((s) => withSent(sees ? withSeen(s, sees) : s, refusedThere))
+      if (shown) seeUnchecked(shown.read, shown.readFor)
+      latestApplyMatchFix.current(fix)
+    },
+    focusAfter: () => latestFocusAfterMatchFix.current(),
+  })
+
+  /** A refusal's rows, as warnings of the panel, from the form as it is
+   * now (`refusedMatchRows`, `refusedSiteRows`), each with the row its
+   * foot reads. */
+  function refusalRows(refusal: SheetRefusal): {
+    source: string
+    rows: Array<SaveWarning & { foot: MatchRow | RefusedSiteRow }>
+  } {
+    if (refusal.code === 'MATCHED_CLIENT') {
+      const source = 'new-job-client-match'
+      const at = matchAtNow()
+      if (at.mode === 'existing' || (at.mode === 'site' && !at.clientId)) {
+        return { source, rows: [] }
+      }
+      // Their words are the server's, and name none of the work at their
+      // sites, but their fixes book past what the press refused showed at
+      // the site they book at, and read its "Not checked" rows, as the
+      // phone's own match row's do (`refusedMatchFix`).
+      const rows = refusedMatchRows(
+        matchCtx,
+        refusal,
+        at.mode === 'new'
+          ? at
+          : {
+              mode: 'site',
+              clientId: at.clientId as Id<'clients'>,
+              site: at.site,
+            },
+      )
+      return {
+        source,
+        rows: rows.map((row) => ({
+          id: row.id,
+          kind: 'match',
+          label: row.label,
+          message: row.message,
+          ...(row.fix ? { fix: refusedMatchFix(row.fix, row) } : {}),
+          ...(row.fix2 ? { fix2: refusedMatchFix(row.fix2, row) } : {}),
+          foot: row,
+        })),
+      }
+    }
+    const source = 'new-job-site-work'
+    const chosen = properties.find((p) => p._id === propertyId)
+    const rows = refusedSiteRows(refusal, {
+      timezone,
+      today: todayKey(timezone),
+      at:
+        mode === 'existing'
+          ? { mode, site: { addressLine: chosen?.addressLine ?? '' } }
+          : mode === 'site'
+            ? { mode, typed: newSite, bookFor: siteClient?._id ?? null }
+            : {
+                mode,
+                typed: {
+                  addressLine: newClient.addressLine,
+                  suburb: newClient.suburb,
+                  postcode: newClient.postcode,
+                },
+              },
+      siteOf: (id) => properties.find((p) => p._id === id),
+      clientOf: (id) => matchIndex.clients.get(id),
+    })
+    return {
+      source,
+      rows: rows.map((row) => ({
+        id: row.id,
+        kind: 'site',
+        label: row.label,
+        message: row.message,
+        ...(row.counts ? { counts: row.counts } : {}),
+        ...(row.fix ? { fix: refusedSiteFix(row.fix) } : {}),
+        ...(row.fix2 ? { fix2: refusedSiteFix(row.fix2) } : {}),
+        foot: row,
+      })),
+    }
+  }
+  const latestRefusalRows = useLatest(refusalRows)
+
+  /** What the panel's foot reads of rows a refusal put on it. */
+  function noteFeet(
+    rows: ReadonlyArray<{ id: string; foot: MatchRow | RefusedSiteRow }>,
+  ) {
+    setRefused((before) => {
+      const match = new Map(before.match)
+      const site = new Map(before.site)
+      for (const { id, foot } of rows) {
+        if ('tier' in foot) match.set(id, foot)
+        else site.set(id, foot)
+      }
+      return { match, site }
+    })
+  }
+
+  /**
+   * A refusal's rows read again, in place, once the client list holds what
+   * their fixes book at (`refusalHeld`) where it didn't as they were read:
+   * "Open Jane Nguyen from Clients to book this job." becomes the row with
+   * Use Jane Nguyen, however long after the refusal the list catches up.
+   * Only rows still standing (`SaveWarningsController.refresh`), the newest
+   * refusal's for each, and the hold starts as their fixes come in.
+   */
+  function refreshRefused() {
+    const standing = saveWarnings.injectedNow()
+    const stands = (source: string, id: string) =>
+      standing.some((w) => w.source === source && w.id === id)
+    refusalsShown.current = refusalsShown.current.filter((entry) =>
+      entry.ids.some((id) => stands(entry.source, id)),
+    )
+    // Each row as the newest refusal that put it on says it.
+    const newer = new Set<string>()
+    for (const entry of refusalsShown.current) {
+      const own = entry.ids.filter(
+        (id) => !newer.has(rowKey({ source: entry.source, id })),
+      )
+      for (const id of entry.ids)
+        newer.add(rowKey({ source: entry.source, id }))
+      if (entry.held || !refusalHeld(entry.refusal)) continue
+      entry.held = true
+      const { source, rows } = refusalRows(entry.refusal)
+      const now = rows.filter(
+        (row) =>
+          source === entry.source &&
+          own.includes(row.id) &&
+          stands(source, row.id),
+      )
+      if (now.length > 0 && saveWarnings.refresh(source, now)) noteFeet(now)
+    }
+  }
+  const latestRefreshRefused = useLatest(refreshRefused)
+  useEffect(
+    () => latestRefreshRefused.current(),
+    [latestRefreshRefused, matchIndex],
+  )
+
+  /** A refusal's rows on the panel (`SaveWarningsController.inject`), with
+   * what they send back, unless the form has changed since the press it
+   * refused: then FormAlert says it (`bookingErrorCopy`), and the next
+   * press checks the form as it is now. Noted by counts and code only. */
+  function showRefusal(
+    source: string,
+    rows: ReadonlyArray<SaveWarning & { foot: MatchRow | RefusedSiteRow }>,
+    sends: SheetSends,
+    error: unknown,
+  ) {
+    // What stood before these went on, for what a row of the same id sent.
+    const before = saveWarnings.refusedNow()
+    // Each row as the panel draws it; what its foot reads rides along.
+    const shown = rows.length > 0 && saveWarnings.inject(source, rows)
+    logConnection('sheet-refused', {
+      code: convexCode(error) ?? '',
+      rows: rows.length,
+      shown,
+    })
+    if (!shown) return
+    // A row put back in the place of one of its id still standing keeps
+    // what that one sent too (`sendsByRow`).
+    refusedSends.current = sendsByRow(
+      refusedSends.current,
+      before,
+      source,
+      rows,
+      sends,
+    )
+    const refusal = sheetRefusalOf(error)
+    if (refusal) {
+      refusalsShown.current = [
+        {
+          source,
+          refusal,
+          ids: rows.map((row) => row.id),
+          held: refusalHeld(refusal),
+        },
+        ...refusalsShown.current,
+      ]
+    }
+    noteFeet(rows)
+    setShownRefusal(error)
+  }
+  const latestShowRefusal = useLatest(showRefusal)
+
   // The Property picker's line for each site, from the newest answer held:
   // "Booked Thu 30 Oct", "Repeats every 3 months, next Mon 12 Jan", "Last
   // visit Wed 15 Oct" (`siteWorkDetail`).
@@ -1597,17 +2122,25 @@ function NewJobForm({
         }
       : null
   }
-  const showsMatch = saveWarnings.warnings.some((w) => w.kind === 'match')
+  // Rows a refusal put on the panel: the server's, so the notes about the
+  // copy on the phone aren't theirs; their own is FOUND_WHEN_SAVING.
+  const fromServer = new Set(saveWarnings.injected.map((w) => w.id))
+  const showsMatch = saveWarnings.warnings.some(
+    (w) => w.kind === 'match' && !fromServer.has(w.id),
+  )
   // How old what the site's rows, or a match row's line about the work at
   // its site, were read from, only while they show.
   const showsWork = saveWarnings.warnings.some(
     (w) =>
-      (w.kind === 'site' && siteShown.rows.get(w.id)?.label !== NOT_CHECKED) ||
-      (w.kind === 'match' && siteShown.named.has(w.id)),
+      !fromServer.has(w.id) &&
+      ((w.kind === 'site' && siteShown.rows.get(w.id)?.label !== NOT_CHECKED) ||
+        (w.kind === 'match' && siteShown.named.has(w.id))),
   )
+  const showsRefused = saveWarnings.warnings.some((w) => fromServer.has(w.id))
   const panelNotes = [
     ...(showsMatch ? matchShown.notes : []),
     ...(showsWork ? siteShown.behind : []),
+    ...(showsRefused ? [FOUND_WHEN_SAVING] : []),
   ]
 
   const bookLabel = create.isPending
@@ -2036,9 +2569,19 @@ function NewJobForm({
             ' On a repeating job it is the first visit’s; for every visit, add a site note.'}
         </p>
 
+        {/* Not for a refusal whose rows the panel shows: they say it. */}
         <FormAlert
-          error={create.isError ? create.error : null}
-          copy={BOOKING_ERROR_COPY}
+          error={
+            create.isError && create.error !== shownRefusal
+              ? create.error
+              : null
+          }
+          // As the booking was sent: a new site for a client has words of
+          // its own for MATCHED_CLIENT.
+          copy={bookingErrorCopy(
+            create.variables?.property,
+            (id) => matchIndex.clients.get(id)?.name,
+          )}
           className="mt-3"
         />
         <SaveWarningsPanel
@@ -2046,7 +2589,12 @@ function NewJobForm({
           anywayLabel="Book anyway"
           matchFooter={(shown) =>
             matchFooter(
-              shown.map((w) => matchShown.rows.get(w.id) ?? {}),
+              shown.map(
+                (w) =>
+                  (fromServer.has(w.id)
+                    ? refused.match.get(w.id)
+                    : matchShown.rows.get(w.id)) ?? {},
+              ),
               {
                 anyway: 'Book anyway',
                 adds: mode === 'site' ? 'site' : 'client',
@@ -2055,7 +2603,11 @@ function NewJobForm({
           }
           siteFooter={(shown) =>
             siteFooter(
-              shown.map((w) => siteShown.rows.get(w.id) ?? {}),
+              shown.map((w) => {
+                if (!fromServer.has(w.id)) return siteShown.rows.get(w.id) ?? {}
+                const row = refused.site.get(w.id)
+                return { fix: row?.fix, fix2: row?.fix2 }
+              }),
               'Book anyway',
             )
           }

@@ -1,7 +1,11 @@
 import { addDaysToKey, dayKeyOf } from '../../convex/lib/dates'
 import { addressNear, siteKey, streetKey } from '../../convex/lib/contactKeys'
 import { splitJobTypes } from '../../convex/lib/jobTypes'
-import { describeInterval, firstVisitAt } from '../../convex/lib/recurrence'
+import {
+  HORIZON_DAYS,
+  describeInterval,
+  firstVisitAt,
+} from '../../convex/lib/recurrence'
 import {
   isOpenStatus,
   openNear,
@@ -14,7 +18,11 @@ import { possessive, tagSentence } from './clientMatchRows'
 import type { FunctionReturnType } from 'convex/server'
 import type { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
-import type { MatchIndex, MatchSite } from '../../convex/lib/clientMatch'
+import type {
+  MatchClient,
+  MatchIndex,
+  MatchSite,
+} from '../../convex/lib/clientMatch'
 import type { Interval } from '../../convex/lib/recurrence'
 import type { MatchFix } from './clientMatchRows'
 
@@ -38,8 +46,9 @@ import type { MatchFix } from './clientMatchRows'
  * client's at the address is said, but booking there would take the
  * booking off the client chosen. What it shows is
  * what Book anyway books past (`seenOf`, `seenSeriesOf`), which the online
- * sheet will send with the booking (the plan's M7); until then this is the
- * only check there is.
+ * sheet sends with the booking (`siteCheck`, the plan's M7), for the server
+ * to check again with what is booked now; what it finds that the phone
+ * didn't hold comes back as rows of their own (`refusedSiteRows`).
  *
  * The words keep the app's: names, never pronouns; curly apostrophes and
  * spaced em dashes.
@@ -310,18 +319,161 @@ export type SiteRow = {
    * by its id; what couldn't be checked by which part.
    */
   id: string
-  /** `Not checked`: what the check couldn't read (`uncheckedRows`). */
-  label: 'Already booked' | 'Already repeats' | 'Not checked'
+  /** `Not checked`: what the check couldn't read (`uncheckedRows`).
+   * `And 2 more`: the rest past SITE_ROWS_MAX, counted (`restRow`). */
+  label: 'Already booked' | 'Already repeats' | 'Not checked' | AndMore
   message: string
   fix?: SiteFix
   fix2?: SiteFix
   shows: Shows
   /** The site the row is about; null for what couldn't be checked. */
   propertyId: Id<'properties'> | null
+  /** `And 2 more`: the ids of the rows it counts, so a refusal telling
+   * only those again says nothing new (`SaveWarning['counts']`). */
+  counts?: ReadonlyArray<string>
+  /** `And 3 more` about several sites (`propertyId` null): what it counts
+   * at each, so a match row's fix books past what it counts at the site
+   * it books at (`showsAt`). */
+  bySite?: ReadonlyArray<{ propertyId: Id<'properties'>; shows: Shows }>
 }
 
-/** At most this many rows, nearest first (§3.2). */
+/** At most this many rows, nearest first (§3.2), then the rest counted in
+ * one row of its own ("And 2 more", `restRow`). */
 export const SITE_ROWS_MAX = 2
+
+/** "And 2 more". */
+export type AndMore = `And ${number} more`
+
+/** The ids of the rows counting the rest, the phone's and a refusal's
+ * alike: of jobs and visits (`SITE_MORE_ID`, with any Recurring Jobs past
+ * the rows), and of a refusal's Recurring Jobs alone. */
+export const SITE_MORE_ID = 'site:more'
+export const SITE_MORE_SERIES_ID = 'site:more:series'
+
+/**
+ * What a row counting the rest says (`restRow`, `refusedSiteRows`): how many
+ * more jobs or visits within the week, and Recurring Jobs, at the site (or
+ * sites) checked, or at the one site named (`site`, "12 Wattle St,
+ * Maylands"). Someone else's several on one day count as one, as their row
+ * would have been (C5): their number is no more the person's here than in
+ * a row of its own.
+ */
+export function restMessage(at: {
+  near: number
+  series: number
+  sites: number
+  site?: string
+}): string {
+  const here = at.site ?? (at.sites > 1 ? 'these sites' : 'this site')
+  const near =
+    at.near === 1 ? 'another job or visit' : `${at.near} other jobs or visits`
+  const series =
+    at.series === 1
+      ? 'another Recurring Job'
+      : `${at.series} other Recurring Jobs`
+  if (at.series === 0) {
+    return `${near.charAt(0).toUpperCase()}${near.slice(1)} ${
+      at.near === 1 ? 'is' : 'are'
+    } booked at ${here} within a week of this one.`
+  }
+  if (at.near === 0) {
+    return `${series.charAt(0).toUpperCase()}${series.slice(1)} ${
+      at.series === 1 ? 'runs' : 'run'
+    } at ${here}.`
+  }
+  const has =
+    at.site !== undefined
+      ? `${at.site} also has`
+      : at.sites > 1
+        ? 'These sites also have'
+        : 'This site also has'
+  return `${has} ${series} and ${near} within a week of this one.`
+}
+
+/**
+ * The rows past SITE_ROWS_MAX, as one row that counts them: "And 2 more —
+ * 2 other jobs or visits are booked at this site within a week of this
+ * one." With no fix; it shows every one of them, so Book anyway and Book
+ * at book past them all, as the server takes them back (`siteCheck`'s
+ * `seen`), the way "And 2 more" of the clients the caller may be is
+ * dismissed with them (FW17d), and a match row's fix those at the site it
+ * books at (`bySite`, where they are at several). Without it, the server
+ * would name them as found when saving, though the phone held them all
+ * along.
+ *
+ * "This site" only where every row, those above (`above`) and those it
+ * counts, is about one site: read under rows about the address typed, it
+ * would mean that one. Those counted all at another, its address
+ * (`siteText`: "12 Wattle St, Maylands", the same street in the same
+ * postcode); at several, "these sites".
+ */
+function restRow(
+  cut: ReadonlyArray<SiteRow>,
+  above: ReadonlyArray<SiteRow>,
+  siteText: (propertyId: Id<'properties'>) => string | undefined,
+): SiteRow {
+  const series = cut.filter((row) => row.label === 'Already repeats').length
+  const near = cut.length - series
+  const sites = [...new Set(cut.map((row) => row.propertyId))]
+  const one = sites.length === 1 ? sites[0] : null
+  const alone = one !== null && above.every((row) => row.propertyId === one)
+  const site = one !== null && !alone ? siteText(one) : undefined
+  return {
+    id: SITE_MORE_ID,
+    label: `And ${cut.length} more`,
+    message: restMessage({
+      near,
+      series,
+      sites: alone ? 1 : Math.max(sites.length, 2),
+      ...(site !== undefined ? { site } : {}),
+    }),
+    shows: {
+      rows: cut.flatMap((row) => row.shows.rows),
+      series: cut.flatMap((row) => row.shows.series),
+    },
+    propertyId: one,
+    counts: cut.map((row) => row.id),
+    ...(one === null
+      ? {
+          bySite: cut.flatMap(({ propertyId, shows }) =>
+            propertyId === null ? [] : [{ propertyId, shows }],
+          ),
+        }
+      : {}),
+  }
+}
+
+/**
+ * What `rows` show at one site: each row's own where it is about that
+ * site, and of an "And 3 more" about several (`bySite`), what it counts
+ * there. What a match row's fix books past at the site it books at
+ * (`bookingWork`'s `fixSees`, `refusedMatchSees`), the counted rest with
+ * the rows above; work at another site stays to be told of.
+ */
+function showsAt(
+  rows: ReadonlyArray<Pick<SiteRow, 'propertyId' | 'shows' | 'bySite'>>,
+  propertyId: Id<'properties'>,
+): Array<{ shows: Shows }> {
+  return rows
+    .flatMap((row): ReadonlyArray<Pick<SiteRow, 'propertyId' | 'shows'>> =>
+      row.propertyId === null ? (row.bySite ?? []) : [row],
+    )
+    .filter((row) => row.propertyId === propertyId)
+}
+
+/** At most SITE_ROWS_MAX rows, and the rest counted in one more. */
+function capped(
+  rows: ReadonlyArray<SiteRow>,
+  check: Pick<SiteCheck, 'targets'>,
+): Array<SiteRow> {
+  if (rows.length <= SITE_ROWS_MAX) return [...rows]
+  const siteText = (propertyId: Id<'properties'>) => {
+    const target = check.targets.find((t) => t.site._id === propertyId)
+    return target && `${target.site.addressLine}, ${target.site.suburb}`
+  }
+  const above = rows.slice(0, SITE_ROWS_MAX)
+  return [...above, restRow(rows.slice(SITE_ROWS_MAX), above, siteText)]
+}
 
 /** What the check reads. */
 export type SiteCheck = {
@@ -580,7 +732,8 @@ function repeatsRow(
  * one already running at a site checked, at any distance in time; then
  * open work within a week either side of the booking's date, nearest
  * first, less a visit of a series already shown. At most SITE_ROWS_MAX,
- * and nothing already seen.
+ * then the rest counted ("And 2 more", `restRow`), and nothing already
+ * seen.
  *
  * `near: false`: the Recurring Jobs alone, for a date no answer reaches
  * within a week of (`bookingWork`): what runs at a site is so whatever
@@ -603,7 +756,7 @@ export function siteWorkRows(
       }
     }
   }
-  if (!nearToo) return out.slice(0, SITE_ROWS_MAX)
+  if (!nearToo) return capped(out, check)
   const near: Array<{ target: SiteTarget; row: OpenWorkRow }> = []
   for (const target of check.targets) {
     const here = check.work.rows.filter(
@@ -641,7 +794,7 @@ export function siteWorkRows(
   for (const { target, rows } of groups) {
     out.push(bookedRow(target, rows, check))
   }
-  return out.slice(0, SITE_ROWS_MAX)
+  return capped(out, check)
 }
 
 /**
@@ -745,6 +898,330 @@ export function matchRowsWithWork<
   return { rows: out, named }
 }
 
+// ── What the server found when saving (M7, §4.5) ──────────────────────────
+
+/** What SITE_BOOKED or SITE_REPEATS names (convex/lib/findSame.ts). */
+export type RefusedWork =
+  | {
+      code: 'SITE_BOOKED'
+      rows: ReadonlyArray<{
+        propertyId: Id<'properties'>
+        at: number
+        scheduledAt: number
+        series?: Id<'recurrences'>
+        clientName?: string
+        jobId?: Id<'jobs'>
+        jobNumber?: number
+      }>
+      /** By site and slot, and by its id too for the person's own. */
+      more?: ReadonlyArray<{
+        propertyId: Id<'properties'>
+        at: number
+        jobId?: Id<'jobs'>
+      }>
+    }
+  | {
+      code: 'SITE_REPEATS'
+      series: ReadonlyArray<{
+        recurrenceId: Id<'recurrences'>
+        propertyId: Id<'properties'>
+        nextAt?: number
+        intervalCount?: number
+        intervalUnit?: Interval['unit']
+        jobType?: string
+      }>
+      more?: ReadonlyArray<Id<'recurrences'>>
+    }
+
+/** A row of the panel from a refusal: as a site row reads, with no work of
+ * the phone's behind it (what it sends back is the refusal's). */
+export type RefusedSiteRow = {
+  id: string
+  label: 'Already booked' | 'Already repeats' | AndMore
+  message: string
+  fix?: SiteFix
+  fix2?: SiteFix
+  /** `And 2 more`: the ids of the rows it counts, as a site row's are
+   * (`SiteRow['counts']`). */
+  counts?: ReadonlyArray<string>
+}
+
+/** What the rows are read with. */
+export type RefusedSiteContext = {
+  timezone: string
+  /** Today in the business's zone: whether a date needs its year. */
+  today: string
+  /** Where the booking is: the site chosen, or the address typed (the
+   * server's target is every site at it, exactly). */
+  at:
+    | { mode: 'existing'; site: { addressLine: string } }
+    | {
+        mode: 'new' | 'site'
+        typed: TypedSite
+        /** New site for: the client chosen, the only one Book at books for
+         * (`SiteCheck['bookFor']`). */
+        bookFor?: Id<'clients'> | null
+      }
+  /** A site on the live client list, by id: for its address, and for Book
+   * at, which the picker needs it to hold. */
+  siteOf: (propertyId: Id<'properties'>) => SiteTarget['site'] | undefined
+  /** A client on it, by id: whether one named is archived or inactive
+   * (`tagSentence`), as the phone's rows say. */
+  clientOf?: (clientId: Id<'clients'>) => MatchClient | undefined
+}
+
+/**
+ * What a refused row is about, before its verb, as the phone's rows say it
+ * (`subjectOf`): the site chosen by its street; at an address typed, the
+ * site there, from the client list where it holds it, else the address as
+ * typed (the server matched it exactly). Whose it is only for the person's
+ * own work (`mine`), and only where the server said (`clientName`, a client
+ * the person may see) or the list holds them: someone else's is said by its
+ * date alone, as the phone's row says it (C5).
+ */
+function refusedSubject(
+  propertyId: Id<'properties'>,
+  clientName: string | undefined,
+  mine: boolean,
+  ctx: RefusedSiteContext,
+): string {
+  if (ctx.at.mode === 'existing') return ctx.at.site.addressLine
+  const site = ctx.siteOf(propertyId)
+  const text = site ? `${site.addressLine}, ${site.suburb}` : typedText(ctx.at)
+  if (!mine) return text
+  const name =
+    clientName ?? (site ? ctx.clientOf?.(site.clientId)?.name : undefined)
+  return name ? `${text} (${name}’s)` : text
+}
+
+/** "12 Wattle St, Bayswater": the address as typed. */
+function typedText(at: { typed: TypedSite }): string {
+  return [at.typed.addressLine.trim(), at.typed.suburb.trim()]
+    .filter((part) => part !== '')
+    .join(', ')
+}
+
+/**
+ * Where a refusal's "And 2 more" says the rest is (`restMessage`), as
+ * `restRow` says it: "this site" only where every row above (`above`) and
+ * every one it counts (`counted`) is about one site, as they always are at
+ * the site chosen (the server checks it alone). At an address typed, the
+ * server checks every site at it, exactly, whoever's: those counted all at
+ * one site, its address ("12 Wattle St, Bayswater", the same address as
+ * the rows above, which may be another client's site there); at several,
+ * or where the refusal doesn't say where they are (`counted` null:
+ * SITE_REPEATS' `more` is Recurring Jobs by id alone), the address typed,
+ * which every one of them is at. Never "this site" for work that may be at
+ * another site than the rows above it.
+ */
+function refusedRestPlace(
+  above: ReadonlyArray<Id<'properties'>>,
+  counted: ReadonlyArray<Id<'properties'>> | null,
+  ctx: RefusedSiteContext,
+): { sites: number; site?: string } {
+  if (ctx.at.mode === 'existing') return { sites: 1 }
+  if (counted !== null && new Set([...above, ...counted]).size <= 1) {
+    return { sites: 1 }
+  }
+  const sites = new Set(counted ?? above)
+  const site =
+    sites.size === 1
+      ? refusedSubject([...sites][0], undefined, false, ctx)
+      : typedText(ctx.at)
+  return site !== '' ? { sites: sites.size, site } : { sites: 2 }
+}
+
+/** " Amy Lo is inactive.", after a refused row of the person's own that
+ * names an archived or inactive client by a possessive at an address typed
+ * (`tagOf`), so its Book at never books onto such a client's site with no
+ * sign of it. '' where no client is named, or the list doesn't hold them. */
+function refusedTag(
+  propertyId: Id<'properties'>,
+  mine: boolean,
+  ctx: RefusedSiteContext,
+): string {
+  if (!mine || ctx.at.mode === 'existing') return ''
+  const site = ctx.siteOf(propertyId)
+  return site ? tagSentence(ctx.clientOf?.(site.clientId)) : ''
+}
+
+/** Book at the site a refused row is about: at an address typed, where the
+ * client list holds the site, and only the chosen client's in New site for. */
+function refusedBookAt(
+  propertyId: Id<'properties'>,
+  ctx: RefusedSiteContext,
+): SiteFix | undefined {
+  if (ctx.at.mode === 'existing') return undefined
+  const site = ctx.siteOf(propertyId)
+  if (!site) return undefined
+  if (ctx.at.bookFor !== undefined && ctx.at.bookFor !== site.clientId) {
+    return undefined
+  }
+  return {
+    kind: 'bookAt',
+    label: `Book at ${site.addressLine}`,
+    clientId: site.clientId,
+    propertyId: site._id,
+  }
+}
+
+/**
+ * The rows for SITE_BOOKED and SITE_REPEATS (§4.5), with the phone's own
+ * words, from what the server sent: someone else's work by its date alone
+ * (C5), one row a day at a site; the person's own with Open #123 (the job's
+ * sheet opens by its id); Book at the site at an address typed, where the
+ * client list holds it. Then "And 2 more" for the rest the server named
+ * (`more`), which Book anyway books past too: each of the person's own is
+ * one, and someone else's by the day, as their rows would be, none for a
+ * day a row above already says (C5: how many of someone else's there are
+ * is no more the person's in a count than in a row). Someone else's entry
+ * in `more` is sent by its site and slot alone (`at`), not the time it is
+ * booked, so its day is its slot's: for a visit the office moved to
+ * another day, the count can be one more or one less than its rows would
+ * have been, or fold it into a row above for another day. Only the server
+ * sending `scheduledAt` in `more` would make it exact (a backend change);
+ * whatever the count says, every entry goes back as seen. "This site" in it
+ * only where all of it, and every row above, is about one site; else the
+ * address (`refusedRestPlace`). Each row's id is the check's own
+ * (`site:job:…`, `site:day:…`, `site:series:…`), so a row the person has
+ * already booked past is known as such; and "And 2 more" carries the ids
+ * of what it counts (`counts`), so a count of only those is known too.
+ */
+export function refusedSiteRows(
+  refusal: RefusedWork,
+  ctx: RefusedSiteContext,
+): Array<RefusedSiteRow> {
+  const date = (at: number) => dateOf(at, ctx)
+  const out: Array<RefusedSiteRow> = []
+  const more = refusal.more?.length ?? 0
+  if (refusal.code === 'SITE_REPEATS') {
+    for (const series of refusal.series) {
+      // How often and what only for the person's own, as their row says.
+      const mine =
+        series.intervalCount !== undefined && series.intervalUnit !== undefined
+      const subject = refusedSubject(series.propertyId, undefined, mine, ctx)
+      const tag = refusedTag(series.propertyId, mine, ctx)
+      const next =
+        series.nextAt !== undefined ? `, next ${date(series.nextAt)}` : ''
+      const what =
+        series.intervalCount !== undefined && series.intervalUnit !== undefined
+          ? [
+              servicesOf(series.jobType),
+              describeInterval({
+                count: series.intervalCount,
+                unit: series.intervalUnit,
+              }).toLowerCase(),
+            ]
+              .filter((part) => part !== '')
+              .join(' ')
+          : null
+      // No fix: the server names no visit of it to open, and the phone's
+      // own row offers no Book at either.
+      out.push({
+        id: `site:series:${series.recurrenceId}`,
+        label: 'Already repeats',
+        message:
+          what === null
+            ? `${subject} already has a Recurring Job${next}.`
+            : `${subject} already has a Recurring Job: ${what}${next}.${tag}`,
+      })
+    }
+    if (more > 0) {
+      out.push({
+        id: SITE_MORE_SERIES_ID,
+        label: `And ${more} more`,
+        message: restMessage({
+          near: 0,
+          series: more,
+          ...refusedRestPlace(
+            refusal.series.map((series) => series.propertyId),
+            null,
+            ctx,
+          ),
+        }),
+        counts: (refusal.more ?? []).map((id) => `site:series:${id}`),
+      })
+    }
+    return out
+  }
+  for (const row of refusal.rows) {
+    const day = dayKeyOf(row.scheduledAt, ctx.timezone)
+    const bookAt = refusedBookAt(row.propertyId, ctx)
+    if (row.jobId === undefined) {
+      // Someone else's: its date alone, once a day at a site.
+      const id = `site:day:${row.propertyId}:${day}`
+      if (out.some((r) => r.id === id)) continue
+      out.push({
+        id,
+        label: 'Already booked',
+        message: `${refusedSubject(row.propertyId, row.clientName, false, ctx)} has another job booked on ${date(row.scheduledAt)}.`,
+        ...(bookAt ? { fix: bookAt } : {}),
+      })
+      continue
+    }
+    const subject = refusedSubject(row.propertyId, row.clientName, true, ctx)
+    const visit = row.series !== undefined
+    const open: SiteFix = {
+      kind: 'openJob',
+      label: visit
+        ? 'Open the visit'
+        : row.jobNumber !== undefined
+          ? `Open #${row.jobNumber}`
+          : 'Open the job',
+      jobId: row.jobId,
+      dayKey: day,
+    }
+    const number = row.jobNumber !== undefined ? ` (#${row.jobNumber})` : ''
+    // At an address typed, as the phone's row says it: the date, and whose
+    // the site is where it is said by a possessive (Open #123 names the
+    // job).
+    const message =
+      ctx.at.mode !== 'existing'
+        ? `${subject} has ${visit ? 'a Recurring Job visit' : 'a job'} on ${date(row.scheduledAt)}.${refusedTag(row.propertyId, true, ctx)}`
+        : visit
+          ? `${subject} has a Recurring Job visit on ${date(row.scheduledAt)}.`
+          : `${subject} has a job on ${date(row.scheduledAt)} at ${formatTime(row.scheduledAt, ctx.timezone)}${number}.`
+    out.push({
+      id: `site:job:${row.jobId}`,
+      label: 'Already booked',
+      message,
+      ...(bookAt ? { fix: bookAt, fix2: open } : { fix: open }),
+    })
+  }
+  // The rest: each of the person's own one, someone else's one a day at a
+  // site, and none for a day a row above already says: by its slot's day,
+  // as `more` sends nothing else of it (above).
+  const said = new Set(out.map((row) => row.id))
+  const rest = new Set<string>()
+  const sites: Array<Id<'properties'>> = []
+  for (const entry of refusal.more ?? []) {
+    const key =
+      entry.jobId !== undefined
+        ? `site:job:${entry.jobId}`
+        : `site:day:${entry.propertyId}:${dayKeyOf(entry.at, ctx.timezone)}`
+    if (said.has(key) || rest.has(key)) continue
+    rest.add(key)
+    sites.push(entry.propertyId)
+  }
+  if (rest.size > 0) {
+    out.push({
+      id: SITE_MORE_ID,
+      label: `And ${rest.size} more`,
+      message: restMessage({
+        near: rest.size,
+        series: 0,
+        ...refusedRestPlace(
+          refusal.rows.map((row) => row.propertyId),
+          sites,
+          ctx,
+        ),
+      }),
+      counts: [...rest],
+    })
+  }
+  return out
+}
+
 // ── What can't be checked ─────────────────────────────────────────────────
 
 /** "Other bookings at this site can’t be checked on this phone." */
@@ -762,13 +1239,32 @@ export const NOT_CHECKED = 'Not checked' as const
  * far past: a date months out is said the same as one a day past the edge,
  * so how far off a booking is never decides whether a press says so. Rows,
  * not a line at the end, so the first press says so even where nothing
- * else does: until the online sheet sends the check (the plan's M7) this is
- * the only check, and a booking it never made would otherwise go on one
- * press with no sign. Each has no fix; the second press books, as with any
- * row. (The plan's §3.2 leaves a date past the weeks held to the server's
- * check, §4.3, as no row at all: M7, which sends that check, is where to
- * drop the row for such a date, keeping it where the week either side
- * straddles an edge.)
+ * else does. Each has no fix; the second press books, as with any row.
+ *
+ * But for a date whose week either side lies wholly past the days held
+ * (`serverChecks`, the plan's M7, "Found while building M5"): where the
+ * booking goes with the server's own check (`siteCheck`, sent straight,
+ * not kept on the phone), the person sees the whole schedule, and every
+ * site checked is one the server checks too (the site chosen, or one at
+ * the address typed exactly, `bookingWork`), the server names the work on
+ * its books near that date there, whoever's, so there is nothing the
+ * phone must say it couldn't (§3.2). On its books: a one-off at any date,
+ * but a Recurring Job's visits only once made, HORIZON_DAYS ahead (by a
+ * daily run, so two days less here, to be sure). So for a one-off whose
+ * week after runs past them, kept where a Recurring Job runs at a site
+ * checked (`seriesThere`): its visit that week is on nobody's books yet,
+ * and only the phone could say so. With none running there, every booking
+ * near the date is a one-off, which the server names, so it goes too. Not
+ * for a Recurring Job being booked: the server names every one already
+ * running there, whatever the dates (SITE_REPEATS), and the one-offs near
+ * it.
+ * Kept too where the week either side straddles an edge (the phone holds
+ * part of it), where no usable answer is held, where a site checked is in
+ * the same street or only like the address typed (the server checks exact
+ * addresses alone), and for anyone whose book is narrowed (a
+ * subcontractor, a contractor's team): someone else's work past the weeks
+ * held is named neither by the phone nor by the server (C5), so it is
+ * still a date nothing checked.
  *
  * Only where there is a site to check (`targets`): with none (no site
  * chosen, no address typed, or an address no client has), nothing the
@@ -791,6 +1287,16 @@ export function uncheckedRows(at: {
   targets: number
   timezone: string
   today: string
+  /** The server checks every job on its books near a date past the days
+   * held: the booking goes with `siteCheck`, and the person sees the whole
+   * schedule. */
+  serverChecks?: boolean
+  /**
+   * A Recurring Job runs at a site checked, as the answer read has them
+   * (every one running in the business, whoever's: `jobs.openWork`), or it
+   * can't be told (the answer cut short). Unsaid, taken to: the safe side.
+   */
+  seriesThere?: boolean
 }): Array<SiteRow> {
   if (at.targets === 0) return []
   const row = (id: string, message: string): SiteRow => ({
@@ -812,6 +1318,14 @@ export function uncheckedRows(at: {
   if (cutBefore) return [row('site:unchecked', SITE_UNCHECKED)]
   const out: Array<SiteRow> = []
   const { firstKey, endKey } = openWorkDays(at.startKey)
+  // Wholly past the days held, either way: the server's to name, but for
+  // a one-off's week past the visits made so far (above).
+  const madeUntil = addDaysToKey(at.today, HORIZON_DAYS - 2)
+  const onBooks =
+    at.repeats || to <= madeUntil || (at.seriesThere === false && !at.capped)
+  if (at.serverChecks && ((from >= endKey && onBooks) || to < firstKey)) {
+    return []
+  }
   if (to >= endKey) {
     out.push(
       row(
@@ -921,6 +1435,12 @@ export function bookingWork<
    * another site picked by hand, another address typed.
    */
   uncheckedSeen?: ReadonlySet<string>
+  /** The server checks a date past the days held (`uncheckedRows`): for
+   * every site checked here only where each is one it checks too, the site
+   * chosen or one at the address typed exactly. Never a site in the same
+   * street or only like the address (`street`, `near`): the server's check
+   * is of exact addresses (§4.3), so nothing else would check that work. */
+  serverChecks?: boolean
 }): BookingWork<TMatch, THeld> {
   const { check } = at
   const pick = pickOpenWork(at.held, at.dayKey)
@@ -940,6 +1460,14 @@ export function bookingWork<
     targets: check.targets.length,
     timezone: check.timezone,
     today: check.today,
+    serverChecks:
+      at.serverChecks === true &&
+      check.targets.every((t) => t.how === 'chosen' || t.how === 'address'),
+    seriesThere:
+      read === null ||
+      read.work.series.some((series) =>
+        check.targets.some((t) => t.site._id === series.propertyId),
+      ),
   }).filter((row) => !readAtEvery(at.uncheckedSeen, row, check.targets))
   if (!read) {
     return {
@@ -984,10 +1512,7 @@ export function bookingWork<
   for (const row of withWork.rows) {
     const propertyId = namedSiteOf(row)
     const named = withWork.named.get(row.id) ?? []
-    const there =
-      propertyId === null
-        ? []
-        : found.filter((r) => r.propertyId === propertyId)
+    const there = propertyId === null ? [] : showsAt(found, propertyId)
     if (named.length === 0 && there.length === 0) continue
     fixSees.set(row.id, {
       rows: [...named, ...there.flatMap((r) => r.shows.rows)],
@@ -1033,6 +1558,34 @@ export function bookAtSees(
   return there.length === 0
     ? [...rows]
     : [...rows, { shows: { rows: there, series: [] } }]
+}
+
+/**
+ * What a refused match row's fixes book past (`refusedMatchRows`), as the
+ * phone's own match row's do (`bookingWork`'s `fixSees`): at the site the
+ * row books at (`namedSiteOf`), every row of that site's work the press
+ * refused showed (`shown`; of an "And 3 more" about several sites, what it
+ * counts there: `showsAt`), and the work a match row beside them named
+ * there in the phone's own words (`named`, `bookAtSees`). The row's own
+ * words are the server's and name none of it, but the person was shown it
+ * and booked past it at the press refused, so the press after the fix
+ * isn't asked about it again ("Book on Jane Nguyen" books, as "Book on Bob
+ * Smith" at the same site would have). Work at another site stays to be
+ * told of; nothing where the row books at no site.
+ */
+export function refusedMatchSees(
+  row: { fix?: MatchFix; fix2?: MatchFix },
+  shown: ReadonlyArray<Pick<SiteRow, 'propertyId' | 'shows' | 'bySite'>>,
+  named: ReadonlyMap<string, ReadonlyArray<OpenWorkRow>>,
+): Shows | undefined {
+  const propertyId = namedSiteOf(row)
+  if (propertyId === null) return undefined
+  const there = bookAtSees(propertyId, showsAt(shown, propertyId), named)
+  if (there.length === 0) return undefined
+  return {
+    rows: there.flatMap((r) => r.shows.rows),
+    series: there.flatMap((r) => r.shows.series),
+  }
 }
 
 /**

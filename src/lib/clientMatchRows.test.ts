@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import {
   NO_OURS,
   buildMatchIndex,
@@ -8,8 +8,10 @@ import { siteKey } from '../../convex/lib/contactKeys'
 import { MAX_JOB_NOTES_LENGTH } from '../../convex/lib/jobNotes'
 import {
   blurLine,
+  bookingDismissed,
   bookingMatchRows,
   callerLine,
+  candidateHeld,
   carryAfter,
   dismissedOf,
   matchFooter,
@@ -18,18 +20,25 @@ import {
   matchShownCounts,
   newClientRows,
   newSiteRows,
+  noClientsIndex,
   openAddSite,
   openFromNewClient,
+  openUnheld,
+  ownSiteDismissed,
   ownSiteRows,
   planMatchFix,
+  refusedMatchRows,
+  refusedOwnSiteRow,
   siteContactCarry,
   withCallerLine,
 } from './clientMatchRows'
+import { createHoldWait } from './sheetChecks'
 import type {
   FixState,
   MatchFix,
   MatchRow,
   MatchRowsContext,
+  RefusedMatch,
   SiteDraft,
   TypedNewClient,
 } from './clientMatchRows'
@@ -1817,5 +1826,465 @@ describe('Add property on a client’s sheet (`ownSiteRows`)', () => {
     ).toBe('12 Watle St looks like Jane Nguyen’s 12 Wattle St, Bayswater.')
     expect(ownSiteRows('Jane Nguyen', sites, at('40 Coode St'))).toEqual([])
     expect(ownSiteRows('Jane Nguyen', sites, at(''))).toEqual([])
+  })
+})
+
+describe('what the server found when saving (MATCHED_CLIENT, M7 §4.5)', () => {
+  const jane = {
+    clientId: cid('c_jane'),
+    name: 'Jane Nguyen',
+    suburb: 'Bayswater',
+    evidence: ['name' as const, 'site' as const],
+    propertyId: pid('p_jane'),
+  }
+  // Added from another phone since the list on this one was read.
+  const newJane = {
+    clientId: cid('c_newjane'),
+    name: 'Jane Nguyen',
+    suburb: 'Nightcliff',
+    evidence: ['name' as const, 'mobile' as const],
+  }
+  const refused = (
+    candidates: RefusedMatch['candidates'],
+    more?: Array<string>,
+  ): RefusedMatch => ({
+    candidates,
+    ...(more ? { more: more.map(cid) } : {}),
+  })
+  const typed: TypedClient = {
+    name: 'Jane Nguyen',
+    phone: JANE_MOBILE,
+    site: at('12 Wattle St'),
+  }
+
+  test('a client the list holds: the phone’s own row, with its fix, under the same id', () => {
+    const [row] = refusedMatchRows(ctxOf(), refused([jane]), {
+      mode: 'new',
+      typed: { name: 'Jane Nguyen', site: at('12 Wattle St') },
+    })
+    expect(row.id).toBe('match:c_jane')
+    expect(said(row)).toEqual({
+      label: 'Already a client',
+      message:
+        '12 Wattle St, Bayswater is Jane Nguyen’s. Same name and address.',
+      fix: 'Book at 12 Wattle St',
+      fix2: undefined,
+    })
+  })
+
+  test('a client the list doesn’t hold yet: what the server sent, and no fix in New Job', () => {
+    const found = refusedMatchRows(ctxOf(), refused([newJane]), {
+      mode: 'new',
+      typed: { ...typed, site: at('40 Coode St', 'Nightcliff', '0810') },
+    })
+    expect(found.map(said)).toEqual([
+      {
+        label: 'Already a client',
+        message:
+          'Jane Nguyen, of Nightcliff, has the same name and mobile. Open Jane Nguyen from Clients to book this job.',
+        fix: undefined,
+        fix2: undefined,
+      },
+    ])
+    // Or a site the list doesn't hold yet, of a client it does.
+    const [row] = refusedMatchRows(
+      ctxOf(),
+      refused([{ ...jane, propertyId: pid('p_elsewhere') }]),
+      { mode: 'new', typed },
+    )
+    expect(row.fix).toBeUndefined()
+    expect(row.message).toBe(
+      '12 Wattle St, Bayswater is Jane Nguyen’s. Same name and address. Open Jane Nguyen from Clients to book this job.',
+    )
+  })
+
+  test('a client not held yet whose site the server matched, inactive or archived: said, as the phone’s own row says it', () => {
+    const typedHere = { name: 'Sam Wu', site: at('12 Wattle St') }
+    const samAt = {
+      clientId: cid('c_sam'),
+      name: 'Sam Wu',
+      propertyId: pid('p_sam'),
+      evidence: ['name' as const, 'site' as const],
+    }
+    const [inactive] = refusedMatchRows(
+      ctxOf(),
+      refused([{ ...samAt, status: 'inactive' as const }]),
+      { mode: 'new', typed: typedHere },
+    )
+    expect(inactive.message).toBe(
+      '12 Wattle St, Bayswater is Sam Wu’s. Same name and address. Sam Wu is inactive. Open Sam Wu from Clients to book this job.',
+    )
+    const [archived] = refusedMatchRows(
+      ctxOf(),
+      refused([{ ...samAt, evidence: ['site' as const], archived: true }]),
+      { mode: 'new', typed: { ...typedHere, name: 'Tom Lee' } },
+    )
+    expect(archived.message).toBe(
+      '12 Wattle St, Bayswater is Sam Wu’s. Same address, different name. Sam Wu is archived. Open Sam Wu from Clients to book this job.',
+    )
+    // Active, nothing more.
+    const [active] = refusedMatchRows(
+      ctxOf(),
+      refused([{ ...samAt, status: 'active' as const }]),
+      { mode: 'new', typed: typedHere },
+    )
+    expect(active.message).toBe(
+      '12 Wattle St, Bayswater is Sam Wu’s. Same name and address. Open Sam Wu from Clients to book this job.',
+    )
+  })
+
+  test('in Clients → New client, a client not held yet still opens, by the server’s id and name', () => {
+    const [row] = refusedMatchRows(
+      { index: noClientsIndex(), contacts: [], verb: 'open' },
+      refused([{ ...newJane, status: 'inactive' }]),
+      { mode: 'new', typed },
+    )
+    expect(row.message).toBe(
+      'Jane Nguyen (inactive), of Nightcliff, has the same name and mobile.',
+    )
+    expect(row.fix).toEqual({
+      kind: 'open',
+      label: 'Open Jane Nguyen (inactive)',
+      clientId: 'c_newjane',
+      name: 'Jane Nguyen (inactive)',
+    })
+  })
+
+  test('a client the server found through a contact person the phone doesn’t hold: said by the name typed, never as the client having that name', () => {
+    // Sarah Lee and her mobile were added to Ray White Bayswater on
+    // another phone: this one holds the business, not her.
+    const noSarah = ctxOf(book({ contacts: [] }))
+    const ray = {
+      clientId: cid('c_ray'),
+      name: 'Ray White Bayswater',
+      suburb: 'Bayswater',
+      evidence: ['name' as const, 'mobile' as const],
+    }
+    const sarah: TypedClient = {
+      name: 'Sarah Lee',
+      phone: SARAH,
+      site: at('20 Walter Rd'),
+    }
+    expect(
+      refusedMatchRows(noSarah, refused([ray]), {
+        mode: 'new',
+        typed: sarah,
+      }).map(said),
+    ).toEqual([
+      {
+        label: 'Already a client',
+        message:
+          'Sarah Lee is a contact at Ray White Bayswater (2 sites). Same name and mobile.',
+        fix: 'Use Ray White Bayswater',
+        fix2: undefined,
+      },
+    ])
+    // As the phone's own row says it with her held.
+    expect(
+      refusedMatchRows(ctxOf(), refused([ray]), {
+        mode: 'new',
+        typed: sarah,
+      })[0].message,
+    ).toBe(
+      'Sarah Lee is a contact at Ray White Bayswater (2 sites). Same name and mobile.',
+    )
+    // A similar name: may be.
+    expect(
+      refusedMatchRows(
+        noSarah,
+        refused([{ ...ray, evidence: ['nameNear', 'mobile'] }]),
+        { mode: 'new', typed: { ...sarah, name: 'Sara Lee' } },
+      )[0].message,
+    ).toBe(
+      'Sara Lee may be a contact at Ray White Bayswater (2 sites). Similar name, same mobile.',
+    )
+    // The business itself not on the phone yet either.
+    expect(
+      refusedMatchRows(
+        ctxOf(book({ clients: [], sites: [], contacts: [] })),
+        refused([ray]),
+        { mode: 'new', typed: sarah },
+      ).map(said),
+    ).toEqual([
+      {
+        label: 'Already a client',
+        message:
+          'Sarah Lee is a contact at Ray White Bayswater. Same name and mobile. Open Ray White Bayswater from Clients to book this job.',
+        fix: undefined,
+        fix2: undefined,
+      },
+    ])
+    // The client's own name agreeing: as it always was.
+    expect(
+      refusedMatchRows(ctxOf(), refused([newJane]), {
+        mode: 'new',
+        typed: { ...typed, site: at('40 Coode St', 'Nightcliff', '0810') },
+      })[0].message,
+    ).toBe(
+      'Jane Nguyen, of Nightcliff, has the same name and mobile. Open Jane Nguyen from Clients to book this job.',
+    )
+  })
+
+  test('the rest it named by id: "And 2 more"', () => {
+    const found = refusedMatchRows(ctxOf(), refused([jane], ['c_x', 'c_y']), {
+      mode: 'new',
+      typed,
+    })
+    expect(said(found[1])).toEqual({
+      label: 'And 2 more',
+      message: '2 other clients match part of what was typed.',
+      fix: 'Show them',
+      fix2: undefined,
+    })
+    expect(
+      refusedMatchRows(ctxOf(undefined, 'open'), refused([jane], ['c_x']), {
+        mode: 'new',
+        typed,
+      })[1],
+    ).toMatchObject({
+      label: 'And 1 more',
+      message: 'Another client matches part of what was typed.',
+    })
+  })
+
+  test('New site for: the chosen client has the address already, Book at this site', () => {
+    const [row] = refusedMatchRows(ctxOf(), refused([jane]), {
+      mode: 'site',
+      clientId: cid('c_jane'),
+      site: at('12 Wattle St'),
+    })
+    expect(said(row)).toEqual({
+      label: 'Already has this site',
+      message: 'Jane Nguyen already has 12 Wattle St, Bayswater.',
+      fix: 'Book at this site',
+      fix2: undefined,
+    })
+    const [unheld] = refusedMatchRows(
+      ctxOf(),
+      refused([{ ...jane, propertyId: pid('p_new') }]),
+      { mode: 'site', clientId: cid('c_jane'), site: at('14 Wattle St') },
+    )
+    expect(said(unheld)).toEqual({
+      label: 'Already has this site',
+      message:
+        'Jane Nguyen already has 14 Wattle St, Bayswater. Open Jane Nguyen from Clients to book this job.',
+      fix: undefined,
+      fix2: undefined,
+    })
+  })
+
+  test('New Job waits up to 3 s for the list to hold who the server found: in time, the phone’s row and its fix; not, “Open … from Clients”', async () => {
+    vi.useFakeTimers()
+    try {
+      const withHer = book({
+        clients: [
+          ...book().clients,
+          client('c_newjane', 'Jane Nguyen', { phone: JANE_MOBILE }),
+        ],
+        sites: [
+          ...book().sites,
+          site('p_newjane', 'c_newjane', '40 Coode St', 'Nightcliff', '0810'),
+        ],
+      })
+      const refusal = refused([{ ...newJane, propertyId: pid('p_newjane') }])
+      const typedHere: TypedClient = {
+        name: 'Jane Nguyen',
+        phone: JANE_MOBILE,
+        site: at('40 Coode St', 'Nightcliff', '0810'),
+      }
+      const pressOf = async (lands: number | null) => {
+        let ctx = ctxOf()
+        const wait = createHoldWait()
+        const rowsOnceHeld = wait
+          .until(() =>
+            refusal.candidates.every((c) => candidateHeld(ctx.index, c)),
+          )
+          .then(() =>
+            refusedMatchRows(ctx, refusal, { mode: 'new', typed: typedHere }),
+          )
+        if (lands !== null) {
+          vi.advanceTimersByTime(lands)
+          ctx = ctxOf(withHer)
+          wait.poke()
+        }
+        vi.advanceTimersByTime(3_000)
+        return (await rowsOnceHeld).map(said)
+      }
+      // The list's answer lands 1 s in.
+      expect(await pressOf(1_000)).toEqual([
+        expect.objectContaining({
+          label: 'Already a client',
+          fix: 'Book at 40 Coode St',
+        }),
+      ])
+      // Never in time.
+      expect(await pressOf(null)).toEqual([
+        {
+          label: 'Already a client',
+          message:
+            'Jane Nguyen, of Nightcliff, has the same name and mobile. Open Jane Nguyen from Clients to book this job.',
+          fix: undefined,
+          fix2: undefined,
+        },
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('held means the client, and the site it matched at, are in the list', () => {
+    const index = ctxOf().index
+    expect(candidateHeld(index, jane)).toBe(true)
+    expect(candidateHeld(index, newJane)).toBe(false)
+    expect(candidateHeld(index, { ...jane, propertyId: pid('p_x') })).toBe(
+      false,
+    )
+    expect(candidateHeld(noClientsIndex(), jane)).toBe(false)
+  })
+
+  test('Add property: the client has the address, Use it once the sheet holds it', () => {
+    const sites = [
+      { _id: pid('p_jane'), ...at('12 Wattle St') },
+      { _id: pid('p_new'), ...at('14 Wattle St') },
+    ]
+    const refusal = refused([{ ...jane, propertyId: pid('p_new') }])
+    expect(
+      refusedOwnSiteRow('Jane Nguyen', sites, refusal, at('14 Wattle St')),
+    ).toEqual({
+      id: 'match:own-site',
+      label: 'Already has this site',
+      message: 'Jane Nguyen already has 14 Wattle St, Bayswater.',
+      site: sites[1],
+    })
+    expect(
+      refusedOwnSiteRow(
+        'Jane Nguyen',
+        sites.slice(0, 1),
+        refusal,
+        at('14 Wattle St '),
+      ),
+    ).toEqual({
+      id: 'match:own-site',
+      label: 'Already has this site',
+      message: 'Jane Nguyen already has 14 Wattle St, Bayswater.',
+    })
+  })
+
+  test('dismissed is every client the matcher returned, whatever its tier (FW17d)', () => {
+    const ctx = ctxOf()
+    // Her name alone, at an address of no one's: not Same, still returned.
+    const typedLike: TypedClient = {
+      name: 'Jane Nguyen',
+      site: at('40 Coode St'),
+    }
+    const all = matchNewClient(ctx.index, typedLike).candidates
+    expect(all.length).toBeGreaterThan(0)
+    expect(all.some((c) => c.tier !== 'same')).toBe(true)
+    expect(bookingDismissed(ctx, { mode: 'new', typed: typedLike })).toEqual(
+      all.map((c) => c.clientId),
+    )
+    expect(bookingDismissed(ctx, { mode: 'existing' })).toEqual([])
+  })
+
+  test('New site for: the client chosen is dismissed only where the address typed is exactly one of their sites, so a near one shown leaves the server’s exact check on', () => {
+    const ctx = ctxOf()
+    const forJane = (addressLine: string) =>
+      bookingDismissed(ctx, {
+        mode: 'site',
+        clientId: cid('c_jane'),
+        site: at(addressLine),
+        added: null,
+      })
+    // "12 Watle St looks like Jane Nguyen’s 12 Wattle St": shown, and
+    // booked or added past, it says nothing of an exact "12 Watle St"
+    // another phone may have added for her since.
+    expect(newSiteRows(ctx, cid('c_jane'), at('12 Watle St'))).toHaveLength(1)
+    expect(forJane('12 Watle St')).toEqual([])
+    // "Jane Nguyen already has 12 Wattle St": exactly hers.
+    expect(forJane('12 Wattle St')).toEqual(['c_jane'])
+    expect(forJane('40 Coode St')).toEqual([])
+  })
+
+  test('Add property: the client is dismissed only where the sheet showed the address is exactly theirs', () => {
+    const sites = [{ _id: pid('p_jane'), ...at('12 Wattle St') }]
+    expect(ownSiteRows('Jane Nguyen', sites, at('12 Watle St'))).toHaveLength(1)
+    expect(ownSiteDismissed(cid('c_jane'), sites, at('12 Watle St'))).toEqual(
+      [],
+    )
+    expect(
+      ownSiteDismissed(cid('c_jane'), sites, at('12 Wattle Street')),
+    ).toEqual(['c_jane'])
+    expect(ownSiteDismissed(cid('c_jane'), sites, at(''))).toEqual([])
+  })
+
+  test('the foot of a refused row of a client known already, with no fix: nobody to check, the site to add again', () => {
+    expect(matchFooter([{}], { anyway: 'Save anyway', adds: 'site' })).toBe(
+      'Press Save anyway to add it again.',
+    )
+    expect(matchFooter([{}], { anyway: 'Book anyway', adds: 'site' })).toBe(
+      'Press Book anyway to add it again.',
+    )
+    // With a fix, as before; and for a new client, who it is still asks.
+    expect(
+      matchFooter([{ fix: { kind: 'use' } }], {
+        anyway: 'Save anyway',
+        adds: 'site',
+      }),
+    ).toBe('Use it, or press Save anyway to add a new site.')
+    expect(matchFooter([{}], { anyway: 'Book anyway', adds: 'client' })).toBe(
+      'Check who it is, or press Book anyway to add a new client.',
+    )
+  })
+
+  test('Clients → New client’s Open for a client not held yet: Add property with the address typed where the server found it isn’t theirs, else their Details', () => {
+    const typedHere: TypedNewClient = {
+      name: 'Mei Chen',
+      phone: '0491 570 177',
+      email: '',
+      addressLine: '40 Coode St',
+      suburb: 'South Perth',
+      state: 'WA',
+      postcode: '6151',
+      addressCheck: 'picked',
+    }
+    const mei = {
+      clientId: cid('c_newmei'),
+      name: 'Mei Chen',
+      evidence: ['name' as const, 'mobile' as const],
+    }
+    const [row] = refusedMatchRows(
+      { index: noClientsIndex(), contacts: [], verb: 'open' },
+      refused([mei]),
+      { mode: 'new', typed: { ...typedHere, site: typedHere } },
+    )
+    const fix = row.fix as Extract<MatchFix, { kind: 'open' }>
+    expect(openUnheld(fix, typedHere)).toEqual({
+      addSite: {
+        addressLine: '40 Coode St',
+        suburb: 'South Perth',
+        state: 'WA',
+        postcode: '6151',
+        siteContactName: '',
+        siteContactPhone: '',
+        addressCheck: 'picked',
+      },
+      keepDraft: true,
+    })
+    // The same through `openFromNewClient`, for a list that doesn't hold her.
+    expect(openFromNewClient(ctxOf().index, [], fix, typedHere)).toEqual(
+      openUnheld(fix, typedHere),
+    )
+    // The server matched one of her sites: their Details.
+    const [atHers] = refusedMatchRows(
+      { index: noClientsIndex(), contacts: [], verb: 'open' },
+      refused([{ ...mei, propertyId: pid('p_mei40') }]),
+      { mode: 'new', typed: { ...typedHere, site: typedHere } },
+    )
+    expect(
+      openUnheld(atHers.fix as Extract<MatchFix, { kind: 'open' }>, typedHere),
+    ).toEqual({ keepDraft: true })
+    expect(openUnheld(fix, { ...typedHere, addressLine: ' ' })).toEqual({
+      keepDraft: true,
+    })
   })
 })
