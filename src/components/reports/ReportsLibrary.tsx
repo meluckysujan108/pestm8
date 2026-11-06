@@ -14,7 +14,13 @@ import {
 import { SearchBox } from '#/components/primitives/SearchBox'
 import { CardCells, ListPending } from '#/components/shell/Pending'
 import { LoadMore } from '#/components/primitives/LoadMore'
-import { REPORTS_PAGE, reportsFirstPage, rq } from '#/lib/routeQueries'
+import {
+  REPORTS_PAGE,
+  reportsFirstPage,
+  reportsListArgs,
+  rq,
+} from '#/lib/routeQueries'
+import type { ReportNarrowing } from '#/lib/routeQueries'
 import { Segmented } from '#/components/primitives/Segmented'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 import { FormAlert } from '#/components/forms/FormAlert'
@@ -25,6 +31,7 @@ import { useCan } from '#/lib/access'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 import { DeleteReport } from './DeleteReport'
+import { ReportFilterButton } from './ReportFilterButton'
 import { purgeWords, restoreFailed } from './deleteWords'
 
 /**
@@ -73,24 +80,30 @@ export function ReportsLibrary({
   businessSlug,
   segment,
   query,
+  narrow = {},
   onSegment,
   onQuery,
+  onNarrow,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
   segment: Segment
   query: string
+  /** The Form and Technician filters (`ReportFilterButton`). */
+  narrow?: ReportNarrowing
   onSegment: (segment: Segment) => void
   onQuery: (term: string) => void
+  onNarrow?: (next: ReportNarrowing) => void
 }) {
   // The list is server-rendered; a tab tapped before hydration would do
   // nothing, so the tabs wait until they work.
   const hydrated = useHydrated()
   const searching = query.trim() !== ''
+  const narrowed = narrow.form !== undefined || narrow.staffId !== undefined
 
   const paged = usePaginatedQuery(
     api.reports.list,
-    searching ? 'skip' : { businessId, filter: segment },
+    searching ? 'skip' : reportsListArgs(businessId, segment, narrow),
     { initialNumItems: PAGE_SIZE },
   )
 
@@ -106,7 +119,7 @@ export function ReportsLibrary({
   const first = useQuery(
     searching
       ? convexQuery(api.reports.list, 'skip')
-      : reportsFirstPage(businessId, segment),
+      : reportsFirstPage(businessId, segment, narrow),
   )
   const cold = !searching && paged.status === 'LoadingFirstPage'
 
@@ -115,11 +128,11 @@ export function ReportsLibrary({
     // subscription open, and this one is per typed term.
     ...(searching
       ? convexQuery(api.reports.search, {
-          businessId,
-          term: query,
           // Searching inside a segment means searching that segment: a search
           // that quietly changed which tab you were on would be a worse search.
-          filter: segment,
+          // The filters likewise.
+          ...reportsListArgs(businessId, segment, narrow),
+          term: query,
         })
       : convexQuery(api.reports.search, 'skip')),
     // Every term typed would otherwise keep a live subscription for the
@@ -168,13 +181,25 @@ export function ReportsLibrary({
         onShowDrafts={() => onSegment('draft')}
       />
 
-      <div className="flex gap-2 px-4 pt-3">
-        <SearchBox
-          value={query}
-          onChange={onQuery}
-          label="Search reports"
-          placeholder="Client, street, form or #number"
-        />
+      <div className="flex items-center gap-3 px-4 pt-3">
+        <div className="flex min-w-0 flex-1">
+          <SearchBox
+            value={query}
+            onChange={onQuery}
+            label="Search reports"
+            placeholder="Client, street, form or #number"
+          />
+        </div>
+        {/* The form and the person, behind one icon that is one size
+            whatever is chosen: the list under it never moves for them. */}
+        {onNarrow && (
+          <ReportFilterButton
+            businessId={businessId}
+            narrow={narrow}
+            onNarrow={onNarrow}
+            disabled={!hydrated}
+          />
+        )}
       </div>
 
       <div className="px-4 pt-3">
@@ -196,6 +221,12 @@ export function ReportsLibrary({
             hint="Try a client, a street, a form name or a report number."
             clearLabel="Clear search"
             onClear={() => onQuery('')}
+          />
+        ) : rows.length === 0 && narrowed ? (
+          <NoMatches
+            hint="No reports match these filters."
+            clearLabel="Clear filters"
+            onClear={() => onNarrow?.({})}
           />
         ) : rows.length === 0 ? (
           <EmptyState
@@ -241,7 +272,7 @@ export function ReportsLibrary({
             canLoadMore={!loading && paged.status === 'CanLoadMore'}
             loading={loadingMore}
             onLoadMore={() => paged.loadMore(PAGE_SIZE)}
-            resetKey={segment}
+            resetKey={`${segment}:${narrow.form ?? ''}:${narrow.staffId ?? ''}`}
           />
         )}
       </section>

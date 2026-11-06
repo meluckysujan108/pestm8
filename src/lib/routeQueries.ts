@@ -80,11 +80,20 @@ export const rq = {
   /** The bounded Job tab list — one person's or one team's work, or an
    * older backend's whole list. `status` only when one is chosen, so the
    * unfiltered key stays the one an older app warmed. */
-  jobsList: (businessId: B, status?: JobListStatus) =>
-    convexQuery(
-      api.jobs.list,
-      status ? { businessId, status } : { businessId },
-    ),
+  /** The bounded Job tab: one person's or one team's work, or one
+   * person's chosen by the Technician filter (`staffId`). Each filter only
+   * when chosen, so the list nobody filtered asks as it always has. */
+  jobsList: (
+    businessId: B,
+    status?: JobListStatus,
+    narrow: { staffId?: string; sort?: 'visit' } = {},
+  ) =>
+    convexQuery(api.jobs.list, {
+      businessId,
+      ...(status && { status }),
+      ...(narrow.staffId !== undefined && { staffId: narrow.staffId }),
+      ...(narrow.sort && { sort: narrow.sort }),
+    }),
   /** The paged Job tab's caption: how many jobs, of one status or all. */
   jobCounts: (businessId: B, status?: JobListStatus) =>
     convexQuery(
@@ -185,10 +194,28 @@ export const CLIENTS_PAGE = 30
  * that is a trade worth making; if it ever stops being one, render page one
  * from this copy and mount the paginator only when more is asked for.
  */
-export const reportsFirstPage = (businessId: B, filter: Segment) =>
+/** The Reports library's Form and Technician filters, each only when
+ * chosen: a form's key or a custom form's id, and whoever wrote it. */
+export type ReportNarrowing = { form?: string; staffId?: string }
+
+export const reportsListArgs = (
+  businessId: B,
+  filter: Segment,
+  narrow: ReportNarrowing = {},
+) => ({
+  businessId,
+  filter,
+  ...(narrow.form !== undefined && { form: narrow.form }),
+  ...(narrow.staffId !== undefined && { staffId: narrow.staffId }),
+})
+
+export const reportsFirstPage = (
+  businessId: B,
+  filter: Segment,
+  narrow: ReportNarrowing = {},
+) =>
   convexQuery(api.reports.list, {
-    businessId,
-    filter,
+    ...reportsListArgs(businessId, filter, narrow),
     paginationOpts: { numItems: REPORTS_PAGE, cursor: null },
   })
 
@@ -278,14 +305,25 @@ export type JobListStatus =
 
 /**
  * The paged Job tab's arguments, built once so the paginator and the warmed
- * first page ask for the same thing: `status` only when one is chosen.
+ * first page ask for the same thing: `status` and `sort` only when chosen.
  */
-export const jobsPageArgs = (businessId: B, status?: JobListStatus) =>
-  status ? { businessId, status } : { businessId }
+export const jobsPageArgs = (
+  businessId: B,
+  status?: JobListStatus,
+  sort?: 'visit',
+) => ({
+  businessId,
+  ...(status && { status }),
+  ...(sort && { sort }),
+})
 
-export const jobsFirstPage = (businessId: B, status?: JobListStatus) =>
+export const jobsFirstPage = (
+  businessId: B,
+  status?: JobListStatus,
+  sort?: 'visit',
+) =>
   convexQuery(api.jobs.listPage, {
-    ...jobsPageArgs(businessId, status),
+    ...jobsPageArgs(businessId, status, sort),
     paginationOpts: { numItems: JOBS_PAGE, cursor: null },
   })
 

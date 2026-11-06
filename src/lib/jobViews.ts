@@ -1,3 +1,6 @@
+import { parseJobListStatus } from '#/lib/scheduleFilters'
+import type { JobListStatus } from '#/lib/routeQueries'
+
 /**
  * The views the Job section can be read in.
  *
@@ -66,5 +69,39 @@ export function recurringJobFiltersOf(search: Record<string, unknown>): {
   return {
     staffId: typeof staff === 'string' && staff !== '' ? staff : 'all',
     sort: RECURRING_JOB_SORTS.find((s) => s === sort) ?? 'toBook',
+  }
+}
+
+/**
+ * The Job tab's orders, both newest first: when each job was booked (the
+ * default, absent from the address) or the day of its visit (`?sort=visit`).
+ */
+export const JOB_LIST_SORTS = ['visit'] as const
+export type JobListSort = 'booked' | (typeof JOB_LIST_SORTS)[number]
+
+export const JOB_LIST_SORT_OPTIONS: Array<{
+  value: JobListSort
+  label: string
+}> = [
+  { value: 'booked', label: 'Newest booked' },
+  { value: 'visit', label: 'Latest visit' },
+]
+
+/**
+ * The Job tab's status, person and order, as its address says, read where
+ * the tab's own route isn't the one asking (the section's switch row).
+ * Anything else there is the default: every status, everyone's, newest
+ * booked first.
+ */
+export function jobListFiltersOf(search: Record<string, unknown>): {
+  status: JobListStatus | undefined
+  staffId: string
+  sort: JobListSort
+} {
+  const { status, staff, sort } = search
+  return {
+    status: parseJobListStatus(status),
+    staffId: typeof staff === 'string' && staff !== '' ? staff : 'all',
+    sort: JOB_LIST_SORTS.find((s) => s === sort) ?? 'booked',
   }
 }

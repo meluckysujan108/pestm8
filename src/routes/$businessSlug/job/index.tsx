@@ -11,13 +11,10 @@ import {
   LoadFailed,
   NoMatches,
 } from '#/components/primitives/EmptyState'
-import { FilterDropdown } from '#/components/primitives/FilterDropdown'
 import { LoadMore } from '#/components/primitives/LoadMore'
 import { CardCells, ListPending } from '#/components/shell/Pending'
-import {
-  JOB_LIST_STATUS_OPTIONS,
-  parseJobListStatus,
-} from '#/lib/scheduleFilters'
+import { parseJobListStatus } from '#/lib/scheduleFilters'
+import { JOB_LIST_SORTS } from '#/lib/jobViews'
 import type { JobListStatus } from '#/lib/routeQueries'
 import { useAccess, useCan } from '#/lib/access'
 import {
@@ -55,6 +52,10 @@ export const Route = createFileRoute('/$businessSlug/job/')({
       .custom<JobListStatus>((raw) => parseJobListStatus(raw) !== undefined)
       .optional()
       .catch(undefined),
+    // Whose jobs and in what order, chosen with the status behind the
+    // filter icon in the section's switch row (`jobListFiltersOf`).
+    staff: z.string().optional(),
+    sort: z.enum(JOB_LIST_SORTS).optional().catch(undefined),
     jobId: z.string().optional(),
   }),
   // The list's first page and its count, for the list this person sees. No
@@ -64,6 +65,8 @@ export const Route = createFileRoute('/$businessSlug/job/')({
   // In the browser it waits only so long (`loaderWaitMs`).
   loader: ({ context: { queryClient, business }, location }) => {
     const status = parseJobListStatus(searchParam(location, 'status'))
+    const staff = searchParam(location, 'staff') || undefined
+    const sort = JOB_LIST_SORTS.find((s) => s === searchParam(location, 'sort'))
     return settleInBrowser(
       loaderWaitMs(),
       (async () => {
@@ -73,16 +76,23 @@ export const Route = createFileRoute('/$businessSlug/job/')({
         const access = await queryClient
           .ensureQueryData(rq.access(business._id))
           .catch(() => undefined)
-        const source = jobListSource(listsEverythingOf(access))
+        const listsEverything = listsEverythingOf(access)
+        const person = listsEverything === true ? staff : undefined
+        const source = jobListSource(listsEverything, person !== undefined)
         await warm(
           queryClient,
           ...(source === 'paged'
             ? [
-                jobsFirstPage(business._id, status),
+                jobsFirstPage(business._id, status, sort),
                 rq.jobCounts(business._id, status),
               ]
             : source === 'bounded'
-              ? [rq.jobsList(business._id, status)]
+              ? [
+                  rq.jobsList(business._id, status, {
+                    staffId: person,
+                    sort,
+                  }),
+                ]
               : [rq.jobsList(business._id)]),
         )
       })(),
@@ -92,7 +102,8 @@ export const Route = createFileRoute('/$businessSlug/job/')({
 })
 
 /**
- * Every job somebody booked, newest booked first.
+ * Every job somebody booked, newest booked first — or latest visit first,
+ * or one person's (the filter icon in the section's switch row, route.tsx).
  *
  * Whoever sees the whole business reads it a page at a time — a business
  * that has been booking for years has thousands — with the status chosen on
@@ -110,14 +121,20 @@ function JobListPage() {
   const { business } = Route.useRouteContext()
   const canDispatch = useCan('jobs.dispatch')
   const canManageClients = useCan('clients.manage')
-  const { status, jobId } = Route.useSearch()
+  const { status, staff, sort, jobId } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
   // Follows the view live: "Just my jobs" turns the paged list into the
-  // bounded one and back, in place.
-  const source = jobListSource(listsEverythingOf(useAccess()))
+  // bounded one and back, in place. A person is chosen only from the whole
+  // business's list — a narrower one is one person's or team's already, and
+  // its filter offers no one — so a `staff` left in the address there is
+  // not applied.
+  const listsEverything = listsEverythingOf(useAccess())
+  const person = listsEverything === true && staff ? staff : undefined
+  const source = jobListSource(listsEverything, person !== undefined)
   const paging = source === 'paged'
-  const resetKey = `${source}:${status ?? 'all'}`
+  const filtered = status !== undefined || person !== undefined
+  const resetKey = `${source}:${status ?? 'all'}:${person ?? 'all'}:${sort ?? 'booked'}`
 
   // The paginator is mounted only for the whole business. Skipped, rather
   // than left asking: the server answers a narrower caller with an empty,
@@ -126,9 +143,9 @@ function JobListPage() {
   // twice.
   const paged = usePagedList({
     query: api.jobs.listPage,
-    args: paging ? jobsPageArgs(business._id, status) : 'skip',
+    args: paging ? jobsPageArgs(business._id, status, sort) : 'skip',
     first: paging
-      ? jobsFirstPage(business._id, status)
+      ? jobsFirstPage(business._id, status, sort)
       : convexQuery(api.jobs.listPage, 'skip'),
     pageSize: JOBS_PAGE,
   })
@@ -137,7 +154,7 @@ function JobListPage() {
   // about whose list this is (`jobListView`).
   const { data: warmedFirst, isError: warmedFailed } = useQuery(
     paging
-      ? jobsFirstPage(business._id, status)
+      ? jobsFirstPage(business._id, status, sort)
       : convexQuery(api.jobs.listPage, 'skip'),
   )
   const { data: counts } = useQuery(
@@ -147,20 +164,18 @@ function JobListPage() {
   )
 
   // One person's or one team's work, or an older backend's whole list. The
-  // older one has no status to ask with, and is filtered here as it always
-  // was.
+  // older one has no status, person or order to ask with, and is filtered
+  // and ordered here as it always was.
   const listed = useQuery(
     source === 'bounded'
-      ? rq.jobsList(business._id, status)
+      ? rq.jobsList(business._id, status, { staffId: person, sort })
       : source === 'legacy'
         ? rq.jobsList(business._id)
         : convexQuery(api.jobs.list, 'skip'),
   )
   const listedJobs = listed.data?.jobs ?? []
   const whole =
-    source === 'legacy' && status
-      ? listedJobs.filter((job) => job.status === status)
-      : listedJobs
+    source === 'legacy' ? legacyList(listedJobs, { status, sort }) : listedJobs
   const revealed = useRevealMore(whole, JOBS_PAGE, resetKey)
 
   const rows = paging ? paged.rows : revealed.visible
@@ -168,7 +183,7 @@ function JobListPage() {
   const view = jobListView(
     paging
       ? {
-          filtered: status !== undefined,
+          filtered,
           rows: rows.length,
           loading: paged.loading,
           done: paged.done,
@@ -179,7 +194,7 @@ function JobListPage() {
               : warmedFirst.isDone && warmedFirst.page.length === 0,
         }
       : {
-          filtered: status !== undefined,
+          filtered,
           rows: rows.length,
           loading: listed.data === undefined && !listed.isError,
           done: listed.data !== undefined,
@@ -238,35 +253,16 @@ function JobListPage() {
   return (
     <>
       <section className="px-4 pt-3 pb-6">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          {/* The whole list's count, not the cards loaded so far — and for
-              a list that holds only the newest, said out loud rather than
-              quietly dropped (`jobsCaption`). */}
-          <p
-            aria-live="polite"
-            className="text-caption tabular-nums text-muted"
-          >
-            {caption}
-          </p>
-          <FilterDropdown
-            label="Filter by status"
-            value={status ?? 'all'}
-            active={status !== undefined}
-            onChange={(value) =>
-              navigate({
-                search: (prev) => ({
-                  ...prev,
-                  status: parseJobListStatus(value),
-                }),
-                replace: true,
-              })
-            }
-            options={[
-              { value: 'all', label: 'All statuses' },
-              ...JOB_LIST_STATUS_OPTIONS,
-            ]}
-          />
-        </div>
+        {/* The whole list's count, not the cards loaded so far — and for a
+            list that holds only the newest, said out loud rather than
+            quietly dropped (`jobsCaption`). Its own line, always there, so
+            a filter changing it moves nothing under it. */}
+        <p
+          aria-live="polite"
+          className="mb-3 min-h-5 text-caption tabular-nums text-muted"
+        >
+          {caption}
+        </p>
 
         {overdue > 0 && (
           <Link
@@ -312,11 +308,16 @@ function JobListPage() {
           />
         ) : view === 'noMatches' ? (
           <NoMatches
-            hint="No jobs match this status."
-            clearLabel="Show all statuses"
+            hint="No jobs match these filters."
+            clearLabel="Clear filters"
             onClear={() =>
+              // The order stays: it hides nothing.
               navigate({
-                search: (prev) => ({ ...prev, status: undefined }),
+                search: (prev) => ({
+                  ...prev,
+                  status: undefined,
+                  staff: undefined,
+                }),
                 replace: true,
               })
             }
@@ -369,4 +370,18 @@ function JobListPage() {
       />
     </>
   )
+}
+
+/**
+ * An older backend's whole list, filtered and ordered here: it has no
+ * status or order to be asked with. No person — the filter offers none
+ * until `listsEverything` says whose list this is.
+ */
+function legacyList<
+  T extends { status: string; scheduledAt: number; _creationTime: number },
+>(jobs: Array<T>, { status, sort }: { status?: string; sort?: 'visit' }) {
+  const kept = status ? jobs.filter((job) => job.status === status) : jobs
+  return sort === 'visit'
+    ? [...kept].sort((a, b) => b.scheduledAt - a.scheduledAt)
+    : kept
 }

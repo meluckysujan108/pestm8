@@ -104,11 +104,13 @@ function page(
     numItems: number
     cursor?: string | null
     status?: 'pending' | 'booked' | 'completed' | 'invoiced' | 'cancelled'
+    sort?: 'booked' | 'visit'
   },
 ) {
   return actor.as.query(api.jobs.listPage, {
     businessId,
     ...(opts.status ? { status: opts.status } : {}),
+    ...(opts.sort ? { sort: opts.sort } : {}),
     paginationOpts: { numItems: opts.numItems, cursor: opts.cursor ?? null },
   })
 }
@@ -119,11 +121,12 @@ async function everyPage(
   businessId: Id<'businesses'>,
   numItems: number,
   status?: 'pending' | 'booked' | 'completed' | 'invoiced' | 'cancelled',
+  sort?: 'booked' | 'visit',
 ) {
   const ids: Array<Id<'jobs'>> = []
   let cursor: string | null = null
   for (let i = 0; i < 50; i++) {
-    const p = await page(actor, businessId, { numItems, cursor, status })
+    const p = await page(actor, businessId, { numItems, cursor, status, sort })
     ids.push(...p.page.map((job) => job._id))
     if (p.isDone) return ids
     cursor = p.continueCursor
@@ -218,6 +221,43 @@ describe('the paged Job tab', () => {
     const p = await page(s.owner, s.businessId, { numItems: 10 })
     const shared = p.page.find((job) => job._id === jobId)
     expect(shared?.alsoGoing.map((person) => person._id)).toEqual([kevinId])
+  })
+})
+
+describe('the paged Job tab, by visit', () => {
+  test('pages latest visit first, past the projections ahead of them', async () => {
+    const s = await setup()
+    // Booked in one order, for days in another: by visit, the days decide.
+    const march = await book(s, Date.now() + 10 * DAY)
+    const may = await book(s, Date.now() + 70 * DAY)
+    const january = await book(s, Date.now() - 50 * DAY)
+    const april = await book(s, Date.now() + 40 * DAY)
+    // Six months of projections: the latest visits of all, every one
+    // stepped over.
+    for (let i = 0; i < 30; i++) await project(s, Date.now() + 100 * DAY + i)
+
+    const ids = await everyPage(s.owner, s.businessId, 2, undefined, 'visit')
+    expect(ids).toEqual([may, april, march, january])
+  })
+
+  test('orders one status by its visits too, and leaves the bin out', async () => {
+    const s = await setup()
+    const later = await book(s, Date.now() + 20 * DAY)
+    const sooner = await book(s, Date.now() + 5 * DAY)
+    const binned = await book(s, Date.now() + 30 * DAY)
+    await book(s, Date.now() + 40 * DAY)
+    for (const jobId of [later, sooner, binned]) {
+      await s.owner.as.mutation(api.jobs.cancel, {
+        businessId: s.businessId,
+        jobId,
+      })
+    }
+    await s.t.run(async (ctx) =>
+      ctx.db.patch(binned, { deletedAt: Date.now() }),
+    )
+
+    const ids = await everyPage(s.owner, s.businessId, 1, 'cancelled', 'visit')
+    expect(ids).toEqual([later, sooner])
   })
 })
 
@@ -333,6 +373,85 @@ describe('the bounded list, filtered by status', () => {
     })
     expect(jobs.map((job) => job._id)).toEqual([jobId])
     expect(jobs[0].alsoGoing.map((person) => person._id)).toEqual([kevinId])
+  })
+})
+
+describe('the bounded list, for one person', () => {
+  test('holds the jobs they lead and the ones they are also going on', async () => {
+    const s = await setup()
+    const kevin = await createActor(s.t, { email: 'kevin@coastal.test' })
+    const kevinId = await join(s, kevin)
+    const his = await book(s, Date.now() + DAY, kevinId)
+    const alongside = await book(s, Date.now() + 2 * DAY)
+    await book(s, Date.now() + 3 * DAY)
+    await s.owner.as.mutation(api.jobs.update, {
+      businessId: s.businessId,
+      jobId: alongside,
+      alsoGoing: [kevinId],
+    })
+
+    const { jobs } = await s.owner.as.query(api.jobs.list, {
+      businessId: s.businessId,
+      staffId: kevinId,
+    })
+    expect(jobs.map((job) => job._id)).toEqual([alongside, his])
+  })
+
+  test('orders them by visit when asked', async () => {
+    const s = await setup()
+    const later = await book(s, Date.now() + 9 * DAY)
+    const sooner = await book(s, Date.now() + 2 * DAY)
+
+    const byBooking = await s.owner.as.query(api.jobs.list, {
+      businessId: s.businessId,
+      staffId: s.ownerMembershipId,
+    })
+    expect(byBooking.jobs.map((job) => job._id)).toEqual([sooner, later])
+    const byVisit = await s.owner.as.query(api.jobs.list, {
+      businessId: s.businessId,
+      staffId: s.ownerMembershipId,
+      sort: 'visit',
+    })
+    expect(byVisit.jobs.map((job) => job._id)).toEqual([later, sooner])
+  })
+
+  test('never widens a list: a subcontractor asking for the owner’s gets none', async () => {
+    const s = await setup()
+    const kevin = await createActor(s.t, { email: 'kevin@coastal.test' })
+    const kevinId = await join(s, kevin)
+    await book(s, Date.now() + DAY)
+    const his = await book(s, Date.now() + 2 * DAY, kevinId)
+
+    const theirs = await kevin.as.query(api.jobs.list, {
+      businessId: s.businessId,
+      staffId: s.ownerMembershipId,
+    })
+    expect(theirs.jobs).toEqual([])
+    const own = await kevin.as.query(api.jobs.list, {
+      businessId: s.businessId,
+      staffId: kevinId,
+    })
+    expect(own.jobs.map((job) => job._id)).toEqual([his])
+  })
+
+  test('answers a mistyped or foreign id with nobody’s jobs, not a refusal', async () => {
+    const s = await setup()
+    await book(s, Date.now() + DAY)
+    const other = await createActor(s.t, { email: 'ana@elsewhere.test' })
+    const elsewhere = await createBusiness(s.t, other)
+
+    for (const staffId of [
+      'not-an-id',
+      s.propertyId,
+      elsewhere.ownerMembershipId,
+    ]) {
+      const { jobs, capped } = await s.owner.as.query(api.jobs.list, {
+        businessId: s.businessId,
+        staffId,
+      })
+      expect(jobs).toEqual([])
+      expect(capped).toBe(false)
+    }
   })
 })
 

@@ -287,6 +287,80 @@ export async function refreshSearchText(ctx: MutationCtx, reportId: Id<'reports'
   })
 }
 
+/** How far one narrowed page of the library may read before it comes back
+ * short: a report is a large row (its answers are on it). */
+const NARROWED_PAGE_ROWS_READ = 500
+const NARROWED_PAGE_BYTES_READ = 4 * 1024 * 1024
+
+/**
+ * The library's Form and Technician filters. Strings, not ids or the
+ * template union: both come from the page's address, and a link someone
+ * mistyped is a list with nothing in it, not a refusal.
+ *
+ * `form` is a built-in template's key or a custom template's id; `staffId`
+ * is whoever wrote the report. Either narrows what `listScope` already lets
+ * through — never widens it.
+ */
+const libraryFilterArgs = {
+  form: v.optional(v.string()),
+  staffId: v.optional(v.string()),
+}
+
+const BUILT_IN_TEMPLATES: ReadonlyArray<string> = reportTemplate.members
+  .map((member) => member.value)
+  .filter((value) => value !== 'custom')
+
+type LibraryNarrowing = {
+  /** Whether anything narrows the list at all. */
+  any: boolean
+  template?: Doc<'reports'>['template']
+  customTemplateId?: Id<'customReportTemplates'>
+  authorMembershipId?: Id<'memberships'>
+}
+
+/** The filters as the rows hold them, or null where one names nothing: no
+ * report can match it. */
+function narrowLibrary(
+  ctx: QueryCtx,
+  { form, staffId }: { form?: string; staffId?: string },
+): LibraryNarrowing | null {
+  const narrowed: LibraryNarrowing = { any: false }
+  if (form !== undefined) {
+    narrowed.any = true
+    if (BUILT_IN_TEMPLATES.includes(form)) {
+      narrowed.template = form as Doc<'reports'>['template']
+    } else {
+      const id = ctx.db.normalizeId('customReportTemplates', form)
+      if (!id) return null
+      narrowed.customTemplateId = id
+    }
+  }
+  if (staffId !== undefined) {
+    narrowed.any = true
+    const id = ctx.db.normalizeId('memberships', staffId)
+    if (!id) return null
+    narrowed.authorMembershipId = id
+  }
+  return narrowed
+}
+
+function libraryPredicate(
+  q: FilterBuilder<DataModel['reports']>,
+  narrowed: LibraryNarrowing,
+) {
+  return q.and(
+    narrowed.template === undefined
+      ? true
+      : q.eq(q.field('template'), narrowed.template),
+    narrowed.customTemplateId === undefined
+      ? true
+      : q.eq(q.field('customTemplateId'), narrowed.customTemplateId),
+    narrowed.authorMembershipId === undefined
+      ? true
+      : q.eq(q.field('authorMembershipId'), narrowed.authorMembershipId),
+  )
+}
+
 /**
  * The library, a page at a time.
  *
@@ -308,10 +382,16 @@ export const list = query({
       v.literal('sent'),
       v.literal('trash'),
     ),
+    ...libraryFilterArgs,
     paginationOpts: paginationOptsValidator,
   },
-  handler: async (ctx, { businessId, filter, paginationOpts }) => {
+  handler: async (
+    ctx,
+    { businessId, filter, form, staffId, paginationOpts },
+  ) => {
     const { actor, listScope } = await requireActor(ctx, businessId)
+    const narrowed = narrowLibrary(ctx, { form, staffId })
+    if (narrowed === null) return { page: [], isDone: true, continueCursor: '' }
 
     const page = await ctx.db
       .query('reports')
@@ -331,7 +411,21 @@ export const list = query({
           : q.eq(q.field('deletedAt'), undefined),
       )
       .filter((q) => segmentPredicate(q, filter))
-      .paginate(paginationOpts)
+      .filter((q) => libraryPredicate(q, narrowed))
+      // A form or a person can be rare among years of reports, and every row
+      // a page steps over is read in full: past this a page comes back
+      // short, and the library asks for the next (`ReportsLibrary`).
+      .paginate(
+        narrowed.any
+          ? {
+              ...paginationOpts,
+              maximumRowsRead:
+                paginationOpts.maximumRowsRead ?? NARROWED_PAGE_ROWS_READ,
+              maximumBytesRead:
+                paginationOpts.maximumBytesRead ?? NARROWED_PAGE_BYTES_READ,
+            }
+          : paginationOpts,
+      )
 
     // Visibility is applied after the page is drawn, as it is for notes: a
     // subcontractor's page can come back short, which the paginator handles,
@@ -361,10 +455,14 @@ export const search = query({
       v.literal('sent'),
       v.literal('trash'),
     ),
+    // And the same filters: a search inside one form means that form.
+    ...libraryFilterArgs,
   },
-  handler: async (ctx, { businessId, term, filter }) => {
+  handler: async (ctx, { businessId, term, filter, form, staffId }) => {
     if (term.trim() === '') return []
     const { actor, listScope } = await requireActor(ctx, businessId)
+    const narrowed = narrowLibrary(ctx, { form, staffId })
+    if (narrowed === null) return []
 
     const rows = await ctx.db
       .query('reports')
@@ -387,6 +485,7 @@ export const search = query({
           : q.eq(q.field('deletedAt'), undefined),
       )
       .filter((q) => segmentPredicate(q, filter))
+      .filter((q) => libraryPredicate(q, narrowed))
       .take(SEARCH_LIMIT)
 
     return decorate(ctx, rows.filter((r) => reportReadable(listScope, actor.real._id, r)))

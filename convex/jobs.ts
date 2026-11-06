@@ -25,6 +25,7 @@ import { isInScope, writeAttribution } from './lib/capabilities'
 import {
   jobsInScope,
   jobsNewestFirst,
+  narrowToPerson,
   projectionsInScope,
 } from './lib/jobScope'
 import { isBinned, unbinned } from './lib/bin'
@@ -454,6 +455,12 @@ const JOB_LIST_LIMIT = 200
 const BOOKED_STATUSES = settableJobStatus.members.map((m) => m.value)
 
 /**
+ * The Job tab's order: when each job was booked (the default, and what an
+ * older app always gets), or the day of the visit — both newest first.
+ */
+const jobListSort = v.union(v.literal('booked'), v.literal('visit'))
+
+/**
  * The Job tab's list: every job in scope that somebody booked, most recently
  * booked first, whatever its status and whatever day it is on. Cancelled jobs
  * are included — the status filter is the reader's to set, and a list that
@@ -476,12 +483,33 @@ export const list = query({
     // among the newest `limit`. Optional: an older app asks without it and
     // filters what it gets, as it always has.
     status: v.optional(settableJobStatus),
+    /**
+     * One person's jobs: the ones they lead and the ones they are also going
+     * on, within what this list already shows (`narrowToPerson`). The
+     * whole business's list comes here for it too: one person's work is
+     * short enough to read whole, and a page's cursor could not follow the
+     * people also going (see `listPage`).
+     *
+     * A string, not an id: it comes from the page's address, and a link
+     * someone mistyped is a list with nobody's jobs in it, not a refusal.
+     */
+    staffId: v.optional(v.string()),
+    sort: v.optional(jobListSort),
   },
-  handler: async (ctx, { businessId, status }) => {
+  handler: async (ctx, { businessId, status, staffId, sort }) => {
     const env = await requireActor(ctx, businessId)
+    const empty = { jobs: [], capped: false, limit: JOB_LIST_LIMIT }
+
+    let scope = env.listScope
+    if (staffId !== undefined) {
+      const membershipId = ctx.db.normalizeId('memberships', staffId)
+      const narrowed = membershipId && narrowToPerson(scope, membershipId)
+      if (!narrowed) return empty
+      scope = narrowed
+    }
 
     // One more than the limit, so "there are more" needs no second query.
-    const found = await jobsNewestFirst(ctx, env.listScope, {
+    const found = await jobsNewestFirst(ctx, scope, {
       businessId,
       limit: JOB_LIST_LIMIT + 1,
       statuses: status ? [status] : BOOKED_STATUSES,
@@ -495,7 +523,13 @@ export const list = query({
     return {
       // `decorate` orders a day's work by start time; this list is read the
       // other way round — newest first, so a job just booked is at the top.
-      jobs: jobs.sort((a, b) => b._creationTime - a._creationTime),
+      // By visit, the newest booked are listed latest visit first: the
+      // list says when it holds only the newest of them.
+      jobs: jobs.sort((a, b) =>
+        sort === 'visit'
+          ? b.scheduledAt - a.scheduledAt
+          : b._creationTime - a._creationTime,
+      ),
       capped: found.length > JOB_LIST_LIMIT,
       limit: JOB_LIST_LIMIT,
     }
@@ -526,6 +560,11 @@ const JOB_PAGE_BYTES_READ = 6 * 1024 * 1024
  * booked work (see `list`), and the paginator reads past them to fill the
  * page rather than returning it empty.
  *
+ * By visit (`sort: 'visit'`), latest visit first, the same two ways over
+ * the date: `by_businessId_and_status_and_scheduledAt` for one status,
+ * `by_business_date` past the projections for all of them — which, being
+ * the six months ahead, are the first rows that reads.
+ *
  * ONLY FOR THE WHOLE BUSINESS, and the reason is the cursor. Convex ties a
  * page's place to the exact query that made it, filters included, and keeps
  * each page's end so a re-run covers the same rows. A filter naming who
@@ -544,32 +583,16 @@ export const listPage = query({
   args: {
     businessId: v.id('businesses'),
     status: v.optional(settableJobStatus),
+    sort: v.optional(jobListSort),
     paginationOpts: paginationOptsValidator,
   },
-  handler: async (ctx, { businessId, status, paginationOpts }) => {
+  handler: async (ctx, { businessId, status, sort, paginationOpts }) => {
     const env = await requireActor(ctx, businessId)
     if (!listsEverything(env)) {
       return { page: [], isDone: true, continueCursor: '' }
     }
 
-    const jobs = status
-      ? ctx.db
-          .query('jobs')
-          .withIndex('by_business_status', (q) =>
-            q.eq('businessId', businessId).eq('status', status),
-          )
-          .order('desc')
-          .filter((q) => q.eq(q.field('deletedAt'), undefined))
-      : ctx.db
-          .query('jobs')
-          .withIndex('by_business', (q) => q.eq('businessId', businessId))
-          .order('desc')
-          .filter((q) =>
-            q.and(
-              q.eq(q.field('deletedAt'), undefined),
-              q.neq(q.field('status'), 'recurring'),
-            ),
-          )
+    const jobs = bookedJobsDescending(ctx, businessId, status, sort)
 
     const result = await jobs.paginate({
       ...paginationOpts,
@@ -587,6 +610,46 @@ export const listPage = query({
     }
   },
 })
+
+/**
+ * The booked jobs `listPage` pages through, newest first by `sort`: one
+ * exact index range for a status, and past the projections for all of them.
+ */
+function bookedJobsDescending(
+  ctx: QueryCtx,
+  businessId: Id<'businesses'>,
+  status: Doc<'jobs'>['status'] | undefined,
+  sort: 'booked' | 'visit' | undefined,
+) {
+  const live = ctx.db.query('jobs')
+  if (status) {
+    return (
+      sort === 'visit'
+        ? live.withIndex('by_businessId_and_status_and_scheduledAt', (q) =>
+            q.eq('businessId', businessId).eq('status', status),
+          )
+        : live.withIndex('by_business_status', (q) =>
+            q.eq('businessId', businessId).eq('status', status),
+          )
+    )
+      .order('desc')
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
+  }
+  return (
+    sort === 'visit'
+      ? live.withIndex('by_business_date', (q) =>
+          q.eq('businessId', businessId),
+        )
+      : live.withIndex('by_business', (q) => q.eq('businessId', businessId))
+  )
+    .order('desc')
+    .filter((q) =>
+      q.and(
+        q.eq(q.field('deletedAt'), undefined),
+        q.neq(q.field('status'), 'recurring'),
+      ),
+    )
+}
 
 /** Past this many of one status, its count is shown as "1000+". */
 const JOB_COUNT_LIMIT = 1000

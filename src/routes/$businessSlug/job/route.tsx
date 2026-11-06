@@ -7,9 +7,16 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { Segmented } from '#/components/primitives/Segmented'
+import { JobListFilterButton } from '#/components/schedule/JobListFilterButton'
 import { RecurringFilterButton } from '#/components/schedule/RecurringView'
-import { useViewMode } from '#/lib/access'
-import { JOB_VIEWS, activeJobView, recurringJobFiltersOf } from '#/lib/jobViews'
+import { useAccess, useViewMode } from '#/lib/access'
+import {
+  JOB_VIEWS,
+  activeJobView,
+  jobListFiltersOf,
+  recurringJobFiltersOf,
+} from '#/lib/jobViews'
+import { listsEverythingOf } from '#/lib/jobListView'
 import { rq } from '#/lib/routeQueries'
 import { useHydrated } from '#/lib/useHydrated'
 import type { Id } from '../../../../convex/_generated/dataModel'
@@ -70,14 +77,52 @@ function JobSection() {
               }}
             />
           </div>
-          {active === 'recurring' && (
+          {active === 'recurring' ? (
             <RecurringJobFilters business={business} />
+          ) : (
+            <JobListFilters business={business} />
           )}
         </div>
       </div>
 
       <Outlet />
     </>
+  )
+}
+
+/**
+ * The Job view's order, status and person, from its address: drawn here, in
+ * the switch's row, where the view's own route can't reach.
+ */
+function JobListFilters({ business }: { business: { _id: Id<'businesses'> } }) {
+  // Drawn only while that view is open, so its address is the one written.
+  const navigate = useNavigate({ from: '/$businessSlug/job/' })
+  const hydrated = useHydrated()
+  const mode = useViewMode()
+  const listsEverything = listsEverythingOf(useAccess())
+  const search = useRouterState({ select: (s) => s.location.search })
+  const { status, staffId, sort } = jobListFiltersOf(search)
+  const { data: members = [] } = useQuery(rq.roster(business._id))
+
+  return (
+    <JobListFilterButton
+      status={status}
+      staffId={staffId}
+      sort={sort}
+      members={members}
+      // The page applies no `staff` where this offers no one (job/index.tsx).
+      showStaff={
+        listsEverything === true && mode !== 'mine' && members.length >= 2
+      }
+      // A new list starts at its start, as the status filter always has.
+      onChange={(next) =>
+        navigate({
+          search: (prev) => ({ ...prev, ...next }),
+          replace: true,
+        })
+      }
+      disabled={!hydrated}
+    />
   )
 }
 

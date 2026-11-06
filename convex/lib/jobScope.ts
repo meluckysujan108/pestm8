@@ -246,6 +246,27 @@ export async function jobsNewestFirst(
   )
 }
 
+/**
+ * One person's work within a list's scope: the Job tab's Technician filter.
+ *
+ * Their own scope (the jobs they lead and the ones they are also going on,
+ * as the Schedule's filter counts them) where the list already reaches them;
+ * null where it does not — someone outside a team, or a colleague of a
+ * subcontractor who sees only their own — so a filter can never widen what
+ * a list shows.
+ */
+export function narrowToPerson(
+  scope: RowScope,
+  membershipId: Id<'memberships'>,
+): RowScope | null {
+  if (scope.kind === 'business') return { kind: 'own', membershipId }
+  if (scope.kind === 'own')
+    return scope.membershipId === membershipId ? scope : null
+  return scope.membershipIds.includes(membershipId)
+    ? { kind: 'own', membershipId }
+    : null
+}
+
 /** Each job once, whichever read found it first. */
 function uniqueJobs(jobs: Array<Doc<'jobs'>>): Array<Doc<'jobs'>> {
   const seen = new Set<Id<'jobs'>>()

@@ -1127,6 +1127,15 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
     continueCursor: '',
   }),
   'reports:staleDrafts': () => ({ count: 0, oldest: null }),
+  // The business's own forms, for the library's Form filter.
+  'customTemplates:list': () => [
+    {
+      _id: 'ct_birds',
+      name: 'Bird proofing',
+      shortName: 'Birds',
+      hasUnpublishedChanges: false,
+    },
+  ],
   'jobTypes:manage': () => JOB_TYPES_MANAGE,
   'jobTypes:list': () => JOB_TYPES_LIST,
   'jobs:listDay': (args: { dayKey: string }) => scheduleDay(args.dayKey),
