@@ -1285,6 +1285,159 @@ const PLAN = {
         .scrollIntoViewIfNeeded()
     },
   },
+  // A client booked past her own record: the possible-duplicate lines.
+  'clientsheet-maybe-same': { before: async (p) => p.waitForTimeout(900) },
+  // A line's Merge…: the pair, the client there first kept.
+  'clientsheet-maybe-same-pair': {
+    spec: 'clientsheet-maybe-same',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Merge…' }).first().click()
+      await p.waitForTimeout(900)
+    },
+  },
+  // Details → Merge into…: the list, the ones alike first.
+  'clientsheet-merge-into': {
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('tab', { name: 'Details' }).click()
+      await p.getByRole('button', { name: 'Merge into…' }).click()
+      await p.waitForTimeout(900)
+    },
+  },
+  // Its list still loading: bones shaped as its rows.
+  'clientsheet-merge-loading': {
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('tab', { name: 'Details' }).click()
+      await p.getByRole('button', { name: 'Merge into…' }).click()
+      await p.waitForTimeout(900)
+    },
+  },
+  // A row of it: the pair, and what the merge does.
+  'clientsheet-merge-pair': {
+    spec: 'clientsheet-merge-into',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('tab', { name: 'Details' }).click()
+      await p.getByRole('button', { name: 'Merge into…' }).click()
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: /^Jane Nguyen — Morley/ }).click()
+      await p.waitForTimeout(900)
+    },
+  },
+  // Not the same on the first line: it asks first, its answer for good.
+  'clientsheet-maybe-same-confirm': {
+    spec: 'clientsheet-maybe-same',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Not the same' }).first().click()
+      await p.waitForTimeout(600)
+    },
+  },
+  // Answered: the line kept where it was, saying so.
+  'clientsheet-maybe-same-saved': {
+    spec: 'clientsheet-maybe-same',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Not the same' }).first().click()
+      // Past the question's hold (FIX_ARM_MS), as a person's next tap is.
+      await p.waitForTimeout(600)
+      await p
+        .getByRole('alertdialog')
+        .getByRole('button', { name: 'Not the same' })
+        .click()
+      await p.waitForTimeout(600)
+    },
+  },
+  // A line whose other client is archived: Merge… greyed out, and why.
+  'clientsheet-maybe-same-archived': {
+    before: async (p) => p.waitForTimeout(900),
+  },
+  // A line's Merge… with no signal: said in the line.
+  'clientsheet-maybe-same-offline': {
+    spec: 'clientsheet-merge-no-signal',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Merge…' }).first().click()
+      await p.waitForTimeout(400)
+    },
+  },
+  // A row of the list with no signal: said in the footer, above Done.
+  'clientsheet-merge-row-offline': {
+    spec: 'clientsheet-merge-no-signal',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('tab', { name: 'Details' }).click()
+      await p.getByRole('button', { name: 'Merge into…' }).click()
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: /^Amy Lo/ }).click()
+      await p.waitForTimeout(400)
+    },
+  },
+  // A search with nothing to keep in it.
+  'clientsheet-merge-no-matches': {
+    spec: 'clientsheet-merge-into',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('tab', { name: 'Details' }).click()
+      await p.getByRole('button', { name: 'Merge into…' }).click()
+      await p.waitForTimeout(900)
+      await p.getByRole('searchbox', { name: 'Search clients' }).fill('Zed')
+      await p.waitForTimeout(700)
+    },
+  },
+  // A business kept as a person would be: refused, Merge… greyed out.
+  'clientsheet-merge-refused': {
+    spec: 'clientsheet-merge-into',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('tab', { name: 'Details' }).click()
+      await p.getByRole('button', { name: 'Merge into…' }).click()
+      await p.waitForTimeout(900)
+      // The row puts up Jane into Harbourside: its way round keeps Jane.
+      await p.getByRole('button', { name: /^Harbourside Strata/ }).click()
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Keep Jane Nguyen instead' }).click()
+      await p.waitForTimeout(700)
+    },
+  },
+  // Merged: the kept client's sheet, saying what was merged.
+  'clientsheet-merge-merged': {
+    spec: 'clientsheet-merge-into',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('tab', { name: 'Details' }).click()
+      await p.getByRole('button', { name: 'Merge into…' }).click()
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: /^Jane Nguyen — Morley/ }).click()
+      await p.waitForTimeout(900)
+      await p
+        .getByRole('dialog', { name: /^Merge Jane Nguyen/ })
+        .getByRole('button', { name: 'Merge…' })
+        .click()
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: 'Merge', exact: true }).click()
+      await p.waitForTimeout(1200)
+    },
+  },
+  // Its Merge…: the confirm.
+  'clientsheet-merge-confirm': {
+    spec: 'clientsheet-merge-into',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('tab', { name: 'Details' }).click()
+      await p.getByRole('button', { name: 'Merge into…' }).click()
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: /^Jane Nguyen — Morley/ }).click()
+      await p.waitForTimeout(900)
+      await p
+        .getByRole('dialog', { name: /^Merge Jane Nguyen/ })
+        .getByRole('button', { name: 'Merge…' })
+        .click()
+      await p.waitForTimeout(600)
+    },
+  },
   // New client in the order a caller gives it: phone and email first.
   'newclient-order': {
     before: async (p) => {

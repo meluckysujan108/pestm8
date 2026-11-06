@@ -701,6 +701,8 @@ src/components/
   clients/
     ClientRow.tsx  ClientSheet.tsx  PropertyHistory.tsx
     ClientJobsTab.tsx             a client's Jobs tab and the at-a-glance strip (clients.summary)
+    MergeIntoSheet.tsx            Merge into… and the possible-duplicate line
+                                  (clientMerge, clientMatchHints; words in lib/clientMergeCopy.ts)
   invoicing/
     InvoiceCard.tsx  XeroRouteRow.tsx  ScopeNotice.tsx
   reports/

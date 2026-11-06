@@ -1,4 +1,13 @@
-import { Suspense, lazy, useEffect, useId, useRef, useState } from 'react'
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { flushSync } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
@@ -81,6 +90,7 @@ import type { AddressCheck } from '#/components/forms/VerifiedAddressFields'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import {
   HELD_BUTTON,
+  LINK_BUTTON_COMPACT,
   PRIMARY_BUTTON_COMPACT,
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
@@ -107,6 +117,19 @@ import { PropertyFields } from '#/components/clients/PropertyFields'
 import type { PropertyFieldsValue } from '#/components/clients/PropertyFields'
 import { TextInput } from '#/components/clients/clientFormFields'
 import { changed, edited } from '#/components/clients/clientEdits'
+import {
+  MaybeSameLines,
+  MergeIntoSheet,
+} from '#/components/clients/MergeIntoSheet'
+import type {
+  MaybeSame,
+  MergeClient,
+  MergeStart,
+} from '#/components/clients/MergeIntoSheet'
+import { useActing, useCan } from '#/lib/access'
+import { MERGE_INTO_LABEL } from '#/lib/clientMergeCopy'
+import { HINTS_AFTER_DRAW_MS, firstHintsNow } from '#/lib/clientMergePicker'
+import type { TypedAddress } from '../../../convex/lib/clientMatch'
 
 type ClientKind = 'person' | 'business'
 
@@ -174,24 +197,94 @@ export function ClientSheet({
   fromNewClient?: OpenedFromNewClient
   onClose: () => void
 }) {
+  // After a merge away from the client opened, the client kept, in their
+  // place, with what was merged said at the top — until the sheet is closed
+  // or opened on someone else.
+  const [kept, setKept] = useState<{
+    for: string
+    id: Id<'clients'>
+    notice: string
+  } | null>(null)
+  if (kept !== null && kept.for !== clientId) setKept(null)
+  // Merge into… or a possible duplicate's Merge…: the sheet over this one,
+  // a fresh one each time it is asked (`n`), kept in the page while it
+  // slides away.
+  const [merge, setMerge] = useState<
+    (MergeAsk & { for: string; n: number }) | null
+  >(null)
+  const [mergeOpen, setMergeOpen] = useState(false)
+  // Gone, not just closed, once the person may no longer merge (a switch
+  // made in another tab of the same sign-in, a role changed): the sheet
+  // behind drops its lines and Merge into… then, and the server would
+  // refuse whatever this one asked, in words meant for someone who never
+  // could.
+  const mayMerge = useCan('clients.manage')
+  const { isSwitched } = useActing()
+  const canMerge = mayMerge && !isSwitched
+  if (merge !== null && (merge.for !== clientId || !canMerge)) {
+    setMerge(null)
+    setMergeOpen(false)
+  }
+  const shownId = (kept?.id ?? clientId) as Id<'clients'> | null
+  // Where focus goes as the merge sheet closes: back to the button that
+  // opened it, or, once merged, to the "Merged — …" line on the kept
+  // client's sheet, which says what happened as it is focused. The sheet's
+  // own return, after it has slid away and the sheet behind is no longer
+  // hidden from a screen reader.
+  const mergeReturn = useRef<HTMLElement | null>(null)
+  const mergedNotice = useCallback((el: HTMLElement | null) => {
+    if (el) mergeReturn.current = el
+  }, [])
+
   return (
     <SheetShell open={clientId !== null} onClose={onClose}>
-      {clientId !== null && (
+      {clientId !== null && shownId !== null && (
         <ClientBody
-          key={clientId}
+          key={shownId}
           businessId={businessId}
           timezone={timezone}
           businessSlug={businessSlug}
           businessState={businessState}
           canManageClients={canManageClients}
           canRenumber={canRenumber}
-          clientId={clientId as Id<'clients'>}
-          fromNewClient={fromNewClient}
+          clientId={shownId}
+          fromNewClient={shownId === clientId ? fromNewClient : undefined}
+          merged={kept?.notice}
+          mergedRef={mergedNotice}
+          onAskMerge={(ask, opener) => {
+            mergeReturn.current = opener
+            setMerge({ ...ask, for: clientId, n: (merge?.n ?? 0) + 1 })
+            setMergeOpen(true)
+          }}
           onClose={onClose}
+        />
+      )}
+      {clientId !== null && merge !== null && (
+        <MergeIntoSheet
+          key={merge.n}
+          open={mergeOpen}
+          onClose={() => setMergeOpen(false)}
+          businessId={businessId}
+          client={merge.client}
+          sites={merge.sites}
+          start={merge.start}
+          returnFocusRef={mergeReturn}
+          onMerged={(done) => {
+            setMergeOpen(false)
+            setKept({ for: clientId, id: done.into._id, notice: done.notice })
+          }}
         />
       )}
     </SheetShell>
   )
+}
+
+/** What the client sheet hands the merge sheet as it asks: how it opens,
+ * and the client it is opened from. */
+type MergeAsk = {
+  start: MergeStart
+  client: MergeClient & { phone?: string; email?: string }
+  sites: ReadonlyArray<TypedAddress>
 }
 
 function ClientBody({
@@ -203,6 +296,9 @@ function ClientBody({
   canRenumber,
   clientId,
   fromNewClient,
+  merged,
+  mergedRef,
+  onAskMerge,
   onClose,
 }: {
   businessId: Id<'businesses'>
@@ -214,6 +310,13 @@ function ClientBody({
   canRenumber: boolean
   clientId: Id<'clients'>
   fromNewClient?: OpenedFromNewClient
+  /** "Merged — …": this client was just kept in a merge. */
+  merged?: string
+  /** That line, for focus to land on once the merge sheet has gone. */
+  mergedRef: (el: HTMLElement | null) => void
+  /** Merge into…, or a possible duplicate's Merge…, with the button that
+   * asked, for focus to come back to. */
+  onAskMerge: (ask: MergeAsk, opener: HTMLElement) => void
   onClose: () => void
 }) {
   const clientQuery = useQuery(
@@ -271,6 +374,63 @@ function ClientBody({
   useQuery(rq.xeroClientLines(businessId, clientId))
   const hydrated = useHydrated()
   const queryClient = useQueryClient()
+
+  // Merging (the matching plan's M8): for whoever may change clients, as
+  // themselves — a switch drops `clients.manage` (useCan), and the server
+  // refuses a switched merge anyway. The possible-duplicate lines are read
+  // only by the owner and contractors (`team.manage`, which
+  // `clientMatchHints.forClient` asks for itself), and only where they can
+  // be answered: never a line without its buttons. 'skip' otherwise, since
+  // a query only disabled keeps its subscription.
+  const mayMerge = useCan('clients.manage')
+  const { isSwitched } = useActing()
+  const canMerge = mayMerge && !isSwitched
+  const seesHints = useCan('team.manage') && canMerge
+  const hintsQuery = useQuery(
+    convexQuery(
+      api.clientMatchHints.forClient,
+      seesHints ? { businessId, clientId } : 'skip',
+    ),
+  )
+  // Which lines show this time, decided once: as the live sheet first
+  // draws the client, or as the lines come within HINTS_AFTER_DRAW_MS of
+  // it. They are asked for with the client, but each query is its own
+  // subscription, answered in turn, so the lines can land a moment after
+  // the record (a line asks for the other client's with their record, so
+  // their sheet, opened next, has its own at once). One that comes later
+  // would push Book a job and the tabs down under a thumb, so it waits for
+  // the next opening. None on an archived client's sheet, which can't be
+  // merged, as Merge into… isn't there.
+  const [firstHints, setFirstHints] = useState<
+    ReadonlyArray<MaybeSame> | false | null
+  >(null)
+  const clientDrawn = Boolean(clientQuery.data)
+  const [hintsLate, setHintsLate] = useState(false)
+  useEffect(() => {
+    if (firstHints !== null || !clientDrawn) return
+    const late = setTimeout(() => setHintsLate(true), HINTS_AFTER_DRAW_MS)
+    return () => clearTimeout(late)
+  }, [firstHints, clientDrawn])
+  if (firstHints === null) {
+    const decided = firstHintsNow({
+      client: clientQuery.data,
+      hints: hintsQuery.data,
+      settled: !seesHints || hintsQuery.isError,
+      waited: hintsLate,
+    })
+    if (decided !== null) setFirstHints(decided)
+  }
+  // Those the server still lists, each with the client it pairs this one
+  // with now: answered, merged or binned elsewhere, a line goes, and so
+  // does one a merge elsewhere handed to a third client (one answered here
+  // stays, saying so: MaybeSameLines).
+  const liveHints = useMemo(
+    () =>
+      new Map<string, string>(
+        hintsQuery.data?.map((hint) => [hint._id, hint.otherClientId]),
+      ),
+    [hintsQuery.data],
+  )
 
   const convexDelete = useConvexMutation(api.bin.deleteClient)
   const remove = useMutation({
@@ -406,6 +566,19 @@ function ClientBody({
       <Drawer.Title className="text-sheet-title text-ink">
         {client.name}
       </Drawer.Title>
+      {merged && (
+        // Focused as the merge sheet goes (not a tab stop), so a screen
+        // reader says what happened; drawn afresh for each merge.
+        <p
+          key={merged}
+          ref={mergedRef}
+          tabIndex={-1}
+          role="status"
+          className="mt-2 rounded-xl bg-surface-2 px-3 py-2.5 text-caption text-ink-2 outline-none [overflow-wrap:anywhere] focus-visible:ring-2 focus-visible:ring-blue"
+        >
+          {merged}
+        </p>
+      )}
 
       <ClientStatusRow
         businessId={businessId}
@@ -427,6 +600,37 @@ function ClientBody({
           email={client.email}
         />
       </div>
+
+      {/* Under Call, Text and Email, never above them: the sheet's kept
+          view has no lines, and they must not move as the live sheet
+          takes its place. */}
+      {canMerge && firstHints && firstHints.length > 0 && (
+        <MaybeSameLines
+          businessId={businessId}
+          here={{
+            _id: clientId,
+            name: client.name,
+            clientNumber: client.clientNumber ?? null,
+            _creationTime: client._creationTime,
+            kind: client.kind,
+          }}
+          hints={firstHints}
+          live={liveHints}
+          // Held while a contact or site is half-typed, as Edit and the
+          // tabs are: a merge hands the sheet to the client kept.
+          held={formOpen}
+          onMerge={(pair, opener) =>
+            onAskMerge(
+              {
+                start: { kind: 'pair', ...pair },
+                client: mergeClientOf(client),
+                sites: mergeSitesOf(properties),
+              },
+              opener,
+            )
+          }
+        />
+      )}
 
       <ClientAtAGlance
         businessId={businessId}
@@ -580,8 +784,35 @@ function ClientBody({
               onFormOpenChange={setPropertyFormOpen}
             />
 
+            {/* Never for an archived client: a merge refuses one. Held
+                while a contact or site above it is half-typed: a merge hands
+                the sheet to the client kept, which would lose it without a
+                word. */}
+            {canMerge && client.archivedAt === undefined && (
+              <button
+                type="button"
+                aria-haspopup="dialog"
+                disabled={!hydrated || formOpen}
+                onClick={(event) =>
+                  onAskMerge(
+                    {
+                      start: { kind: 'pick' },
+                      client: mergeClientOf(client),
+                      sites: mergeSitesOf(properties),
+                    },
+                    event.currentTarget,
+                  )
+                }
+                className={`${LINK_BUTTON_COMPACT} mt-6 w-full`}
+              >
+                {MERGE_INTO_LABEL}
+              </button>
+            )}
             {canManageClients && (
               <DeleteButton
+                className={
+                  canMerge && client.archivedAt === undefined ? 'mt-2' : 'mt-6'
+                }
                 disabled={!hydrated}
                 onClick={() => setConfirmDeleteOpen(true)}
               >
@@ -636,6 +867,36 @@ function ClientBody({
       </Suspense>
     </div>
   )
+}
+
+/** The client, as the merge sheet names them and matches others to them. */
+function mergeClientOf(client: {
+  _id: Id<'clients'>
+  name: string
+  clientNumber?: number
+  phone?: string
+  email?: string
+}): MergeClient & { phone?: string; email?: string } {
+  return {
+    _id: client._id,
+    name: client.name,
+    clientNumber: client.clientNumber ?? null,
+    phone: client.phone,
+    email: client.email,
+  }
+}
+
+/** Their sites' addresses, for who the matcher finds alike. */
+function mergeSitesOf(
+  properties:
+    | ReadonlyArray<{ addressLine: string; suburb: string; postcode: string }>
+    | undefined,
+): Array<TypedAddress> {
+  return (properties ?? []).map((p) => ({
+    addressLine: p.addressLine,
+    suburb: p.suburb,
+    postcode: p.postcode,
+  }))
 }
 
 /**

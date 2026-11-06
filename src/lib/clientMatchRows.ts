@@ -232,6 +232,23 @@ function sameSentence(
   return rest.length > 0 ? `Similar name, same ${join(rest)}.` : 'Similar name.'
 }
 
+/**
+ * What two clients the server let through as possibly one customer agree
+ * on (`clientMatchHints`), in the words the rows use, lower case to follow a
+ * colon: "same mobile", "same name and mobile", "similar name, same email",
+ * "same address and number". The client sheet's possible-duplicate line and
+ * Merge into…'s list say it (lib/clientMergeCopy.ts).
+ */
+export function evidencePhrase(evidence: ReadonlyArray<Evidence>): string {
+  const has = new Set(evidence)
+  const rest = [...(has.has('site') ? ['address'] : []), ...keyWords(has)]
+  if (has.has('name')) return `same ${join(['name', ...rest])}`
+  if (has.has('nameNear')) {
+    return rest.length > 0 ? `similar name, same ${join(rest)}` : 'similar name'
+  }
+  return rest.length > 0 ? `same ${join(rest)}` : 'similar details'
+}
+
 /** What was typed that a candidate holds none of, for "with a different
  * mobile and address": only what was typed. */
 function differentWords(typed: TypedClient, areaCode: string): Array<string> {

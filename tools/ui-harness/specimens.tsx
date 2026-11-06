@@ -24,6 +24,12 @@ import { Combobox } from '#/components/primitives/Combobox'
 import { useMatchIndex } from '#/lib/useMatchIndex'
 import { MATCH_BIZ, MATCH_CAPPED_BIZ, TEN_K_BIZ } from './matchFixtures'
 import {
+  MERGE_BIZ,
+  MERGE_LOADING_BIZ,
+  MERGE_NEW_JANE,
+  MERGE_NEW_RITA,
+} from './mergeFixtures'
+import {
   SITE_BIZ,
   SITE_OTHER_BIZ,
   SITE_STREET_BIZ,
@@ -961,6 +967,66 @@ function ClientSheetAddSiteOwnDup() {
         />
       </AccessProvider>
     </Phone>
+  )
+}
+
+/**
+ * Jane Nguyen, booked yesterday as a new client past her own record from
+ * last year and past J. Nguyen's at her address (mergeFixtures.ts), opened
+ * by the owner: her two possible-duplicate lines under Call, Text and
+ * Email, newest first, each with Merge… and Not the same, the one for her
+ * namesake naming them by number from the client list in memory (as the
+ * Schedule's loader leaves it); and, at the foot of Details, Merge into…,
+ * whose list puts the ones alike first.
+ */
+function ClientSheetMerge({
+  clientId = MERGE_NEW_JANE,
+  businessId = MERGE_BIZ,
+}: {
+  clientId?: string
+  businessId?: string
+}) {
+  state.technician = false
+  state.actingAs = false
+  useQuery(rq.directory(businessId as never))
+  return (
+    <Phone>
+      <AccessProvider businessId={businessId as never}>
+        <Header title="Clients" />
+        <ClientSheet
+          businessId={businessId as never}
+          timezone={TZ}
+          businessSlug="demo"
+          businessState="WA"
+          canManageClients
+          clientId={clientId}
+          onClose={() => {}}
+        />
+      </AccessProvider>
+    </Phone>
+  )
+}
+
+/** Rita Brown, booked past an archived record of hers: the line's Merge…
+ * greyed out, saying why, and Not the same. */
+function ClientSheetMergeArchived() {
+  return <ClientSheetMerge clientId={MERGE_NEW_RITA} />
+}
+
+/** The same sheet with the client list not answered yet: Merge into…'s
+ * list on its placeholder, bones shaped as its rows, and the lines naming
+ * the others bare, with no number to hand. */
+function ClientSheetMergeLoading() {
+  return <ClientSheetMerge businessId={MERGE_LOADING_BIZ} />
+}
+
+/** Jane Nguyen's sheet with no signal: a line's Merge…, or a row of Merge
+ * into…'s list, says so at once. */
+function ClientSheetMergeNoSignal() {
+  return (
+    <NoSignal>
+      <ClientSheetMerge />
+    </NoSignal>
   )
 }
 
@@ -3649,6 +3715,11 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'newproperty-sheet-refused': NewPropertySheetRefused,
   'newproperty-match-open-client': NewPropertyMatch,
   'clientsheet-addsite-own-dup': ClientSheetAddSiteOwnDup,
+  'clientsheet-maybe-same': ClientSheetMerge,
+  'clientsheet-maybe-same-archived': ClientSheetMergeArchived,
+  'clientsheet-merge-into': ClientSheetMerge,
+  'clientsheet-merge-loading': ClientSheetMergeLoading,
+  'clientsheet-merge-no-signal': ClientSheetMergeNoSignal,
   'newclient-order': NewPropertyMatch,
   'business-switch-no-signal': BusinessSwitchNoSignal,
   jobtimes: JobTimes,

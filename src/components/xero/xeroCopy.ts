@@ -1,4 +1,18 @@
+import {
+  MERGE_CANCEL,
+  kindMismatch,
+  mergeMovesList,
+  mergeXeroLines,
+  mergedCopy,
+} from '#/lib/clientMergeCopy'
 import type { ErrorCopy } from '#/components/forms/describeError'
+import type { MergeMoves, MergeXeroOrg } from '#/lib/clientMergeCopy'
+
+// What a merge moves and does in Xero, and the confirm's way out, are said
+// one way wherever a merge is asked (lib/clientMergeCopy.ts): the client
+// sheet asks it too.
+export { MERGE_CANCEL, mergeMovesList, mergeXeroLines }
+export type { MergeMoves, MergeXeroOrg }
 
 /**
  * Every word Settings → Xero and My Xero say about something going wrong,
@@ -473,69 +487,8 @@ export function heldOutcomeCopy(
     case 'give':
       return `Saved — ${client} is “${contact}” in Xero. PestM8 will add ${holder} as a contact of its own.`
     case 'merge':
-      return `Merged — ${client}’s sites, jobs and notes are ${holder}’s now, and ${client} is in the Recycle bin.`
+      return mergedCopy(client, holder)
   }
-}
-
-/** What merging moves, as `clientMerge.mergePreview` counts it. */
-export type MergeMoves = {
-  properties: number
-  jobs: number
-  notes: number
-  contacts: number
-}
-
-/** "2 sites, 14 jobs and 3 notes move" — "1 site moves" — what there is,
- * with its verb, or null for nothing. Contacts too: a merge moves the people
- * as well as the places. */
-export function mergeMovesList(moves: MergeMoves): string | null {
-  const noun = (n: number, one: string, many: string) =>
-    n > 0 ? `${n.toLocaleString('en-AU')} ${n === 1 ? one : many}` : null
-  const parts = [
-    noun(moves.properties, 'site', 'sites'),
-    noun(moves.jobs, 'job', 'jobs'),
-    noun(moves.notes, 'note', 'notes'),
-    noun(moves.contacts, 'contact', 'contacts'),
-  ].filter((part): part is string => part !== null)
-  if (parts.length === 0) return null
-  if (parts.length === 1) {
-    return `${parts[0]} ${parts[0].startsWith('1 ') ? 'moves' : 'move'}`
-  }
-  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]} move`
-}
-
-/** What a merge does in one organisation (`clientMerge.mergePreview`):
- * A takes B's contact over, B's own contact stays in Xero beside A's, or B
- * has none there. */
-export type MergeXeroOrg = {
-  orgName: string
-  outcome: 'takes_over' | 'stays' | 'none'
-}
-
-/**
- * One sentence per organisation where B is a contact of its own: "In Doyle
- * Pest Services, Jan Smith takes over Jan Morris’s contact." where A has
- * none there (it becomes that contact, rather than a second one beside it),
- * or "Jan Morris’s own contact in Doyle Pest Services stays in Xero." where
- * A has its own (PestM8 never deletes in Xero, so the merge leaves it).
- */
-export function mergeXeroLines(
-  from: string,
-  into: string,
-  xero: ReadonlyArray<MergeXeroOrg>,
-): string {
-  return xero
-    .map((org) => {
-      switch (org.outcome) {
-        case 'takes_over':
-          return ` In ${org.orgName}, ${into} takes over ${from}’s contact.`
-        case 'stays':
-          return ` ${from}’s own contact in ${org.orgName} stays in Xero.`
-        case 'none':
-          return ''
-      }
-    })
-    .join('')
 }
 
 /**
@@ -588,11 +541,6 @@ export function mergeConfirmBody({
   return `${first}${from} goes to the Recycle bin. This can’t be undone. Xero keeps ${into}’s contact.${own}`
 }
 
-/** The merge confirm's way out. Not "Keep both": that is the sheet's own
- * second answer (Keep both, use {A}’s Xero contact), which this saves
- * nothing of. */
-export const MERGE_CANCEL = 'Don’t merge'
-
 /** The sheet's second answer, by name, for the lines that point at it. */
 export function keepBothTitle(into: string): string {
   return `Keep both, use ${into}’s Xero contact`
@@ -602,12 +550,6 @@ export function keepBothTitle(into: string): string {
  * option, said rather than offered. */
 export const MERGE_NOT_YOURS =
   'Only the owner or a contractor can merge clients.'
-
-/** Why a business can't go into a person (`KIND_MISMATCH`): what a person's
- * record never shows, and the way on. */
-function kindMismatch(from: string, into: string): string {
-  return `${from} is a business with contact people, an ABN or an office address, which ${into} — a person — can’t show. Make ${into} a business first`
-}
 
 /** Merge, refused (`clientMerge.merge`), in its confirm. Fails fast with no
  * signal: it moves a client's whole history, which nobody should find
