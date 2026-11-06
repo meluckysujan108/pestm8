@@ -154,6 +154,25 @@ export function newSiteArgs(
  */
 export const NEW_CLIENT_ERROR_COPY: ErrorCopy = {
   INVALID_ABN: 'That ABN does not pass the ATO check. Check its 11 digits.',
+  // Clients → New client shows who the server found as rows of its panel
+  // (the matching plan's M7, lib/sheetChecks.ts); these words are for when
+  // it couldn't: the form was changed while it saved. They promise nothing
+  // of the next save, which checks the form as it is now.
+  MATCHED_CLIENT:
+    'Could not save: the caller may already be a client. Nothing was saved — save it again.',
+}
+
+/**
+ * Add property's words on a client's sheet for a refusal whose row the
+ * panel couldn't show (the address was changed while it saved): the
+ * address as it was then is `clientName`'s already, which is not the one
+ * the form shows now, so they say which. No button is named: the one
+ * pressed may have read Add property or Save anyway.
+ */
+export function addPropertyErrorCopy(clientName: string): ErrorCopy {
+  return {
+    MATCHED_CLIENT: `Could not add this property: ${clientName} already has the address as it was before the form changed. Nothing was added — check the address and add it again.`,
+  }
 }
 
 /** The fields a caller may put focus in (`newClientFieldId`). */

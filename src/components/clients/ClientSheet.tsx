@@ -32,8 +32,27 @@ import {
   useSaveCheck,
   useSaveWarnings,
 } from '#/components/forms/SaveWarnings'
-import { matchFooter, ownSiteRows } from '#/lib/clientMatchRows'
+import {
+  matchFooter,
+  ownSiteDismissed,
+  ownSiteRows,
+  refusedOwnSiteRow,
+} from '#/lib/clientMatchRows'
 import type { OwnSite } from '#/lib/clientMatchRows'
+import { logConnection } from '#/lib/connectionLog'
+import {
+  FOUND_WHEN_SAVING,
+  createHoldWait,
+  createPressReads,
+  joinSends,
+  matchCheckFor,
+  sendChecked,
+  sendsByRow,
+  sheetRefusalOf,
+  standingSends,
+} from '#/lib/sheetChecks'
+import type { SheetRefusal, SheetSends } from '#/lib/sheetChecks'
+import { addPropertyErrorCopy } from '#/components/clients/NewClientFields'
 import type { SiteAddressDraft } from '#/components/clients/NewClientFields'
 import {
   firstTab,
@@ -1570,7 +1589,10 @@ const PROPERTY_SAVE_WAITS: Record<LineDown, string> = {
  * like one ("12 Watle St"), is said at Add (`ownSiteRows`): "Already has
  * this site", with Use 12 Wattle St, which adds nothing and goes to that
  * site. Opened from Clients → New client (`initial`), it holds the address
- * the caller gave.
+ * the caller gave. The server asks again as it is added (`matchCheck`, the
+ * matching plan's M7): a site of theirs this sheet didn't hold yet, added
+ * meanwhile from another phone, is said as the same row, with "PestM8
+ * found this when saving."
  */
 function NewPropertyForClientForm({
   businessId,
@@ -1617,10 +1639,20 @@ function NewPropertyForClientForm({
   const form = useRef<HTMLFormElement>(null)
   useIntoViewOnOpen(form, initial !== undefined)
   const latestUseSite = useLatest(onUseSite)
+  // What each press's check found: the client, where the form said the
+  // address is exactly theirs (`ownSiteDismissed`), for the save it sends
+  // (`latestMatchCheck`), never the sheet's sites read again as it goes.
+  const [pressReads] = useState(() =>
+    createPressReads<{ dismissed: ReadonlyArray<Id<'clients'>> }>(),
+  )
   useSaveCheck(
     'add-property-own-site',
-    () =>
-      ownSiteRows(clientName, sites, value).map((row) => ({
+    (signal) => {
+      pressReads.begin(signal)(
+        'dismissed',
+        ownSiteDismissed(clientId, sites, value),
+      )
+      return ownSiteRows(clientName, sites, value).map((row) => ({
         id: row.id,
         kind: 'match' as const,
         label: row.label,
@@ -1630,7 +1662,8 @@ function NewPropertyForClientForm({
           apply: () => {},
           focusAfter: () => latestUseSite.current(row.site._id),
         },
-      })),
+      }))
+    },
     [value.addressLine, value.suburb, value.postcode],
     // This form's own: the provider is rendered below, by this component.
     warnings,
@@ -1653,6 +1686,74 @@ function NewPropertyForClientForm({
     ),
   )
 
+  // ── What the server found as the site was added (M7) ────────────────
+  // The client, where the form was shown as already having the address
+  // exactly at the press (`ownSiteDismissed`, `pressReads`): dismissed,
+  // since the server matches only this client's exact sites. One only
+  // like it ("12 Watle St") leaves the server's check on. A refusal's row
+  // waits up to 3 s for the sheet to hold the site it names, for Use
+  // 12 Wattle St; without it, the row has no fix until the sheet holds it,
+  // however late, when it is read again in place (`refresh`), and its Use
+  // held as any fix coming in is.
+  const refusedSends = useRef<ReadonlyMap<string, SheetSends>>(new Map())
+  const refusalShown = useRef<{
+    refusal: SheetRefusal
+    held: boolean
+  } | null>(null)
+  const [shownRefusal, setShownRefusal] = useState<unknown>(null)
+  // Asked again as the sheet's sites come in, and after every edit, once
+  // the check above has told the panel of it (each commit: its effect runs
+  // before this one), so a wait whose row the panel would turn down ends.
+  const [holdWait] = useState(createHoldWait)
+  useEffect(() => holdWait.poke())
+  const latestMatchCheck = useLatest((extra: SheetSends) => {
+    const standing = standingSends(refusedSends.current, warnings.refusedNow())
+    return matchCheckFor([
+      ...(pressReads.last().dismissed ?? []),
+      ...joinSends(extra, standing).dismissed,
+    ])
+  })
+  const latestHeld = useLatest(
+    (refusal: SheetRefusal) =>
+      refusal.code !== 'MATCHED_CLIENT' ||
+      refusal.candidates.every(
+        (c) =>
+          c.propertyId === undefined ||
+          sites.some((site) => site._id === c.propertyId),
+      ),
+  )
+  const latestRefusalRows = useLatest((refusal: SheetRefusal) => {
+    const source = 'add-property-own-site'
+    if (refusal.code !== 'MATCHED_CLIENT') return { source, rows: [] }
+    const row = refusedOwnSiteRow(clientName, sites, refusal, value)
+    const site = row.site
+    return {
+      source,
+      rows: [
+        {
+          id: row.id,
+          kind: 'match' as const,
+          label: row.label,
+          message: row.message,
+          ...(site && {
+            fix: {
+              label: `Use ${site.addressLine}`,
+              apply: () => {},
+              focusAfter: () => latestUseSite.current(site._id),
+            },
+          }),
+        },
+      ],
+    }
+  })
+  const latestRefreshRefused = useLatest(() => {
+    const entry = refusalShown.current
+    if (!entry || entry.held || !latestHeld.current(entry.refusal)) return
+    entry.held = true
+    const { source, rows } = latestRefusalRows.current(entry.refusal)
+    warnings.refresh(source, rows)
+  })
+  useEffect(() => latestRefreshRefused.current(), [latestRefreshRefused, sites])
   const convexCreate = useConvexMutation(api.properties.createForClient)
   const create = useMutation({
     mutationFn: (args: {
@@ -1665,9 +1766,49 @@ function NewPropertyForClientForm({
       siteContactName?: string
       siteContactPhone?: string
       addressCheck?: AddressCheck
-    }) => convexCreate(args),
+    }) =>
+      sendChecked({
+        send: (extra) =>
+          convexCreate({
+            ...args,
+            matchCheck: latestMatchCheck.current(extra),
+          }),
+        rowsOf: (refusal) => latestRefusalRows.current(refusal),
+        // Until the sheet holds the site, or the panel would turn the row
+        // down (an edit of the address meanwhile).
+        hold: (refusal, turnedDown) =>
+          holdWait.until(() => turnedDown() || latestHeld.current(refusal)),
+        // Rows the panel would turn down wait for nothing.
+        mayShow: warnings.mayInject,
+        listed: warnings.listedNow,
+        inject: (source, rows, sends, error) => {
+          const before = warnings.refusedNow()
+          const shown = rows.length > 0 && warnings.inject(source, rows)
+          logConnection('sheet-refused', {
+            code: 'MATCHED_CLIENT',
+            rows: rows.length,
+            shown,
+          })
+          if (!shown) return
+          refusedSends.current = sendsByRow(
+            refusedSends.current,
+            before,
+            source,
+            rows,
+            sends,
+          )
+          const refusal = sheetRefusalOf(error)
+          refusalShown.current = refusal && {
+            refusal,
+            held: latestHeld.current(refusal),
+          }
+          setShownRefusal(error)
+        },
+      }),
     onSuccess: onDone,
   })
+  const fromServer = new Set(warnings.injected.map((w) => w.id))
+  const showsRefused = warnings.warnings.some((w) => fromServer.has(w.id))
 
   // Read when the save goes, after any checks at Add have answered.
   const latestArgs = useLatest(() => ({
@@ -1701,15 +1842,27 @@ function NewPropertyForClientForm({
           onCheckChange={setAddressCheck}
           picked={initial?.addressCheck === 'picked'}
         />
-        <FormAlert error={create.isError ? create.error : null} />
+        {/* Not for a refusal whose row the panel shows: it says it. */}
+        <FormAlert
+          error={
+            create.isError && create.error !== shownRefusal
+              ? create.error
+              : null
+          }
+          copy={addPropertyErrorCopy(clientName)}
+        />
         <SaveWarningsPanel
-          // Each row's fix is Use 12 Wattle St.
+          // Each row's fix is Use 12 Wattle St, but for a site the server
+          // found that this sheet doesn't hold yet.
           matchFooter={(shown) =>
             matchFooter(
-              shown.map(() => ({ fix: { kind: 'use' as const } })),
+              shown.map((w) =>
+                w.fix ? { fix: { kind: 'use' as const } } : {},
+              ),
               { anyway: 'Save anyway', adds: 'site' },
             )
           }
+          note={showsRefused ? FOUND_WHEN_SAVING : undefined}
         />
         {lineDown && (
           <p id={lineDownId} className="text-caption text-ink-2">

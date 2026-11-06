@@ -1,4 +1,10 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
+import {
+  IDLE_SAVE_GUARD,
+  createSaveGuard,
+} from '#/components/forms/saveWarningRules'
+import { sendsByRow, sendsOf, standingSends, withSent } from './sheetChecks'
+import type { SheetSends } from './sheetChecks'
 import { NO_OURS, buildMatchIndex } from '../../convex/lib/clientMatch'
 import {
   NOTHING_SEEN,
@@ -13,6 +19,8 @@ import {
   namedSiteOf,
   namedWorkMoved,
   pickOpenWork,
+  refusedMatchSees,
+  refusedSiteRows,
   seenOf,
   seenSeriesOf,
   siteBehindNote,
@@ -30,6 +38,7 @@ import type {
   OpenWork,
   OpenWorkRow,
   OpenWorkSeries,
+  RefusedSiteContext,
   Seen,
   SiteCheck,
   SiteTarget,
@@ -351,7 +360,7 @@ describe('Already booked, at the site chosen', () => {
     ])
   })
 
-  test('nearest first, the earlier of two as near, and at most two', () => {
+  test('nearest first, the earlier of two as near, at most two, and the rest counted', () => {
     const rows = siteWorkRows(
       check({
         work: workOf([
@@ -364,7 +373,100 @@ describe('Already booked, at the site chosen', () => {
     expect(rows.map((r) => r.message)).toEqual([
       '12 Wattle St has another job booked on Thu 29 Oct.',
       '12 Wattle St has another job booked on Sat 31 Oct.',
+      'Another job or visit is booked at this site within a week of this one.',
     ])
+  })
+
+  test('the rest past two is one row that counts them, which Book anyway books past: the server is never left to name what the phone held (FW17d for sites)', () => {
+    // The owner's own one-offs Thu, Sat and Tue; booked on Fri 30 Oct.
+    const j1 = theirs('j-1', 'p-jane', perth('2026-10-29'), { jobNumber: 1 })
+    const j2 = theirs('j-2', 'p-jane', perth('2026-10-31'), { jobNumber: 2 })
+    const j3 = theirs('j-3', 'p-jane', perth('2026-11-03'), { jobNumber: 3 })
+    const fri = check({ work: workOf([j1, j2, j3]), at: perth('2026-10-30') })
+    const rows = siteWorkRows(fri)
+    expect(rows.map((r) => [r.id, r.label, r.fix?.label])).toEqual([
+      ['site:job:j-1', 'Already booked', 'Open #1'],
+      ['site:job:j-2', 'Already booked', 'Open #2'],
+      ['site:more', 'And 1 more', undefined],
+    ])
+    expect(rows[2].message).toBe(
+      'Another job or visit is booked at this site within a week of this one.',
+    )
+    expect(rows[2].propertyId).toBe(pid('p-jane'))
+    // All three go back as seen, j-3 by its id too.
+    expect(seenOf(rows)).toEqual([
+      { propertyId: pid('p-jane'), at: j1.at, jobId: jid('j-1') },
+      { propertyId: pid('p-jane'), at: j2.at, jobId: jid('j-2') },
+      { propertyId: pid('p-jane'), at: j3.at, jobId: jid('j-3') },
+    ])
+    expect(
+      siteWorkRows({ ...fri, seen: withSeenAll(NOTHING_SEEN, rows) }),
+    ).toEqual([])
+    // Its foot is the rows' own.
+    expect(siteFooter(rows, 'Book anyway')).toBe(
+      'Open one, or press Book anyway to book this one as well.',
+    )
+  })
+
+  test('the rest at another site than the rows above are about is said by its address, never “this site”: under rows about the address typed it would read as that one', () => {
+    // New client typed at 12 Wattle St, Bayswater 6053: Jane's site there,
+    // and Bob's 12 Wattle St in Maylands, the same postcode.
+    const typedAt = check({
+      targets: [
+        { site: JANE_SITE, how: 'address' },
+        { site: BOB_SITE, how: 'street' },
+      ],
+      typedAddress: '12 Wattle St',
+      work: workOf([
+        theirs('j-1', 'p-jane', perth('2026-10-30', 8)),
+        theirs('j-2', 'p-jane', perth('2026-10-31')),
+        theirs('j-3', 'p-bob', perth('2026-11-04')),
+      ]),
+    })
+    const rows = siteWorkRows(typedAt)
+    expect(rows.map((r) => r.message)).toEqual([
+      '12 Wattle St, Bayswater (Jane Nguyen’s) has a job on Fri 30 Oct.',
+      '12 Wattle St, Bayswater (Jane Nguyen’s) has a job on Sat 31 Oct.',
+      'Another job or visit is booked at 12 Wattle St, Maylands within a week of this one.',
+    ])
+    expect(rows[2].propertyId).toBe(pid('p-bob'))
+    // At the site the rows above are about: "this site", as it was.
+    const same = siteWorkRows({
+      ...typedAt,
+      work: workOf([
+        theirs('j-1', 'p-jane', perth('2026-10-30', 8)),
+        theirs('j-2', 'p-jane', perth('2026-10-31')),
+        theirs('j-4', 'p-jane', perth('2026-11-02')),
+      ]),
+    })
+    expect(same[2].message).toBe(
+      'Another job or visit is booked at this site within a week of this one.',
+    )
+    // The rows above at both, the rest at one of them: by its address.
+    const both = siteWorkRows({
+      ...typedAt,
+      work: workOf([
+        theirs('j-1', 'p-jane', perth('2026-10-30', 8)),
+        theirs('j-3', 'p-bob', perth('2026-10-30', 10)),
+        theirs('j-2', 'p-jane', perth('2026-11-02')),
+      ]),
+    })
+    expect(both[2].message).toBe(
+      'Another job or visit is booked at 12 Wattle St, Bayswater within a week of this one.',
+    )
+    // At several: these sites.
+    const several = siteWorkRows({
+      ...typedAt,
+      work: workOf([
+        theirs('j-1', 'p-jane', perth('2026-10-30', 8)),
+        theirs('j-2', 'p-jane', perth('2026-10-30', 10)),
+        theirs('j-3', 'p-bob', perth('2026-11-02')),
+        theirs('j-4', 'p-jane', perth('2026-11-03')),
+      ]),
+    })
+    expect(several[2].message).toBe(
+      '2 other jobs or visits are booked at these sites within a week of this one.',
+    )
   })
 
   test('not done or cancelled work, nor another site’s', () => {
@@ -990,7 +1092,7 @@ describe('what can’t be checked (`uncheckedRows`, `siteBehindNote`)', () => {
     }
   })
 
-  test('a date no answer reaches within a week of is said as one just past the edge is, however far: nothing checks it until the online sheet sends its check (M7)', () => {
+  test('a date no answer reaches within a week of is said as one just past the edge is, however far: nothing on the phone checks it (and, for a booking kept on the phone or a narrowed book, nothing on the server either)', () => {
     // This week's runs from Mon 28 Sept to Sun 14 Feb 2027.
     for (const dayKey of ['2027-02-22', '2027-03-10', '2027-10-26']) {
       expect(
@@ -1028,6 +1130,90 @@ describe('what can’t be checked (`uncheckedRows`, `siteBehindNote`)', () => {
     ])
     // Nothing to check, nothing said, there too.
     expect(uncheckedRows({ ...base, pick: 'past', targets: 0 })).toEqual([])
+  })
+
+  test('with the server’s check (M7): a date whose week either side is wholly past the days held is the server’s to name, and not said', () => {
+    const server = { ...base, serverChecks: true }
+    // This week's runs from Mon 28 Sept to Sun 14 Feb 2027; Recurring Job
+    // visits are made to Sat 24 Apr 2027 (HORIZON_DAYS).
+    for (const dayKey of ['2027-02-22', '2027-04-15', '2026-09-20']) {
+      expect(
+        uncheckedRows({ ...server, pick: 'past', dayKey }),
+        dayKey,
+      ).toEqual([])
+    }
+    // A week that straddles an edge: the phone holds part of it, and says
+    // where it stops, as without.
+    expect(said(uncheckedRows({ ...server, dayKey: '2027-02-10' }))).toEqual([
+      [
+        'site:unchecked:after',
+        'Not checked',
+        'Bookings at this site after Sun 14 Feb 2027 can’t be checked on this phone.',
+        undefined,
+      ],
+    ])
+    expect(
+      said(uncheckedRows({ ...server, pick: 'past', dayKey: '2027-02-21' })),
+    ).toHaveLength(1)
+    // No usable answer on the phone: still said.
+    expect(said(uncheckedRows({ ...server, pick: 'none' }))).toEqual([
+      ['site:unchecked', 'Not checked', SITE_UNCHECKED, undefined],
+    ])
+    expect(
+      uncheckedRows({
+        ...server,
+        capped: true,
+        lastAt: perth('2026-11-03'),
+      }),
+    ).toHaveLength(1)
+  })
+
+  test('with the server’s check, a one-off whose week after runs past the Recurring Job visits made so far is still said: a running one’s visit there is on nobody’s books yet; a Recurring Job being booked is the server’s to name at any date', () => {
+    const server = { ...base, serverChecks: true }
+    const after = [
+      'site:unchecked:after',
+      'Not checked',
+      'Bookings at this site after Sun 14 Feb 2027 can’t be checked on this phone.',
+      undefined,
+    ]
+    // Visits are made 180 days ahead, by a daily run: to Thu 22 Apr 2027
+    // at the least, two days short of today's horizon, to be sure.
+    expect(
+      uncheckedRows({ ...server, pick: 'past', dayKey: '2027-04-15' }),
+    ).toEqual([])
+    for (const dayKey of ['2027-04-16', '2027-05-24', '2027-08-02']) {
+      expect(
+        said(uncheckedRows({ ...server, pick: 'past', dayKey })),
+        dayKey,
+      ).toEqual([after])
+      expect(
+        uncheckedRows({ ...server, pick: 'past', dayKey, repeats: true }),
+        dayKey,
+      ).toEqual([])
+    }
+  })
+
+  test('with the server’s check, a one-off past the Recurring Job visits made so far, where none runs at a site checked: every booking near it is a one-off, which the server names, so not said; where one runs, or that can’t be told, still said', () => {
+    const server = { ...base, serverChecks: true }
+    for (const dayKey of ['2027-04-16', '2027-05-04', '2027-08-02']) {
+      expect(
+        uncheckedRows({ ...server, pick: 'past', dayKey, seriesThere: false }),
+        dayKey,
+      ).toEqual([])
+      expect(
+        uncheckedRows({ ...server, pick: 'past', dayKey, seriesThere: true }),
+        dayKey,
+      ).toHaveLength(1)
+      // Not with the server's check: the phone says it, as it always has.
+      expect(
+        uncheckedRows({ ...base, pick: 'past', dayKey, seriesThere: false }),
+        dayKey,
+      ).toHaveLength(1)
+    }
+    // A week that straddles the edge of the weeks held: still said.
+    expect(
+      uncheckedRows({ ...server, dayKey: '2027-02-10', seriesThere: false }),
+    ).toHaveLength(1)
   })
 
   test('an answer cut short before the week after the date, or for a Recurring Job, can’t say', () => {
@@ -1288,6 +1474,67 @@ describe('both checks from one reading (`bookingWork`)', () => {
     })
     expect(oneOff.found).toEqual([])
     expect(oneOff.unchecked.map((r) => r.id)).toEqual(['site:unchecked:after'])
+  })
+
+  test('with the server’s check, a date wholly past the weeks held: not said where every site checked is one the server checks (chosen, or at the address typed exactly); said where one is only like it, or in the same street, which only the phone looks at', () => {
+    // Past the twenty weeks, inside the Recurring Job visits made.
+    const far = (targets: SiteCheck['targets']) =>
+      bookingWork({
+        held,
+        dayKey: '2027-03-31',
+        matchRows: [],
+        check: { ...base, at: perth('2027-03-31'), targets },
+        serverChecks: true,
+      }).unchecked.map((r) => r.id)
+    expect(far([{ site: JANE_SITE, how: 'chosen' }])).toEqual([])
+    expect(
+      far([
+        { site: JANE_SITE, how: 'address' },
+        { site: BOB_SITE, how: 'address' },
+      ]),
+    ).toEqual([])
+    // "30 Watle St" typed, like Jane's 30 Wattle St: the server checks only
+    // sites at "30 Watle St" exactly, so Jane's work there that week is
+    // checked by neither.
+    expect(far([{ site: JANE_SITE, how: 'near' }])).toEqual([
+      'site:unchecked:after',
+    ])
+    expect(
+      far([
+        { site: BOB_SITE, how: 'address' },
+        { site: JANE_SITE, how: 'street' },
+      ]),
+    ).toEqual(['site:unchecked:after'])
+  })
+
+  test('with the server’s check, a one-off past the Recurring Job visits made so far: said only at a site where one runs, as the answer read has every one running in the business', () => {
+    // Tue 4 May 2027: past the visits made (to Thu 22 Apr 2027 at least).
+    const far = (targets: SiteCheck['targets'], at = held) =>
+      bookingWork({
+        held: at,
+        dayKey: '2027-05-04',
+        matchRows: [],
+        check: { ...base, at: perth('2027-05-04'), targets },
+        serverChecks: true,
+      }).unchecked.map((r) => r.id)
+    // Jane's site has a Recurring Job (`quarterly`); Bob's none.
+    expect(far([{ site: JANE_SITE, how: 'chosen' }])).toEqual([
+      'site:unchecked:after',
+    ])
+    expect(far([{ site: BOB_SITE, how: 'chosen' }])).toEqual([])
+    expect(
+      far([
+        { site: BOB_SITE, how: 'address' },
+        { site: JANE_SITE, how: 'address' },
+      ]),
+    ).toEqual(['site:unchecked:after'])
+    // None running anywhere.
+    expect(
+      far(
+        [{ site: JANE_SITE, how: 'chosen' }],
+        [{ startKey: WEEK, work: workOf([]) }],
+      ),
+    ).toEqual([])
   })
 
   test('nothing held: only that it couldn’t be checked; an answer covering the date: the work near it', () => {
@@ -1577,6 +1824,218 @@ describe('Book at from a row about the site’s work (`withSeenAll`)', () => {
       press1.found,
     )
   })
+
+  test('a refused match row’s fix books past what the press refused showed at the site it books at, as the phone’s own match row’s does, though its words name none of it (`refusedMatchSees`)', () => {
+    // 12 Wattle St holds three jobs within the week. The phone has the
+    // site as Jane's, and her row names the nearest two; the third is a
+    // site row of its own. The site has just gone to Amy Lo's record on
+    // another phone, so the server names Amy, with Book on Amy Lo there.
+    const j123 = theirs('j-123', 'p-jane', perth('2026-10-29'), {
+      jobNumber: 123,
+    })
+    const j124 = theirs('j-124', 'p-jane', perth('2026-10-31'), {
+      jobNumber: 124,
+    })
+    const j125 = theirs('j-125', 'p-jane', perth('2026-11-02'), {
+      jobNumber: 125,
+    })
+    const elsewhere = theirs('j-9', 'p-bob', perth('2026-10-30'))
+    const janeRow = {
+      id: 'match:c-jane',
+      message:
+        '12 Wattle St, Bayswater is Jane Nguyen’s. Same name and address.',
+      fix: {
+        kind: 'bookAt',
+        label: 'Book at 12 Wattle St',
+        clientId: cid('c-jane'),
+        propertyId: pid('p-jane'),
+      } as MatchFix,
+    }
+    const work = workOf([j123, j124, j125, elsewhere])
+    const press1 = bookingWork({
+      held: [{ startKey: WEEK, work }],
+      dayKey: '2026-10-30',
+      matchRows: [janeRow],
+      check: {
+        ...check(),
+        targets: [{ site: JANE_SITE, how: 'address' }],
+      },
+    })
+    expect(press1.found.map((r) => r.id)).toEqual(['site:job:j-125'])
+    const amyRow = {
+      fix: {
+        kind: 'bookAt',
+        label: 'Book on Amy Lo',
+        clientId: cid('c-amy'),
+        propertyId: pid('p-jane'),
+      } as MatchFix,
+    }
+    const atJane = { ...check(), work }
+    // The phone's own row's fix: the press after it, at the site, is told
+    // of none of the three.
+    const own = withSeen(NOTHING_SEEN, press1.fixSees.get('match:c-jane')!)
+    expect(siteWorkRows({ ...atJane, seen: own })).toEqual([])
+    // Amy's, beside Jane's row still standing in the phone's own words:
+    // the same.
+    const sees = refusedMatchSees(amyRow, press1.found, press1.named)
+    expect(sees).toBeDefined()
+    const seen = withSeen(NOTHING_SEEN, sees!)
+    expect(siteWorkRows({ ...atJane, seen })).toEqual([])
+    // Work at another site isn't booked past.
+    expect(isSeen(elsewhere, seen)).toBe(false)
+    // In the place of a phone row naming the two (`namedRowsOnPanel`
+    // leaves its work out, as its words are gone): the site row alone.
+    const alone = withSeen(
+      NOTHING_SEEN,
+      refusedMatchSees(amyRow, press1.found, new Map())!,
+    )
+    expect(siteWorkRows({ ...atJane, seen: alone }).map((r) => r.id)).toEqual([
+      'site:job:j-123',
+      'site:job:j-124',
+    ])
+    // A "Not checked" row beside them is no work to book past.
+    const unchecked = {
+      propertyId: null,
+      shows: { rows: [], series: [] },
+    }
+    expect(
+      refusedMatchSees(amyRow, [...press1.found, unchecked], new Map()),
+    ).toEqual(refusedMatchSees(amyRow, press1.found, new Map()))
+    // A row booking at no site (Use, Show them) books past nothing.
+    expect(
+      refusedMatchSees(
+        {
+          fix: {
+            kind: 'use',
+            label: 'Use Amy Lo',
+            clientId: cid('c-amy'),
+          },
+        },
+        press1.found,
+        press1.named,
+      ),
+    ).toBeUndefined()
+    // Nothing shown at its site: nothing.
+    expect(
+      refusedMatchSees(
+        {
+          fix: {
+            kind: 'bookAt',
+            label: 'Book on Bob Smith',
+            clientId: cid('c-bob'),
+            propertyId: pid('p-elsewhere'),
+          },
+        },
+        press1.found,
+        press1.named,
+      ),
+    ).toBeUndefined()
+  })
+
+  test('a match row’s fix, the phone’s own or a refused one’s, books past what an “And 3 more” about several sites counts at the site it books at, as it does the rows above: the press after it isn’t told of them again, and the other site’s stay to be told of', () => {
+    // New client typed at 12 Wattle St, Bayswater 6053: Jane's site there,
+    // and Bob's 12 Wattle St in Maylands, the same street and postcode.
+    // Seven jobs of the owner's own within the week between them.
+    const job = (id: string, at: string, when: number, n: number) =>
+      theirs(id, at, when, { jobNumber: n })
+    const a1 = job('j-a1', 'p-jane', perth('2026-10-30', 10), 1)
+    const a2 = job('j-a2', 'p-jane', perth('2026-10-30', 11), 2)
+    const b1 = job('j-b1', 'p-bob', perth('2026-10-29'), 11)
+    const a3 = job('j-a3', 'p-jane', perth('2026-11-01'), 3)
+    const a4 = job('j-a4', 'p-jane', perth('2026-11-02'), 4)
+    const b2 = job('j-b2', 'p-bob', perth('2026-11-03'), 12)
+    const a5 = job('j-a5', 'p-jane', perth('2026-11-04'), 5)
+    const work = workOf([a1, a2, b1, a3, a4, b2, a5])
+    const janeRow = {
+      id: 'match:c-jane',
+      message:
+        '12 Wattle St, Bayswater is Jane Nguyen’s. Same name and address.',
+      fix: {
+        kind: 'bookAt',
+        label: 'Book at 12 Wattle St',
+        clientId: cid('c-jane'),
+        propertyId: pid('p-jane'),
+      } as MatchFix,
+    }
+    const press1 = bookingWork({
+      held: [{ startKey: WEEK, work }],
+      dayKey: '2026-10-30',
+      matchRows: [janeRow],
+      check: {
+        ...check(),
+        targets: [
+          { site: JANE_SITE, how: 'address' },
+          { site: BOB_SITE, how: 'street' },
+        ],
+        typedAddress: '12 Wattle St',
+      },
+    })
+    // Jane's row names the two on the day; two rows, then the rest at
+    // both sites, two of its three at Jane's.
+    expect(press1.named.get('match:c-jane')).toEqual([a1, a2])
+    expect(press1.found.map((r) => [r.id, r.propertyId])).toEqual([
+      ['site:job:j-b1', pid('p-bob')],
+      ['site:job:j-a3', pid('p-jane')],
+      ['site:more', null],
+    ])
+    expect(press1.found[2].message).toBe(
+      '3 other jobs or visits are booked at these sites within a week of this one.',
+    )
+    const atJane = { ...check(), work }
+    // The phone's own row's fix: at her site, the press after it is told
+    // of none of the five.
+    const own = withSeen(NOTHING_SEEN, press1.fixSees.get('match:c-jane')!)
+    expect(siteWorkRows({ ...atJane, seen: own })).toEqual([])
+    for (const there of [a1, a2, a3, a4, a5]) {
+      expect(isSeen(there, own)).toBe(true)
+    }
+    // Bob's stay to be told of, should the booking go there.
+    expect(isSeen(b1, own)).toBe(false)
+    expect(isSeen(b2, own)).toBe(false)
+    // A refused row's fix at the same site, the phone's row beside it: the
+    // same.
+    const amyRow = {
+      fix: {
+        kind: 'bookAt',
+        label: 'Book on Amy Lo',
+        clientId: cid('c-amy'),
+        propertyId: pid('p-jane'),
+      } as MatchFix,
+    }
+    const refused = withSeen(
+      NOTHING_SEEN,
+      refusedMatchSees(amyRow, press1.found, press1.named)!,
+    )
+    expect(siteWorkRows({ ...atJane, seen: refused })).toEqual([])
+    expect(isSeen(b2, refused)).toBe(false)
+    // In the place of the phone's row, whose words are gone: what the
+    // site's own rows showed and counted there, never the two it named.
+    const alone = withSeen(
+      NOTHING_SEEN,
+      refusedMatchSees(amyRow, press1.found, new Map())!,
+    )
+    expect(siteWorkRows({ ...atJane, seen: alone }).map((r) => r.id)).toEqual([
+      'site:job:j-a1',
+      'site:job:j-a2',
+    ])
+    // At Bob's: his two, though one was counted beside Jane's.
+    const bobRow = {
+      fix: {
+        kind: 'bookAt',
+        label: 'Book at 12 Wattle St',
+        clientId: cid('c-bob'),
+        propertyId: pid('p-bob'),
+      } as MatchFix,
+    }
+    const atBob = withSeen(
+      NOTHING_SEEN,
+      refusedMatchSees(bobRow, press1.found, press1.named)!,
+    )
+    expect(
+      siteWorkRows({ ...atJane, targets: chosen(BOB_SITE), seen: atBob }),
+    ).toEqual([])
+    expect(isSeen(a4, atBob)).toBe(false)
+  })
 })
 
 describe('the day and repeat the site’s rows are read for (`workDayOf`)', () => {
@@ -1622,5 +2081,650 @@ describe('what the match check hangs on beyond what was typed (`namedWorkMoved`)
     expect(namedWorkMoved({ naming: false, workDay: 'b', readFor: 'a' })).toBe(
       namedWorkMoved({ naming: true, workDay: 'b', readFor: 'b' }),
     )
+  })
+})
+
+describe('what the server found as the booking went (SITE_BOOKED, SITE_REPEATS; M7 §4.5)', () => {
+  const wattle = site('p-jane', 'c-jane', '12 Wattle St', 'Bayswater')
+  const typedCtx = (
+    extra: Partial<
+      Exclude<RefusedSiteContext['at'], { mode: 'existing' }>
+    > = {},
+    held: ReadonlyArray<MatchSite> = [wattle],
+  ): RefusedSiteContext => ({
+    timezone: TZ,
+    today: TODAY,
+    at: {
+      mode: 'new',
+      typed: {
+        addressLine: '12 Wattle St',
+        suburb: 'Bayswater',
+        postcode: '6053',
+      },
+      ...extra,
+    },
+    siteOf: (id) => held.find((s) => s._id === id),
+  })
+  const existingCtx: RefusedSiteContext = {
+    timezone: TZ,
+    today: TODAY,
+    at: { mode: 'existing', site: { addressLine: '12 Wattle St' } },
+    siteOf: () => undefined,
+  }
+  const said = (rows: ReturnType<typeof refusedSiteRows>) =>
+    rows.map((r) => [r.id, r.label, r.message, r.fix?.label, r.fix2?.label])
+
+  test('someone else’s work: by its date alone, once a day at a site, and whose never (C5)', () => {
+    const rows = refusedSiteRows(
+      {
+        code: 'SITE_BOOKED',
+        rows: [
+          {
+            propertyId: pid('p-jane'),
+            at: 1,
+            scheduledAt: perth('2026-11-03', 9),
+          },
+          {
+            propertyId: pid('p-jane'),
+            at: 2,
+            scheduledAt: perth('2026-11-03', 14),
+          },
+        ],
+      },
+      existingCtx,
+    )
+    expect(said(rows)).toEqual([
+      [
+        'site:day:p-jane:2026-11-03',
+        'Already booked',
+        '12 Wattle St has another job booked on Tue 3 Nov.',
+        undefined,
+        undefined,
+      ],
+    ])
+    // At an address typed: the site from the list, and Book at the site
+    // where the list holds it; whose it is, not even where the server says
+    // (a client the person may see), as the phone's row says it.
+    expect(
+      said(
+        refusedSiteRows(
+          {
+            code: 'SITE_BOOKED',
+            rows: [
+              {
+                propertyId: pid('p-jane'),
+                at: 1,
+                scheduledAt: perth('2026-11-03'),
+                clientName: 'Jane Nguyen',
+              },
+            ],
+          },
+          typedCtx(),
+        ),
+      ),
+    ).toEqual([
+      [
+        'site:day:p-jane:2026-11-03',
+        'Already booked',
+        '12 Wattle St, Bayswater has another job booked on Tue 3 Nov.',
+        'Book at 12 Wattle St',
+        undefined,
+      ],
+    ])
+    // A site the list doesn't hold yet: the address as typed, no fix.
+    expect(
+      said(
+        refusedSiteRows(
+          {
+            code: 'SITE_BOOKED',
+            rows: [
+              {
+                propertyId: pid('p-new'),
+                at: 1,
+                scheduledAt: perth('2026-11-03'),
+              },
+            ],
+          },
+          typedCtx(),
+        ),
+      ),
+    ).toEqual([
+      [
+        'site:day:p-new:2026-11-03',
+        'Already booked',
+        '12 Wattle St, Bayswater has another job booked on Tue 3 Nov.',
+        undefined,
+        undefined,
+      ],
+    ])
+  })
+
+  test('the person’s own: its number and Open #123 by the server’s id; a visit, Open the visit', () => {
+    expect(
+      said(
+        refusedSiteRows(
+          {
+            code: 'SITE_BOOKED',
+            rows: [
+              {
+                propertyId: pid('p-jane'),
+                at: 1,
+                scheduledAt: perth('2026-11-03', 10),
+                jobId: jid('j-1'),
+                jobNumber: 123,
+              },
+              {
+                propertyId: pid('p-jane'),
+                at: 2,
+                scheduledAt: perth('2026-11-05', 10),
+                jobId: jid('j-2'),
+                jobNumber: 124,
+                series: rid('r-1'),
+              },
+            ],
+          },
+          existingCtx,
+        ),
+      ),
+    ).toEqual([
+      [
+        'site:job:j-1',
+        'Already booked',
+        '12 Wattle St has a job on Tue 3 Nov at 10:00am (#123).',
+        'Open #123',
+        undefined,
+      ],
+      [
+        'site:job:j-2',
+        'Already booked',
+        '12 Wattle St has a Recurring Job visit on Thu 5 Nov.',
+        'Open the visit',
+        undefined,
+      ],
+    ])
+    // At an address typed: Book at first, Open second; in New site for,
+    // Book at only at the chosen client's.
+    const own = {
+      code: 'SITE_BOOKED' as const,
+      rows: [
+        {
+          propertyId: pid('p-jane'),
+          at: 1,
+          scheduledAt: perth('2026-11-03', 10),
+          jobId: jid('j-1'),
+          jobNumber: 123,
+        },
+      ],
+    }
+    // As the phone's row at an address typed says it: Open #123 names it.
+    expect(said(refusedSiteRows(own, typedCtx()))[0]).toEqual([
+      'site:job:j-1',
+      'Already booked',
+      '12 Wattle St, Bayswater has a job on Tue 3 Nov.',
+      'Book at 12 Wattle St',
+      'Open #123',
+    ])
+    expect(
+      said(
+        refusedSiteRows(
+          own,
+          typedCtx({ mode: 'site', bookFor: cid('c-other') }),
+        ),
+      )[0].slice(3),
+    ).toEqual(['Open #123', undefined])
+  })
+
+  test('the rest it named: "And 2 more", the person’s own one each', () => {
+    const rows = refusedSiteRows(
+      {
+        code: 'SITE_BOOKED',
+        rows: [
+          {
+            propertyId: pid('p-jane'),
+            at: 1,
+            scheduledAt: perth('2026-11-03'),
+          },
+        ],
+        more: [
+          { propertyId: pid('p-jane'), at: 2, jobId: jid('j-2') },
+          { propertyId: pid('p-jane'), at: 3, jobId: jid('j-3') },
+        ],
+      },
+      existingCtx,
+    )
+    expect(said(rows)[1]).toEqual([
+      'site:more',
+      'And 2 more',
+      '2 other jobs or visits are booked at this site within a week of this one.',
+      undefined,
+      undefined,
+    ])
+  })
+
+  test('someone else’s rest is counted by the day, as their rows are, and not at all on a day a row already says (C5)', () => {
+    // A subcontractor's refusal: someone else's Thu 9:00 named, Thu 13:00
+    // and 15:00 in `more`, one entry a slot. The phone would say one dated
+    // row and no count: their number is no more the person's in a count.
+    const thu = {
+      code: 'SITE_BOOKED' as const,
+      rows: [
+        {
+          propertyId: pid('p-jane'),
+          at: perth('2026-10-29', 9),
+          scheduledAt: perth('2026-10-29', 9),
+        },
+      ],
+      more: [
+        { propertyId: pid('p-jane'), at: perth('2026-10-29', 13) },
+        { propertyId: pid('p-jane'), at: perth('2026-10-29', 15) },
+      ],
+    }
+    expect(said(refusedSiteRows(thu, existingCtx))).toEqual([
+      [
+        'site:day:p-jane:2026-10-29',
+        'Already booked',
+        '12 Wattle St has another job booked on Thu 29 Oct.',
+        undefined,
+        undefined,
+      ],
+    ])
+    // Two slots on another day are one more, as their row would be.
+    expect(
+      said(
+        refusedSiteRows(
+          {
+            ...thu,
+            more: [
+              ...thu.more,
+              { propertyId: pid('p-jane'), at: perth('2026-10-30', 9) },
+              { propertyId: pid('p-jane'), at: perth('2026-10-30', 14) },
+            ],
+          },
+          existingCtx,
+        ),
+      )[1],
+    ).toEqual([
+      'site:more',
+      'And 1 more',
+      'Another job or visit is booked at this site within a week of this one.',
+      undefined,
+      undefined,
+    ])
+  })
+
+  test('“And N more” says which rows it counts, by the ids the phone’s own rows have: the same work told again by the server counts what the phone’s count counted', () => {
+    // Booked on Fri 30 Oct at Jane's: someone else's Thu, Sat and Tue, and
+    // the person's own job on Wed 4 Nov.
+    const phone = siteWorkRows(
+      check({
+        work: workOf([
+          others('p-jane', perth('2026-10-29')),
+          others('p-jane', perth('2026-10-31')),
+          others('p-jane', perth('2026-11-03')),
+          theirs('j-4', 'p-jane', perth('2026-11-04')),
+        ]),
+      }),
+    )
+    expect(phone.map((row) => [row.id, row.counts])).toEqual([
+      ['site:day:p-jane:2026-10-29', undefined],
+      ['site:day:p-jane:2026-10-31', undefined],
+      ['site:more', ['site:day:p-jane:2026-11-03', 'site:job:j-4']],
+    ])
+    // The server tells the same four, the two nearest as rows.
+    const told = refusedSiteRows(
+      {
+        code: 'SITE_BOOKED',
+        rows: [
+          {
+            propertyId: pid('p-jane'),
+            at: perth('2026-10-29'),
+            scheduledAt: perth('2026-10-29'),
+          },
+          {
+            propertyId: pid('p-jane'),
+            at: perth('2026-10-31'),
+            scheduledAt: perth('2026-10-31'),
+          },
+        ],
+        more: [
+          { propertyId: pid('p-jane'), at: perth('2026-11-03') },
+          {
+            propertyId: pid('p-jane'),
+            at: perth('2026-11-04'),
+            jobId: jid('j-4'),
+          },
+        ],
+      },
+      existingCtx,
+    )
+    expect(told.map((row) => row.id)).toEqual(phone.map((row) => row.id))
+    expect(told.at(-1)?.counts).toEqual(phone.at(-1)?.counts)
+    // A Recurring Job's rest, by its ids.
+    expect(
+      refusedSiteRows(
+        {
+          code: 'SITE_REPEATS',
+          series: [{ recurrenceId: rid('r-1'), propertyId: pid('p-jane') }],
+          more: [rid('r-2'), rid('r-3')],
+        },
+        existingCtx,
+      ).at(-1)?.counts,
+    ).toEqual(['site:series:r-2', 'site:series:r-3'])
+  })
+
+  test('at an address typed, whose it is only for the person’s own work, with whether that client is archived or inactive', () => {
+    const amy: MatchClient = {
+      _id: cid('c-jane'),
+      name: 'Amy Lo',
+      kind: 'person',
+      status: 'inactive',
+    }
+    const ctx = { ...typedCtx(), clientOf: () => amy }
+    const at = perth('2026-10-29')
+    // Someone else's: the server may name the client the person may see;
+    // the phone's row names none (C5), and nor does this.
+    expect(
+      said(
+        refusedSiteRows(
+          {
+            code: 'SITE_BOOKED',
+            rows: [
+              {
+                propertyId: pid('p-jane'),
+                at,
+                scheduledAt: at,
+                clientName: 'Jane Nguyen',
+              },
+            ],
+          },
+          ctx,
+        ),
+      )[0][2],
+    ).toBe('12 Wattle St, Bayswater has another job booked on Thu 29 Oct.')
+    // The person's own: whose, and that she is inactive, before Book at.
+    expect(
+      said(
+        refusedSiteRows(
+          {
+            code: 'SITE_BOOKED',
+            rows: [
+              {
+                propertyId: pid('p-jane'),
+                at,
+                scheduledAt: at,
+                clientName: 'Amy Lo',
+                jobId: jid('j-1'),
+                jobNumber: 123,
+              },
+            ],
+          },
+          ctx,
+        ),
+      )[0],
+    ).toEqual([
+      'site:job:j-1',
+      'Already booked',
+      '12 Wattle St, Bayswater (Amy Lo’s) has a job on Thu 29 Oct. Amy Lo is inactive.',
+      'Book at 12 Wattle St',
+      'Open #123',
+    ])
+  })
+
+  test('a Recurring Job: how often and what where the server said, its next visit, and no fix', () => {
+    expect(
+      said(
+        refusedSiteRows(
+          {
+            code: 'SITE_REPEATS',
+            series: [
+              {
+                recurrenceId: rid('r-1'),
+                propertyId: pid('p-jane'),
+                nextAt: perth('2026-11-10'),
+                intervalCount: 3,
+                intervalUnit: 'month',
+                jobType: 'General Pest',
+              },
+              { recurrenceId: rid('r-2'), propertyId: pid('p-jane') },
+            ],
+            more: [rid('r-3')],
+          },
+          existingCtx,
+        ),
+      ),
+    ).toEqual([
+      [
+        'site:series:r-1',
+        'Already repeats',
+        '12 Wattle St already has a Recurring Job: General Pest every 3 months, next Tue 10 Nov.',
+        undefined,
+        undefined,
+      ],
+      [
+        'site:series:r-2',
+        'Already repeats',
+        '12 Wattle St already has a Recurring Job.',
+        undefined,
+        undefined,
+      ],
+      [
+        'site:more:series',
+        'And 1 more',
+        'Another Recurring Job runs at this site.',
+        undefined,
+        undefined,
+      ],
+    ])
+  })
+
+  test('the rest at an address typed is “this site” only where it and every row above are at one site; else the address, which the server checks every site at (two clients’ sites there)', () => {
+    // 12 Wattle St, Bayswater is two tenants' sites, Jane's (p-jane) and
+    // Bob's (p-bob), neither on the phone's list yet. The rows are Jane's,
+    // nearest first; what the server counts past them is Bob's.
+    const ctx = typedCtx({}, [])
+    const jane = (n: number, day: string) => ({
+      propertyId: pid('p-jane'),
+      at: perth(day),
+      scheduledAt: perth(day),
+      clientName: 'Jane Nguyen',
+      jobId: jid(`j-${n}`),
+      jobNumber: 100 + n,
+    })
+    const rows = [
+      jane(1, '2026-10-28'),
+      jane(2, '2026-10-29'),
+      jane(3, '2026-10-30'),
+    ]
+    const booked = (
+      more: ReadonlyArray<{ propertyId: Id<'properties'>; at: number }>,
+    ) => said(refusedSiteRows({ code: 'SITE_BOOKED', rows, more }, ctx))
+    const bob = { propertyId: pid('p-bob'), at: perth('2026-10-29', 14) }
+    const all = booked([bob])
+    expect(all.slice(0, 3).map((row) => row[2])).toEqual([
+      '12 Wattle St, Bayswater (Jane Nguyen’s) has a job on Wed 28 Oct.',
+      '12 Wattle St, Bayswater (Jane Nguyen’s) has a job on Thu 29 Oct.',
+      '12 Wattle St, Bayswater (Jane Nguyen’s) has a job on Fri 30 Oct.',
+    ])
+    // Not "this site", which would read as Jane's.
+    expect(all[3]).toEqual([
+      'site:more',
+      'And 1 more',
+      'Another job or visit is booked at 12 Wattle St, Bayswater within a week of this one.',
+      undefined,
+      undefined,
+    ])
+    // Both sites in the count: the address typed.
+    expect(
+      booked([bob, { propertyId: pid('p-jane'), at: perth('2026-10-31') }])[3],
+    ).toEqual([
+      'site:more',
+      'And 2 more',
+      '2 other jobs or visits are booked at 12 Wattle St, Bayswater within a week of this one.',
+      undefined,
+      undefined,
+    ])
+    // All of it at Jane's: "this site" is hers, as the rows above are.
+    expect(
+      booked([{ propertyId: pid('p-jane'), at: perth('2026-10-31') }])[3][2],
+    ).toBe(
+      'Another job or visit is booked at this site within a week of this one.',
+    )
+    // The rows above at both: so is the address, however few are counted.
+    expect(
+      said(
+        refusedSiteRows(
+          {
+            code: 'SITE_BOOKED',
+            rows: [rows[0], { ...rows[1], propertyId: pid('p-bob') }],
+            more: [{ propertyId: pid('p-jane'), at: perth('2026-10-31') }],
+          },
+          ctx,
+        ),
+      )[2][2],
+    ).toBe(
+      'Another job or visit is booked at 12 Wattle St, Bayswater within a week of this one.',
+    )
+
+    // A Recurring Job: what it counts is by id alone, so where it is isn't
+    // said; at an address typed, never "this site", at one site above or
+    // several. At the site chosen, the server checks that site alone.
+    const repeats = (propertyIds: ReadonlyArray<string>) => ({
+      code: 'SITE_REPEATS' as const,
+      series: propertyIds.map((id, i) => ({
+        recurrenceId: rid(`r-${i + 1}`),
+        propertyId: pid(id),
+      })),
+      more: [rid('r-9')],
+    })
+    for (const [ids, held] of [
+      [['p-jane', 'p-bob'], []],
+      [['p-jane', 'p-jane'], []],
+      [['p-jane'], [wattle]],
+    ] as const) {
+      expect(
+        said(refusedSiteRows(repeats(ids), typedCtx({}, held))).at(-1),
+        ids.join(),
+      ).toEqual([
+        'site:more:series',
+        'And 1 more',
+        'Another Recurring Job runs at 12 Wattle St, Bayswater.',
+        undefined,
+        undefined,
+      ])
+    }
+    expect(
+      said(refusedSiteRows(repeats(['p-jane']), existingCtx)).at(-1)?.[2],
+    ).toBe('Another Recurring Job runs at this site.')
+  })
+})
+
+describe('a refused row of the site’s work, once the phone’s copy holds that work too (M7)', () => {
+  // An owner books at Jane's 12 Wattle St. The office has just booked #1
+  // there for Thu 29 Oct, which this phone's copy doesn't hold yet: Book
+  // is refused, and the panel shows the server's row.
+  const refusal = {
+    code: 'SITE_BOOKED' as const,
+    rows: [
+      {
+        propertyId: pid('p-jane'),
+        at: perth('2026-10-29', 10),
+        scheduledAt: perth('2026-10-29', 10),
+        jobId: jid('j-1'),
+        jobNumber: 1,
+      },
+    ],
+  }
+  const caughtUp = workOf([
+    theirs('j-1', 'p-jane', perth('2026-10-29', 10), {
+      jobNumber: 1,
+      jobType: 'General Pest Control',
+    }),
+  ])
+
+  test('is the same work: the phone’s own check counts what refused rows standing named as seen, so Book anyway books on its one press, never showing the job again in more words', () => {
+    const source = 'new-job-site-work'
+    const save = vi.fn()
+    let state = IDLE_SAVE_GUARD
+    const guard = createSaveGuard((next) => {
+      state = next
+    })
+    guard.attach()
+    let work = workOf([])
+    let byRow: ReadonlyMap<string, SheetSends> = new Map()
+    // As New Job's check: seen, with what refused rows standing named
+    // (`refusedSiteSends`).
+    const seenNow = () =>
+      withSent(NOTHING_SEEN, standingSends(byRow, guard.refused(), source))
+    guard.register(source, () =>
+      siteWorkRows(check({ work, seen: seenNow() })).map((row) => ({
+        id: row.id,
+        kind: 'site' as const,
+        label: row.label,
+        message: row.message,
+      })),
+    )
+    const press = () =>
+      guard.guard({ preventDefault: () => {} }, () => {
+        save()
+      })
+    press()
+    expect(save).toHaveBeenCalledTimes(1)
+    const rows = refusedSiteRows(refusal, {
+      timezone: TZ,
+      today: TODAY,
+      at: { mode: 'existing', site: { addressLine: '12 Wattle St' } },
+      siteOf: () => undefined,
+    })
+    expect(rows.map((r) => [r.id, r.message])).toEqual([
+      ['site:job:j-1', '12 Wattle St has a job on Thu 29 Oct at 10:00am (#1).'],
+    ])
+    // As the panel draws them (their fixes the sheet's own).
+    expect(
+      guard.inject(
+        source,
+        rows.map((r) => ({
+          id: r.id,
+          kind: 'site' as const,
+          label: r.label,
+          message: r.message,
+        })),
+      ),
+    ).toBe(true)
+    byRow = sendsByRow(byRow, [], source, rows, sendsOf(refusal))
+    expect(state.open).toBe(true)
+
+    // The push with #1 lands. The phone's own row for it says more than
+    // the server sent, by the same id.
+    work = caughtUp
+    expect(siteWorkRows(check({ work })).map((r) => [r.id, r.message])).toEqual(
+      [
+        [
+          'site:job:j-1',
+          '12 Wattle St has a job on Thu 29 Oct at 10:00am — General Pest Control, Sam Lee (#1).',
+        ],
+      ],
+    )
+    // Book anyway: books, on this one press.
+    press()
+    expect(save).toHaveBeenCalledTimes(2)
+    // And what goes back names the job, by its id.
+    expect(seenNow().pairs).toEqual([
+      {
+        propertyId: pid('p-jane'),
+        at: perth('2026-10-29', 10),
+        jobId: jid('j-1'),
+      },
+    ])
+  })
+
+  test('work the server didn’t name is still news: another job there the copy now holds is shown', () => {
+    const seen = withSent(NOTHING_SEEN, sendsOf(refusal))
+    const more = workOf([
+      ...caughtUp.rows,
+      theirs('j-2', 'p-jane', perth('2026-10-31', 14), { jobNumber: 2 }),
+    ])
+    expect(siteWorkRows(check({ work: more, seen })).map((r) => r.id)).toEqual([
+      'site:job:j-2',
+    ])
   })
 })

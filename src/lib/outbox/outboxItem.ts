@@ -247,6 +247,16 @@ export type BookingCallExtra = {
   asMembership?: Id<'memberships'>
   /** A Recurring Job's only: refuse it if its first visit has gone by. */
   refuseBackfill?: true
+  /**
+   * What New Job open with signal showed and booked past (the matching
+   * plan's M7, lib/sheetChecks.ts): the clients the phone's matcher found,
+   * with a new client or site (`by: 'sheet'`), and the work at the site.
+   * Sent by the sheet's own straight call only: a booking kept on the
+   * phone goes without them until the outbox answers refusals itself
+   * (2c-J), as it always has. Never stored with the booking.
+   */
+  matchCheck?: FunctionArgs<typeof api.jobs.create>['matchCheck']
+  siteCheck?: FunctionArgs<typeof api.jobs.create>['siteCheck']
 }
 
 /**
@@ -269,6 +279,8 @@ export function bookingCall(
     ...(extra.asMembership !== undefined && {
       asMembership: extra.asMembership,
     }),
+    ...(extra.matchCheck !== undefined && { matchCheck: extra.matchCheck }),
+    ...(extra.siteCheck !== undefined && { siteCheck: extra.siteCheck }),
   }
   if (recurrence === null) {
     return { fn: 'jobs.create', args: { ...job, ...property, ...keyed } }

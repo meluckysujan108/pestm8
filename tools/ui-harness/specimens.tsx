@@ -29,6 +29,7 @@ import {
   SITE_STREET_BIZ,
   SITE_UNCHECKED_BIZ,
 } from './siteWorkFixtures'
+import { SHEET_MATCH_BIZ, SHEET_SITE_BIZ } from './sheetCheckFixtures'
 import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
 import { clientCountLabel, directoryCount } from '#/lib/offline/keptClients'
 import { ScheduleNotKept } from '#/components/schedule/ScheduleNotKept'
@@ -728,6 +729,52 @@ function NewJobSiteWorkUnchecked() {
   return (
     <LineLive>
       <NewJobOver businessId={SITE_UNCHECKED_BIZ} />
+    </LineLive>
+  )
+}
+
+/**
+ * What the server found as the booking went (the matching plan's M7):
+ * Nadia Hussain, added on another phone since this one's client list was read.
+ * Book waits 3 s for the list to hold her, which it never does here, so the
+ * row says where to find her instead, with no fix, and "And 2 more"; the
+ * panel ends "PestM8 found this when saving.", and FormAlert says nothing.
+ */
+function NewJobSheetRefusedMatch() {
+  return (
+    <LineLive>
+      <NewJobOver businessId={SHEET_MATCH_BIZ} />
+    </LineLive>
+  )
+}
+
+/** Jane Nguyen's 12 Wattle St, booked tomorrow by the person (#124) and
+ * the day after by someone else since the phone's copy was read: the
+ * person's own with Open #124, someone else's by its date alone. */
+function NewJobSheetRefusedSite() {
+  return (
+    <LineLive>
+      <NewJobOver businessId={SHEET_SITE_BIZ} />
+    </LineLive>
+  )
+}
+
+/** Clients → New client, refused for Nadia Hussain: Open Nadia Hussain by the
+ * server's id, though the list on the phone doesn't hold her. */
+function NewPropertySheetRefused() {
+  return (
+    <LineLive>
+      <Phone>
+        <AccessProvider businessId={SHEET_MATCH_BIZ as never}>
+          <Header title="Clients" />
+          <NewPropertySheet
+            businessId={SHEET_MATCH_BIZ as never}
+            open
+            onClose={() => {}}
+            onOpenClient={() => {}}
+          />
+        </AccessProvider>
+      </Phone>
     </LineLive>
   )
 }
@@ -3296,6 +3343,9 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'newjob-already-repeats': NewJobSiteWork,
   'newjob-sitework-unchecked': NewJobSiteWorkUnchecked,
   'newjob-picker-detail-booked': NewJobSiteWork,
+  'newjob-sheet-refused-match': NewJobSheetRefusedMatch,
+  'newjob-sheet-refused-site': NewJobSheetRefusedSite,
+  'newproperty-sheet-refused': NewPropertySheetRefused,
   'newproperty-match-open-client': NewPropertyMatch,
   'clientsheet-addsite-own-dup': ClientSheetAddSiteOwnDup,
   'newclient-order': NewPropertyMatch,

@@ -197,6 +197,34 @@ describe('the mutation a booking goes as', () => {
     expect(call.args).not.toHaveProperty('alsoGoing')
   })
 
+  test('the sheet’s own checks go to either mutation as given, and only when given (M7)', () => {
+    const checks = {
+      matchCheck: {
+        by: 'sheet' as const,
+        dismissed: ['c-ray' as Id<'clients'>],
+      },
+      siteCheck: {
+        seen: [{ propertyId: 'p1' as Id<'properties'>, at: 1 }],
+        seenSeries: ['r-1' as Id<'recurrences'>],
+      },
+    }
+    for (const booking of [
+      bookingFor(FILLED) as SendableBooking,
+      bookingFor({ ...FILLED, ...SERIES }) as SendableBooking,
+    ]) {
+      expect(bookingCall(booking, checks).args).toStrictEqual({
+        ...sentBefore(booking).args,
+        ...checks,
+      })
+      const none = bookingCall(booking, {
+        matchCheck: undefined,
+        siteCheck: undefined,
+      }).args
+      expect(none).not.toHaveProperty('matchCheck')
+      expect(none).not.toHaveProperty('siteCheck')
+    }
+  })
+
   test('refuseBackfill goes only when asked', () => {
     const booking = bookingFor(SERIES) as SendableBooking
     expect(

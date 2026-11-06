@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'vitest'
 import { ConvexError } from 'convex/values'
+import { convexCode } from '#/components/forms/describeError'
 import { OUTBOX_V } from './outboxItem'
 import { ACCESS_HOLD_MS, PAUSED_HOLD_MS, STALE_AFTER_MS } from './outboxSet'
 import {
   CHIP_WORDS,
   chipFor,
   classify,
+  codeOf,
   countsOf,
   firstVisitMeant,
   firstVisitPast,
@@ -413,5 +415,23 @@ describe('on screen', () => {
     expect(onPhoneWords(' ', 1)).toBe(
       'A job not sent yet is on this phone. It goes when the person who booked it signs in again. Signing in as anyone else discards it.',
     )
+  })
+})
+
+describe('the refusal’s code (`codeOf`)', () => {
+  test('the forms’ own reader (`convexCode`, RK16), and CONVEX_ERROR for a ConvexError that names none', () => {
+    const errors = [
+      new ConvexError('OUTBOX_PAUSED'),
+      new ConvexError({ code: 'SITE_BOOKED', rows: [] }),
+      new Error('Uncaught ConvexError: OUTBOX_PAUSED'),
+      { data: 'NO_ACCESS' },
+      null,
+      'SITE_BOOKED',
+    ]
+    for (const error of errors) {
+      expect(codeOf(error)).toBe(convexCode(error))
+    }
+    expect(codeOf(new ConvexError({ reason: 'x' }))).toBe('CONVEX_ERROR')
+    expect(convexCode(new ConvexError({ reason: 'x' }))).toBeNull()
   })
 })

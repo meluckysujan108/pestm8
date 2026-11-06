@@ -10,6 +10,8 @@ import {
 } from '../../convex/lib/contactKeys'
 import {
   MATCH_ROWS_MAX,
+  NO_OURS,
+  buildMatchIndex,
   matchNewClient,
   matchNewSite,
 } from '../../convex/lib/clientMatch'
@@ -82,6 +84,10 @@ export type MatchFix =
       label: string
       clientId: Id<'clients'>
       onDetails?: true
+      /** Their name, for a client the list on the phone doesn't hold yet
+       * (a refusal's, `refusedMatchRows`): what New client says it was
+       * kept from (`KeptDraftNote`). */
+      name?: string
     }
 
 /** One row of the panel at Book. */
@@ -361,7 +367,7 @@ export function openFromNewClient(
   typed: TypedNewClient,
 ): OpenedClient {
   const client = index.clients.get(fix.clientId)
-  if (!client) return { keepDraft: true }
+  if (!client) return openUnheld(fix, typed)
   const address = fix.onDetails
     ? undefined
     : openAddSite(index, fix.clientId, typed)
@@ -422,11 +428,43 @@ export function openFromNewClient(
   }
 }
 
+/**
+ * Open {client} for a client the server found that the list on the phone
+ * doesn't hold yet (`refusedMatchRows`): their sheet by the server's id,
+ * with Add property open on the address typed where the server found it
+ * isn't one of their sites (no `propertyId`: `onDetails` unset), as a
+ * client held would open (`openAddSite`); on Details where it is, or none
+ * was typed. Nothing of who they are is known here, so New client is
+ * always kept as typed, and no site contact is carried: whether they are a
+ * business, whose sites have one, isn't either.
+ */
+export function openUnheld(
+  fix: Extract<MatchFix, { kind: 'open' }>,
+  typed: TypedNewClient,
+): OpenedClient {
+  if (fix.onDetails || typed.addressLine.trim() === '') {
+    return { keepDraft: true }
+  }
+  return {
+    addSite: {
+      addressLine: typed.addressLine,
+      suburb: typed.suburb,
+      state: typed.state,
+      postcode: typed.postcode,
+      siteContactName: '',
+      siteContactPhone: '',
+      ...(typed.addressCheck ? { addressCheck: typed.addressCheck } : {}),
+    },
+    keepDraft: true,
+  }
+}
+
 /** A candidate's row at Book (§2.7). */
 function candidateRow(
   ctx: MatchRowsContext,
   typed: TypedClient,
   c: Candidate,
+  through: ThroughContact | null = null,
 ): MatchRow {
   const { index } = ctx
   const ev = new Set(c.evidence)
@@ -453,8 +491,19 @@ function candidateRow(
     ...forVerb(ctx, fixes, c.clientId, shows),
   })
   // Found through a contact person whose name agrees (Sarah Lee at Ray White
-  // Bayswater): the name that agreed is the contact's, not the client's.
-  const contact = c.contactId && ctx.contacts.find((k) => k._id === c.contactId)
+  // Bayswater): the name that agreed is the contact's, not the client's. One
+  // on the phone by their own name; one only the server found through
+  // (`through`), by the name typed.
+  const held = c.contactId && ctx.contacts.find((k) => k._id === c.contactId)
+  const contact = held
+    ? { name: held.name, is: 'is', held: true }
+    : through
+      ? {
+          name: through.typed,
+          is: through.exact ? 'is' : 'may be',
+          held: false,
+        }
+      : null
 
   if (c.tier === 'maybe') {
     const different = differentWords(typed, index.areaCode)
@@ -479,7 +528,7 @@ function candidateRow(
       ? done(
           'Already a client',
           `${siteText(atSite)} is ${possessive(them)}${
-            contact ? `, and ${contact.name} is a contact there` : ''
+            contact ? `, and ${contact.name} ${contact.is} a contact there` : ''
           }. ${sameSentence(ev, true)}${tagSentence(them)}`,
           { fix: bookAt },
         )
@@ -509,7 +558,7 @@ function candidateRow(
     // The tag in a sentence of its own, not "(inactive) (1 site)".
     return done(
       'Already a client',
-      `${contact.name} is a contact at ${them?.name ?? name}${
+      `${contact.name} ${contact.is} a contact at ${them?.name ?? name}${
         count > 0 ? ` (${plural(count, 'site')})` : ''
       }. ${sameSentence(ev)}${tagSentence(them)}`,
       { fix: use },
@@ -571,7 +620,9 @@ function candidateRow(
         'Already a client',
         `${
           contact
-            ? `${contact.name}, a contact at ${name},`
+            ? contact.held
+              ? `${contact.name}, a contact at ${name},`
+              : `A contact at ${name}`
             : whoOf(index, c.clientId)
         } has a similar name and the same number.`,
         { fix: show(typed.phone?.trim() ?? '') },
@@ -710,6 +761,10 @@ function sharedRow(
   }
 }
 
+/** The id of the row counting the rest ("And 2 more"), the phone's and a
+ * refusal's alike (lib/sheetChecks.ts `countsTheRest`). */
+export const MATCH_MORE_ID = 'match:more'
+
 /**
  * The rows at Book for a new client as typed: one per client, at most
  * MATCH_ROWS_MAX, then "And 2 more" with Show them; then the keys others
@@ -728,7 +783,7 @@ export function newClientRows(
   const rows = shown.map((c) => candidateRow(ctx, typed, c))
   if (more > 0) {
     rows.push({
-      id: 'match:more',
+      id: MATCH_MORE_ID,
       tier: 'more',
       label: `And ${more} more`,
       message:
@@ -831,6 +886,361 @@ export function bookingMatchRows(
   return at.clientId ? newSiteRows(ctx, at.clientId, at.site, at.added) : []
 }
 
+/**
+ * Every client the phone's matcher returned at Book, by New Job's client
+ * mode: what Book anyway has booked past, shown or counted in "And 2 more"
+ * (`matchCheck.dismissed`, FW17d and "Found while building M3"). None for an
+ * existing site, which makes no client.
+ *
+ * In New site for, the client chosen only where the phone found the address
+ * typed is one of their sites exactly (`siteDismissed`): the server's check
+ * there is that alone (an exact site, convex/lib/findSame.ts), so a site
+ * only like one of theirs ("12 Watle St"), shown or added past, never
+ * switches it off for an exact one the phone didn't hold.
+ */
+export function bookingDismissed(
+  ctx: Pick<MatchRowsContext, 'index'>,
+  at: Parameters<typeof bookingMatchRows>[1],
+): Array<Id<'clients'>> {
+  if (at.mode === 'existing') return []
+  if (at.mode === 'new') return dismissedOf(matchNewClient(ctx.index, at.typed))
+  return at.clientId
+    ? siteDismissed(matchNewSite(ctx.index, at.clientId, at.site))
+    : []
+}
+
+/** New site for {client} and Add property: the client, where the phone
+ * found the address typed is exactly one of their sites (`siteIds`), not
+ * only like one (`nearSiteIds`). */
+export function siteDismissed(result: MatchResult): Array<Id<'clients'>> {
+  return result.candidates
+    .filter((c) => c.siteIds.length > 0)
+    .map((c) => c.clientId)
+}
+
+// ── What the server found when saving (M7, §4.5) ──────────────────────────
+
+/** A client as MATCHED_CLIENT names them (convex/lib/findSame.ts). */
+export type RefusedCandidate = {
+  clientId: Id<'clients'>
+  name: string
+  suburb?: string
+  status?: 'active' | 'lead' | 'inactive'
+  archived?: true
+  propertyId?: Id<'properties'>
+  evidence: ReadonlyArray<Evidence>
+}
+
+/** What MATCHED_CLIENT names: at most MATCH_ROWS_MAX, and the rest's ids. */
+export type RefusedMatch = {
+  candidates: ReadonlyArray<RefusedCandidate>
+  more?: ReadonlyArray<Id<'clients'>>
+}
+
+/** Where a refusal's rows are read for: a new client as typed (New Job,
+ * Clients → New client), or a new site for the client chosen. */
+export type RefusedAt =
+  | { mode: 'new'; typed: TypedClient }
+  | { mode: 'site'; clientId: Id<'clients'>; site: TypedAddress }
+
+/** A client list holding nobody: what a refusal's rows are read with
+ * before the list on the phone is (Clients → New client reads it without
+ * waiting), so each is said by what the server sent. */
+export function noClientsIndex(areaCode = ''): MatchIndex {
+  return buildMatchIndex(
+    { clients: [], sites: [], contacts: [], complete: false },
+    { areaCode, ours: NO_OURS },
+  )
+}
+
+/** Whether the client list holds what a refused candidate's fix needs:
+ * the client, and the site the server matched at, when it names one. */
+export function candidateHeld(
+  index: MatchIndex,
+  c: Pick<RefusedCandidate, 'clientId' | 'propertyId'>,
+): boolean {
+  if (!index.clients.has(c.clientId)) return false
+  return c.propertyId === undefined || index.siteKeys.has(c.propertyId)
+}
+
+/** What the server's evidence can say (`matchEvidence`): of the rest the
+ * phone's matcher reads (a street, a site contact, a shared key), only the
+ * phone's own can. */
+const SERVER_EVIDENCE: ReadonlySet<Evidence> = new Set<Evidence>([
+  'name',
+  'nameNear',
+  'site',
+  'mobile',
+  'email',
+  'landline',
+])
+
+/**
+ * A refused candidate, as the phone's matcher would have it: Same, by the
+ * server's evidence, at the site it matched at; with what only the phone's
+ * matcher says of them (the contact person a number was matched through,
+ * their sites like the address typed), where it finds them too now.
+ */
+function asCandidate(
+  c: RefusedCandidate,
+  phone: Candidate | undefined,
+): Candidate {
+  return {
+    clientId: c.clientId,
+    tier: 'same',
+    evidence: [
+      ...c.evidence,
+      ...(phone?.evidence ?? []).filter((e) => !SERVER_EVIDENCE.has(e)),
+    ],
+    siteIds: c.propertyId !== undefined ? [c.propertyId] : [],
+    streetSiteIds: phone?.streetSiteIds ?? [],
+    nearSiteIds: phone?.nearSiteIds ?? [],
+    siteContactSiteIds: phone?.siteContactSiteIds ?? [],
+    ...(phone?.contactId !== undefined ? { contactId: phone.contactId } : {}),
+    shared: phone?.shared ?? [],
+  }
+}
+
+/** A refused client's name as a row names them, from what the server
+ * sent: "Sam Wu (archived)", "Sam Wu (inactive)". */
+function refusedName(c: RefusedCandidate): string {
+  if (c.archived) return `${c.name} (archived)`
+  return c.status === 'inactive' ? `${c.name} (inactive)` : c.name
+}
+
+/** " Sam Wu is archived.", from what the server sent, as `tagSentence`
+ * says it of a client on the list: after a sentence that names them only
+ * by a possessive. '' for anyone else. */
+function refusedTagSentence(c: RefusedCandidate): string {
+  if (c.archived) return ` ${c.name} is archived.`
+  return c.status === 'inactive' ? ` ${c.name} is inactive.` : ''
+}
+
+/** A contact person the server matched a refused client through, said by
+ * the name typed (`throughContact`); `exact` for the same name. */
+export type ThroughContact = { typed: string; exact: boolean }
+
+/**
+ * The name typed, where by the server's evidence it agreed (`name`,
+ * `nameNear`) with a refused client's contact person rather than with the
+ * client: the server's matcher takes a contact's name with a number or
+ * email they hold (convex/lib/clientMatch.ts), and MATCHED_CLIENT names no
+ * contact. So where the client's own name doesn't agree with the name
+ * typed, the name that did is a contact's the phone doesn't hold (added on
+ * another phone, or past the contacts on it), said by the name typed:
+ * "Sarah Lee is a contact at Ray White Bayswater."; a similar name "may be
+ * a contact". Null where the client's own agrees, or no name agreed. With
+ * no `kind` (a client the list doesn't hold), the client's own agrees if
+ * it does as either kind.
+ */
+export function throughContact(
+  c: Pick<RefusedCandidate, 'name' | 'evidence'>,
+  typedName: string | undefined,
+  kind?: 'person' | 'business',
+): ThroughContact | null {
+  const typed = typedName?.trim() ?? ''
+  const ev = new Set(c.evidence)
+  const keyed = ev.has('mobile') || ev.has('email') || ev.has('landline')
+  if (typed === '' || !keyed) return null
+  if (ev.has('name')) {
+    return nameKey(typed) === nameKey(c.name) ? null : { typed, exact: true }
+  }
+  if (!ev.has('nameNear')) return null
+  const near = kind
+    ? nameNear(typed, c.name, kind)
+    : nameNear(typed, c.name, 'person') || nameNear(typed, c.name, 'business')
+  return near ? null : { typed, exact: false }
+}
+
+/** The address typed, as a row says it: "12 Wattle St, Bayswater". */
+function typedText(site: TypedAddress | undefined): string {
+  return [site?.addressLine.trim() ?? '', site?.suburb.trim() ?? '']
+    .filter((part) => part !== '')
+    .join(', ')
+}
+
+/**
+ * The row for a client the server found that the client list on the phone
+ * still doesn't hold (or not the site the server matched at), once New Job
+ * has waited for it (`HOLD_WAIT_MS`): their name and what agreed, from
+ * what the server sent, and no fix, as nothing on the phone could book
+ * there: "Open Jane Nguyen from Clients to book this job." In Clients →
+ * New client, Open {client} still opens their sheet by the server's id.
+ */
+function unheldRow(
+  ctx: MatchRowsContext,
+  at: RefusedAt,
+  c: RefusedCandidate,
+): MatchRow {
+  const ev = new Set(c.evidence)
+  const name = refusedName(c)
+  const agrees = ev.has('name') || ev.has('nameNear')
+  const typed = at.mode === 'new' ? at.typed.site : at.site
+  const address = typedText(typed)
+  const tail =
+    ctx.verb === 'book' ? ` Open ${c.name} from Clients to book this job.` : ''
+  const base = { id: `match:${c.clientId}`, tier: 'same' as const }
+  // Opened on Details where the address typed is theirs already (the
+  // server matched their site), else on Add property with it (`openUnheld`).
+  const open =
+    ctx.verb === 'open'
+      ? {
+          fix: {
+            kind: 'open' as const,
+            label: `Open ${name}`,
+            clientId: c.clientId,
+            name,
+            ...(c.propertyId !== undefined ? { onDetails: true as const } : {}),
+          },
+        }
+      : {}
+  if (at.mode === 'site') {
+    return {
+      ...base,
+      label: 'Already has this site',
+      message: `${name} already has ${address || 'this address'}.${tail}`,
+      ...open,
+    }
+  }
+  // A name that agreed with a contact of theirs, not with them.
+  const through = throughContact(c, at.typed.name)
+  const contact = through
+    ? `${through.typed} ${through.exact ? 'is' : 'may be'} a contact`
+    : null
+  if (ev.has('site') && address !== '') {
+    return {
+      ...base,
+      label: agrees ? 'Already a client' : 'Already a site',
+      // As the phone's own row says it (`candidateRow`): the tag in a
+      // sentence of its own, after what agreed.
+      message: `${address} is ${c.name}’s${contact ? `, and ${contact} there` : ''}. ${
+        agrees
+          ? sameSentence(ev, true)
+          : `Same address${at.typed.name?.trim() ? ', different name' : ''}.`
+      }${refusedTagSentence(c)}${tail}`,
+      ...open,
+    }
+  }
+  if (contact) {
+    return {
+      ...base,
+      label: 'Already a client',
+      message: `${contact} at ${c.name}. ${sameSentence(ev)}${refusedTagSentence(c)}${tail}`,
+      ...open,
+    }
+  }
+  const who = c.suburb ? `${name}, of ${c.suburb},` : name
+  return {
+    ...base,
+    label: 'Already a client',
+    message: `${who} has ${hasClause(ev)}.${tail}`,
+    ...open,
+  }
+}
+
+/**
+ * The rows for MATCHED_CLIENT (§4.5), with the phone's own words: who the
+ * server found, by its ids, as the check at Book would have said them had
+ * the client list on the phone held them, read now that it does
+ * (`candidateHeld`, after New Job's wait), with the same fixes; a client it
+ * still doesn't hold, by what the server sent and with no fix in New Job
+ * (`unheldRow`). Then "And 2 more", for the rest it named by id, which Book
+ * anyway books past too (`sendsOf`). Each row's id is the check's own, so
+ * the press after it finds the same rows.
+ */
+export function refusedMatchRows(
+  ctx: MatchRowsContext,
+  refusal: RefusedMatch,
+  at: RefusedAt,
+): Array<MatchRow> {
+  // What the phone's matcher says of them now, read once.
+  const phone =
+    at.mode === 'new'
+      ? matchNewClient(ctx.index, at.typed).candidates
+      : ([] as Array<Candidate>)
+  const rows = refusal.candidates.map((c): MatchRow => {
+    if (!candidateHeld(ctx.index, c)) return unheldRow(ctx, at, c)
+    if (at.mode === 'site') {
+      const site =
+        c.propertyId !== undefined
+          ? siteOf(ctx.index, c.clientId, c.propertyId)
+          : undefined
+      if (!site) return unheldRow(ctx, at, c)
+      return {
+        id: `match:${c.clientId}`,
+        tier: 'same',
+        label: 'Already has this site',
+        message: `${matchName(ctx.index.clients.get(c.clientId))} already has ${siteText(site)}.`,
+        ...forVerb(
+          ctx,
+          {
+            fix: {
+              kind: 'bookAt',
+              label: 'Book at this site',
+              clientId: c.clientId,
+              propertyId: site._id,
+            },
+          },
+          c.clientId,
+        ),
+      }
+    }
+    return candidateRow(
+      ctx,
+      at.typed,
+      asCandidate(
+        c,
+        phone.find((p) => p.clientId === c.clientId),
+      ),
+      // Found through a contact the phone doesn't hold: said by the name
+      // typed, never as the client's own name.
+      throughContact(c, at.typed.name, ctx.index.clients.get(c.clientId)?.kind),
+    )
+  })
+  const more = refusal.more?.length ?? 0
+  if (more > 0) {
+    rows.push({
+      id: MATCH_MORE_ID,
+      tier: 'more',
+      label: `And ${more} more`,
+      message:
+        more === 1
+          ? 'Another client matches part of what was typed.'
+          : `${more} other clients match part of what was typed.`,
+      ...(ctx.verb === 'book' && at.mode === 'new'
+        ? { fix: show(showQuery(at.typed)) }
+        : {}),
+    })
+  }
+  return rows
+}
+
+/**
+ * Add property on a client's sheet, refused MATCHED_CLIENT: the client has
+ * the address typed already (a site the sheet's list didn't hold yet).
+ * "Already has this site", with Use {address} where the list holds it by
+ * now (`site`); else the address as typed, and nothing to use.
+ */
+export function refusedOwnSiteRow(
+  clientName: string,
+  sites: ReadonlyArray<OwnSite>,
+  refusal: RefusedMatch,
+  typed: TypedAddress,
+): { id: string; label: string; message: string; site?: OwnSite } {
+  const ids = refusal.candidates.flatMap((c) =>
+    c.propertyId !== undefined ? [c.propertyId] : [],
+  )
+  const site = sites.find((s) => ids.includes(s._id))
+  return {
+    id: 'match:own-site',
+    label: 'Already has this site',
+    message: `${clientName} already has ${
+      site ? siteText(site) : typedText(typed) || 'this address'
+    }.`,
+    ...(site ? { site } : {}),
+  }
+}
+
 /** A site of the client's own, as Add property on their sheet has it. */
 export type OwnSite = {
   _id: Id<'properties'>
@@ -874,6 +1284,23 @@ export function ownSiteRows(
         },
       ]
     : []
+}
+
+/**
+ * Add property's `matchCheck.dismissed`: the client, where the sheet showed
+ * the address typed is exactly one of their sites (`ownSiteRows`' first
+ * row), and nobody otherwise. A site only like one of theirs, shown and
+ * saved past, leaves the server's check of their exact sites on: one added
+ * from another phone since the sheet's list was read is still refused.
+ */
+export function ownSiteDismissed(
+  clientId: Id<'clients'>,
+  sites: ReadonlyArray<OwnSite>,
+  typed: TypedAddress,
+): Array<Id<'clients'>> {
+  if (typed.addressLine.trim() === '') return []
+  const key = siteKey(typed)
+  return sites.some((s) => siteKey(s) === key) ? [clientId] : []
 }
 
 /** What the fixes of a client found by a key do, by how many sites they
@@ -1099,7 +1526,10 @@ export type FootRow = {
  * where the fix opens the client). Where no row has a fix that takes the
  * booking (each only shows who it may be: a client's own mobile under
  * another name, a landline agreeing only by initial), "Check who it is, or
- * press Book anyway to add a new client."
+ * press Book anyway to add a new client." For a new site of a client known
+ * already (New site for, Add property), whose rows have no fix only where
+ * the server found the site and the list here doesn't hold it yet, there is
+ * nobody to check: "Press Save anyway to add it again."
  */
 export function matchFooter(
   rows: ReadonlyArray<FootRow>,
@@ -1109,13 +1539,18 @@ export function matchFooter(
     [row.fix?.kind, row.fix2?.kind].filter((k) => k !== undefined)
   const taking = rows.filter((row) => kinds(row).some((k) => k !== 'show'))
   const rest = `or press ${anyway} to add a new ${adds}.`
-  if (taking.length === 0) return `Check who it is, ${rest}`
+  if (taking.length === 0) {
+    return adds === 'site'
+      ? `Press ${anyway} to add it again.`
+      : `Check who it is, ${rest}`
+  }
   const verb = rows.some((row) => kinds(row).includes('open')) ? 'Open' : 'Use'
   return `${verb} ${taking.length === 1 ? 'it' : 'one'}, ${rest}`
 }
 
 /** Every client the matcher returned, shown or counted in "And 2 more":
- * what Book anyway has booked past (`matchCheck.dismissed`, M7). */
+ * what Book anyway has booked past (`matchCheck.dismissed`, M7's
+ * `bookingDismissed`). */
 export function dismissedOf(result: MatchResult): Array<Id<'clients'>> {
   return result.candidates.map((c) => c.clientId)
 }
@@ -1139,9 +1574,10 @@ export function matchShownCounts(rows: ReadonlyArray<Pick<MatchRow, 'tier'>>): {
 
 /**
  * The lines at the end of the panel about where its rows were found: a copy
- * that may be behind never claims to be the whole book. Until the online
- * sheet sends its check with the booking (the matching plan's M7), this copy
- * is the only check there is.
+ * that may be behind never claims to be the whole book. The server checks
+ * again as the save goes (`matchCheck`, the matching plan's M7), and what it
+ * finds that this copy didn't is said as rows of their own, with "PestM8
+ * found this when saving." (lib/sheetChecks.ts).
  */
 export function matchNotes(at: {
   /** The client list may be missing someone added since (`mayBeBehind`). */
