@@ -952,6 +952,23 @@ const PLAN = {
       await p.waitForTimeout(700)
     },
   },
+  'reports-filtered': { before: async (p) => p.waitForTimeout(600) },
+  'reports-filtered-open': {
+    spec: 'reports-filtered',
+    before: async (p) => {
+      await p.waitForTimeout(600)
+      await p.getByRole('button', { name: /^Filters/ }).click()
+      await p.waitForTimeout(700)
+    },
+  },
+  'jobs-filtered-open': {
+    spec: 'jobs-filtered',
+    before: async (p) => {
+      await p.waitForTimeout(400)
+      await p.getByRole('button', { name: /^Filter and sort/ }).click()
+      await p.waitForTimeout(700)
+    },
+  },
   'clients-filter-open': {
     spec: 'clients',
     before: async (p) => {

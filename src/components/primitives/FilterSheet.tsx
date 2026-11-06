@@ -221,15 +221,17 @@ export function FilterChips<T extends string>({
   )
 }
 
-/** One person a list can be narrowed to: their colour, and how many. */
+/** One person a list can be narrowed to: their colour, and how many —
+ * where the list knows (a paged list holds only what it has loaded). */
 export type FilterPerson = {
   membershipId: string
   name: string
   colour?: string
-  count: number
+  count?: number
 }
 
-/** Whose: Everyone, then each person with their colour and count. */
+/** Whose: Everyone, then each person with their colour and, where the
+ * list can count them, how many. */
 export function FilterPeople({
   label = 'Technician',
   value,
@@ -239,7 +241,7 @@ export function FilterPeople({
 }: {
   label?: string
   value: string
-  everyone: number
+  everyone?: number
   people: ReadonlyArray<FilterPerson>
   onChange: (membershipId: string) => void
 }) {
@@ -278,9 +280,11 @@ export function FilterPeople({
                   }
                 />
                 <span className="min-w-0 flex-1 truncate">{person.name}</span>
-                <span className="shrink-0 text-caption text-muted tabular-nums">
-                  {person.count}
-                </span>
+                {person.count !== undefined && (
+                  <span className="shrink-0 text-caption text-muted tabular-nums">
+                    {person.count}
+                  </span>
+                )}
                 <Check
                   size={16}
                   strokeWidth={2.2}

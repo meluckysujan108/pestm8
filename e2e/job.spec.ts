@@ -60,26 +60,88 @@ test('the status filter narrows the list and survives a reload', async ({
   })
   await expect(cards).toHaveCount(2)
 
-  // The chip's options are buttons in a popover, as FilterDropdown renders
-  // everywhere else in the app. Scoped to that popover and exact: a job card's
-  // own accessible name contains its status pill, so an unscoped "Cancelled"
-  // would also match the cancelled job's card — and clicking THAT opens the
-  // detail sheet instead of filtering.
-  const cancelledOption = page
-    .getByRole('dialog')
+  // Behind the one icon, as on Schedule and Clients. Scoped to the sheet's
+  // Status group and exact: a job card's own accessible name contains its
+  // status pill, so an unscoped "Cancelled" would also match the cancelled
+  // job's card — and clicking THAT opens the detail sheet instead.
+  const icon = page.getByRole('button', { name: /^Filter and sort/ })
+  const sheet = page.getByRole('dialog', { name: 'Filter and sort' })
+  await clickUntil(icon, () => expect(sheet).toBeVisible({ timeout: 2_000 }))
+  await sheet
+    .getByRole('group', { name: 'Status' })
     .getByRole('button', { name: 'Cancelled', exact: true })
-  await clickUntil(page.getByRole('button', { name: 'Filter by status' }), () =>
-    expect(cancelledOption).toBeVisible({ timeout: 2_000 }),
-  )
-  await cancelledOption.click()
+    .click()
+  await expect(page).toHaveURL(/[?&]status=cancelled/)
+  await sheet.getByRole('button', { name: 'Done' }).click()
 
+  await expect(icon).toHaveAccessibleName('Filter and sort, 1 on')
   await expect(cards).toHaveCount(1)
   await expect(cards.first()).toContainText('Termite Inspection')
-  await expect(page).toHaveURL(/status=cancelled/)
 
   // The filter is in the URL, so it is still there after a reload (§5.1).
   await page.reload()
   await expect(cards).toHaveCount(1)
+  await expect(icon).toHaveAccessibleName('Filter and sort, 1 on')
+})
+
+test('the Job tab sorts by visit and narrows to one technician', async ({
+  page,
+}) => {
+  const s = await seedTwoJobs('job-sort')
+  // Kevin's, booked last and due in between: newest booked puts it first,
+  // latest visit second, so the two orders cannot pass for each other.
+  await s.owner.client.mutation(api.jobs.create, {
+    businessId: s.businessId,
+    propertyId: s.propertyId,
+    assignedMembershipId: s.subMembershipId,
+    jobType: 'Rodent Baiting',
+    price: 18000,
+    scheduledAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    durationMinutes: 45,
+  })
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/job`)
+
+  const cards = page.getByRole('button', {
+    name: /General Pest Control|Termite Inspection|Rodent Baiting/,
+  })
+  await expect(cards).toHaveCount(3)
+  await expect(cards.first()).toContainText('Rodent Baiting')
+
+  const icon = page.getByRole('button', { name: /^Filter and sort/ })
+  const sheet = page.getByRole('dialog', { name: 'Filter and sort' })
+  await clickUntil(icon, () => expect(sheet).toBeVisible({ timeout: 2_000 }))
+  await sheet.getByRole('radio', { name: 'Latest visit' }).click()
+  await expect(page).toHaveURL(/[?&]sort=visit/)
+  // Whose: the lead's, as on the Schedule.
+  await sheet.getByRole('button', { name: 'Kevin', exact: true }).click()
+  await expect(page).toHaveURL(
+    new RegExp(`[?&]staff=${s.subMembershipId}(&|$)`),
+  )
+  await sheet.getByRole('button', { name: 'Done' }).click()
+
+  // The sort is no filter: one on, for Kevin.
+  await expect(icon).toHaveAccessibleName('Filter and sort, 1 on')
+  await expect(cards).toHaveCount(1)
+  await expect(cards.first()).toContainText('Rodent Baiting')
+
+  await page.reload()
+  await expect(cards).toHaveCount(1)
+  await expect(icon).toHaveAccessibleName('Filter and sort, 1 on')
+  await expect(icon).toBeEnabled()
+
+  // Clear filters lets everyone back and keeps the order: the visit due
+  // last is first.
+  await clickUntil(icon, () => expect(sheet).toBeVisible({ timeout: 2_000 }))
+  await sheet.getByRole('button', { name: 'Clear filters' }).click()
+  await expect(page).not.toHaveURL(/staff=/)
+  await expect(page).toHaveURL(/[?&]sort=visit/)
+  await sheet.getByRole('button', { name: 'Done' }).click()
+  await expect(icon).toHaveAccessibleName('Filter and sort')
+  await expect(cards).toHaveCount(3)
+  await expect(cards.first()).toContainText('General Pest Control')
+  await expect(cards.nth(1)).toContainText('Rodent Baiting')
 })
 
 test('Recurring Job is a view of its own within the section', async ({

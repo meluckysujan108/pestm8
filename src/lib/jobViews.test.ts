@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest'
-import { JOB_VIEWS, activeJobView, recurringJobFiltersOf } from './jobViews'
+import {
+  JOB_VIEWS,
+  activeJobView,
+  jobListFiltersOf,
+  recurringJobFiltersOf,
+} from './jobViews'
 
 describe('which Job view a URL is showing', () => {
   test('the section itself is the main view', () => {
@@ -45,5 +50,26 @@ describe('the Recurring Job view’s filters, read from its address', () => {
       staffId: 'all',
       sort: 'toBook',
     })
+  })
+})
+
+describe('the Job tab’s filters, read from its address', () => {
+  test('reads a status, a person and the visit order', () => {
+    expect(
+      jobListFiltersOf({ status: 'completed', staff: 'm_kev', sort: 'visit' }),
+    ).toEqual({ status: 'completed', staffId: 'm_kev', sort: 'visit' })
+  })
+
+  test('anything else is the default: every status, everyone’s, newest booked', () => {
+    expect(jobListFiltersOf({})).toEqual({
+      status: undefined,
+      staffId: 'all',
+      sort: 'booked',
+    })
+    // The Recurring Job view's orders, or anything mistyped, are not this
+    // tab's.
+    expect(
+      jobListFiltersOf({ status: 'recurring', staff: '', sort: 'client' }),
+    ).toEqual({ status: undefined, staffId: 'all', sort: 'booked' })
   })
 })

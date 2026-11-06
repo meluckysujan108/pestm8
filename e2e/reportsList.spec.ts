@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
   api,
+  clickUntil,
   expectRejected,
   setupBusinessWithSub,
   signInViaUi,
@@ -150,6 +151,73 @@ test('the reports list buckets by status and searches across client, suburb, and
   // No matches — the empty state, not a blank list.
   await page.getByPlaceholder('Client, street, form or #number').fill('nobody-lives-here')
   await expect(page.getByText('No matches')).toBeVisible()
+})
+
+test('the library’s Form and Technician filters are one icon, kept in its address', async ({
+  page,
+}) => {
+  const s = await setupBusinessWithSub('list-narrow')
+  await createReport(s.owner.client, s, 'serviceReport')
+  await createReport(s.owner.client, s, 'timberPestInspection')
+  await createReport(s.sub.client, s, 'termiteManagementCert')
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/reports`)
+
+  // Rows read in the page alone: the sheet's Form chips carry the same names.
+  const list = page.locator('main')
+  await expect(list.getByText(SERVICE, exact)).toBeVisible()
+  await expect(list.getByText(TIMBER, exact)).toBeVisible()
+  await expect(list.getByText(CERTIFICATE, exact)).toBeVisible()
+
+  const icon = page.getByRole('button', { name: /^Filters/ })
+  const sheet = page.getByRole('dialog', { name: 'Filters' })
+  await clickUntil(icon, () => expect(sheet).toBeVisible({ timeout: 2_000 }))
+  await sheet
+    .getByRole('group', { name: 'Form' })
+    .getByRole('button', { name: SERVICE, exact: true })
+    .click()
+  await expect(page).toHaveURL(/[?&]form=serviceReport/)
+  await sheet.getByRole('button', { name: 'Done' }).click()
+
+  await expect(icon).toHaveAccessibleName('Filters, 1 on')
+  await expect(list.getByText(SERVICE, exact)).toBeVisible()
+  await expect(list.getByText(TIMBER, exact)).toHaveCount(0)
+  await expect(list.getByText(CERTIFICATE, exact)).toHaveCount(0)
+
+  // A refresh keeps it.
+  await page.reload()
+  await expect(list.getByText(SERVICE, exact)).toBeVisible()
+  await expect(list.getByText(TIMBER, exact)).toHaveCount(0)
+  await expect(icon).toHaveAccessibleName('Filters, 1 on')
+  await expect(icon).toBeEnabled()
+
+  // Whose: whoever wrote it, here Kevin's one report.
+  const form = sheet.getByRole('group', { name: 'Form' })
+  await clickUntil(icon, () => expect(sheet).toBeVisible({ timeout: 2_000 }))
+  await form.getByRole('button', { name: 'All', exact: true }).click()
+  await sheet.getByRole('button', { name: 'Kevin', exact: true }).click()
+  await expect(page).toHaveURL(new RegExp(`[?&]staff=${s.subMembershipId}(&|$)`))
+  await expect(page).not.toHaveURL(/form=/)
+  await sheet.getByRole('button', { name: 'Done' }).click()
+  await expect(icon).toHaveAccessibleName('Filters, 1 on')
+  await expect(list.getByText(CERTIFICATE, exact)).toBeVisible()
+  await expect(list.getByText(SERVICE, exact)).toHaveCount(0)
+  await expect(list.getByText(TIMBER, exact)).toHaveCount(0)
+
+  // Kevin wrote no service report, so the two together leave nothing, and
+  // the page's own Clear filters lets every report back.
+  await clickUntil(icon, () => expect(sheet).toBeVisible({ timeout: 2_000 }))
+  await form.getByRole('button', { name: SERVICE, exact: true }).click()
+  await sheet.getByRole('button', { name: 'Done' }).click()
+  await expect(icon).toHaveAccessibleName('Filters, 2 on')
+  await expect(list.getByText('No reports match these filters.')).toBeVisible()
+  await list.getByRole('button', { name: 'Clear filters' }).click()
+  await expect(page).not.toHaveURL(/form=|staff=/)
+  await expect(icon).toHaveAccessibleName('Filters')
+  await expect(list.getByText(SERVICE, exact)).toBeVisible()
+  await expect(list.getByText(TIMBER, exact)).toBeVisible()
+  await expect(list.getByText(CERTIFICATE, exact)).toBeVisible()
 })
 
 test.describe('retiring a draft', () => {

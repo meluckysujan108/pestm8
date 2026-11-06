@@ -21,6 +21,10 @@ import { isMfaEnrolmentError } from './twoStep'
  *   read whole instead of paged (convex/jobs.ts, `listPage`).
  * - `legacy`: a backend from before `listsEverything` — the two deploy
  *   separately (CLAUDE.md). `jobs.list` as it always was, filtered here.
+ *
+ * A person chosen in the Technician filter makes the whole business's list
+ * `bounded` too: one person's work is short enough to read whole, and a
+ * page could not follow the jobs they are also going on.
  */
 export type JobListSource = 'paged' | 'bounded' | 'legacy'
 
@@ -41,8 +45,9 @@ export function listsEverythingOf(
 
 export function jobListSource(
   listsEverything: boolean | undefined,
+  personChosen = false,
 ): JobListSource {
-  if (listsEverything === true) return 'paged'
+  if (listsEverything === true) return personChosen ? 'bounded' : 'paged'
   if (listsEverything === false) return 'bounded'
   return 'legacy'
 }

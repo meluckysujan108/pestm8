@@ -5,7 +5,8 @@ import { z } from 'zod'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { ReportsLibrary } from '#/components/reports/ReportsLibrary'
 import type { Segment } from '#/components/reports/ReportsLibrary'
-import { useCan } from '#/lib/access'
+import { useAccess, useCan } from '#/lib/access'
+import { listsEverythingOf } from '#/lib/jobListView'
 import { reportsFirstPage, rq, searchParam, warm } from '#/lib/routeQueries'
 import { HEADER_ADD_BUTTON } from '#/components/primitives/buttons'
 
@@ -15,20 +16,41 @@ export const Route = createFileRoute('/$businessSlug/reports/')({
   validateSearch: z.object({
     q: z.string().optional(),
     seg: z.enum(SEGMENTS).optional(),
+    // The Form and Technician filters behind the icon beside the search: a
+    // built-in form's key or a custom form's id, and whoever wrote it. The
+    // server reads a value it cannot place as matching nothing.
+    form: z.string().optional(),
+    staff: z.string().optional(),
   }),
   // The count the header reads and the first page of the list, together. No
   // `loaderDeps`: that would make every segment tap a new match, and a new
   // match gets the route's placeholder instead of the list it is filtering.
-  loader: ({ context: { queryClient, business }, location }) => {
+  loader: async ({ context: { queryClient, business }, location }) => {
     const segment = (searchParam(location, 'seg') ?? 'all') as Segment
     const searching = (searchParam(location, 'q') ?? '') !== ''
+    const form = searchParam(location, 'form') || undefined
+    const staff = searchParam(location, 'staff') || undefined
     // The banner above the list, asked for in the same round but not waited
     // on: it renders nothing at all when there is nothing to say.
     void warm(queryClient, rq.staleDrafts(business._id))
+    // Whether a person in the address applies follows the view, which the
+    // layout has asked for already: read back only when one is there.
+    const access = staff
+      ? await queryClient
+          .ensureQueryData(rq.access(business._id))
+          .catch(() => undefined)
+      : undefined
     return warm(
       queryClient,
       rq.reportCounts(business._id),
-      ...(searching ? [] : [reportsFirstPage(business._id, segment)]),
+      ...(searching
+        ? []
+        : [
+            reportsFirstPage(business._id, segment, {
+              form,
+              staffId: appliedPerson(listsEverythingOf(access), staff),
+            }),
+          ]),
     )
   },
   component: ReportsPage,
@@ -37,9 +59,10 @@ export const Route = createFileRoute('/$businessSlug/reports/')({
 function ReportsPage() {
   const { business } = Route.useRouteContext()
   const canManageTemplates = useCan('templates.manage')
-  const { q, seg } = Route.useSearch()
+  const { q, seg, form, staff } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const segment: Segment = seg ?? 'all'
+  const staffId = appliedPerson(listsEverythingOf(useAccess()), staff)
 
   // Counted rather than paginated: a badge that says twelve has to have looked
   // at all twelve. Suspense-loaded because the header reads it.
@@ -87,6 +110,7 @@ function ReportsPage() {
         businessSlug={business.slug}
         segment={segment}
         query={q ?? ''}
+        narrow={{ form: form || undefined, staffId }}
         onSegment={(value) =>
           navigate({
             search: (prev) => ({
@@ -102,9 +126,31 @@ function ReportsPage() {
             replace: true,
           })
         }
+        onNarrow={(next) =>
+          navigate({
+            search: (prev) => ({
+              ...prev,
+              form: next.form,
+              staff: next.staffId,
+            }),
+            replace: true,
+          })
+        }
       />
     </>
   )
+}
+
+/**
+ * A person from the address, where the library is everyone's: a narrower
+ * one (a subcontractor's, the owner's "Just my jobs") is one person's
+ * already, and its filter offers no one.
+ */
+function appliedPerson(
+  listsEverything: boolean | undefined,
+  staff: string | undefined,
+): string | undefined {
+  return listsEverything === true && staff ? staff : undefined
 }
 
 function Card({ label, value }: { label: string; value: number }) {

@@ -111,6 +111,9 @@ import type {
   FinishedView,
 } from '#/components/reports/FinishedReport'
 import { ReportsLibrary } from '#/components/reports/ReportsLibrary'
+import { JobListFilterButton } from '#/components/schedule/JobListFilterButton'
+import type { JobListFilterChange } from '#/components/schedule/JobListFilterButton'
+import type { ReportNarrowing } from '#/lib/routeQueries'
 import type { Segment } from '#/components/reports/ReportsLibrary'
 import { getTemplate } from '#/lib/reportTemplates'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
@@ -2524,6 +2527,81 @@ function ClientsList() {
 }
 
 /** The Reports list, as the owner sees it: a bin on every report. */
+/**
+ * The Reports library with its Form and Technician filters live: a form
+ * chosen, so the icon is blue with its count.
+ */
+function ReportsFiltered() {
+  state.technician = false
+  const [narrow, setNarrow] = useState<ReportNarrowing>({
+    form: 'serviceReport',
+  })
+  return (
+    <Phone>
+      <AccessProvider businessId={bizId}>
+        <Header title="Reports" />
+        <ReportsLibrary
+          businessId={bizId}
+          businessSlug="demo"
+          segment="all"
+          query=""
+          narrow={narrow}
+          onSegment={() => {}}
+          onQuery={() => {}}
+          onNarrow={setNarrow}
+        />
+      </AccessProvider>
+    </Phone>
+  )
+}
+
+/**
+ * The Job section's switch row on the Job view, with its filter icon live:
+ * Completed, latest visit first, Kevin's.
+ */
+function JobsFiltered() {
+  const [filters, setFilters] = useState<{
+    status?: 'pending' | 'booked' | 'completed' | 'invoiced' | 'cancelled'
+    staff?: string
+    sort?: 'visit'
+  }>({ status: 'completed', staff: 'm_kev', sort: 'visit' })
+  const change = (next: JobListFilterChange) =>
+    setFilters((prev) => ({ ...prev, ...next }))
+  return (
+    <Phone>
+      <Header title="Jobs" />
+      <div className="px-4 pt-3">
+        <div className="flex min-h-9 items-center justify-between gap-3">
+          <div className="shrink-0 whitespace-nowrap">
+            <Segmented
+              label="View"
+              value="job"
+              options={[
+                { value: 'job', label: 'Job' },
+                { value: 'recurring', label: 'Recurring Job' },
+              ]}
+              onChange={() => {}}
+            />
+          </div>
+          <JobListFilterButton
+            status={filters.status}
+            staffId={filters.staff ?? 'all'}
+            sort={filters.sort ?? 'booked'}
+            members={MEMBERS}
+            showStaff
+            onChange={change}
+          />
+        </div>
+      </div>
+      <section className="px-4 pt-3 pb-6">
+        <p className="mb-3 min-h-5 text-caption tabular-nums text-muted">
+          4 jobs · newest 200
+        </p>
+      </section>
+    </Phone>
+  )
+}
+
 function reportsList(segment: Segment, technician = false) {
   return function ReportsList() {
     state.technician = technician
@@ -3685,6 +3763,8 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'send-big': SendBig,
   'form-settings': FormSettings,
   reports: reportsList('all'),
+  'reports-filtered': ReportsFiltered,
+  'jobs-filtered': JobsFiltered,
   'reports-deleted': reportsList('trash'),
   'reports-deleted-tech': reportsList('trash', true),
   loadmore: LoadMoreStates,

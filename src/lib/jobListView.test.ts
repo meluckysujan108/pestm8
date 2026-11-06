@@ -18,6 +18,13 @@ describe('which list the Job tab reads', () => {
     )
   })
 
+  test('one person chosen from the whole business is read whole too', () => {
+    expect(jobListSource(true, true)).toBe('bounded')
+    // A narrower list never offers the choice; it is read whole already.
+    expect(jobListSource(false, true)).toBe('bounded')
+    expect(jobListSource(undefined, true)).toBe('legacy')
+  })
+
   test('a backend from before the field reads the old list, filtered here', () => {
     // `access.me` as an older backend answers it: no `listsEverything` at all.
     const older = { membershipId: 'm1', role: 'owner', view: null }
