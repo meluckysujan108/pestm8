@@ -24,6 +24,14 @@ type LooseVisit = Services['loose'][number]
 const AHEAD = 5
 
 /**
+ * The Recurring view's lists: columns by the room the view is given (an
+ * `@container` around it), one on a phone, two beside the Schedule's month
+ * or on a tablet, three across the Job section on a desktop.
+ */
+export const RECURRING_GRID =
+  'flex flex-col gap-2.5 @xl:grid @xl:grid-cols-2 @4xl:grid-cols-3'
+
+/**
  * The Recurring Job page by service: one card per running service — whose,
  * where, how often, who does it, when next, how many ahead, and how many to
  * book — each opening to its visits. Services with visits to book come
@@ -74,7 +82,7 @@ export function RecurringServices({
     )
 
   return (
-    <ul className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-start xl:grid-cols-3">
+    <ul className={`${RECURRING_GRID} @xl:items-start`}>
       {views.map((view) => {
         const person = roster?.find(
           (m) => m._id === view.series.assignedMembershipId,

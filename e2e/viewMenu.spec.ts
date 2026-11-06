@@ -56,10 +56,17 @@ test('God view shows everyone; "Just my jobs" shows his own and simplifies', asy
   await expect(page.getByRole('heading', { name: 'My jobs' })).toBeVisible()
   await expect(ownJob(page)).toBeVisible()
   await expect(kevinsJob(page)).toBeHidden()
-  // Whose jobs these are is no longer a question, so nothing asks it.
+  // Whose jobs these are is no longer a question, so nothing asks it: the
+  // filters keep their status, and lose their Technician.
+  await page.getByRole('button', { name: /^Filters/ }).click()
   await expect(
-    page.getByRole('button', { name: 'Filter by staff' }),
-  ).toBeHidden()
+    page.getByRole('dialog').getByRole('group', { name: 'Status' }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('dialog').getByRole('heading', { name: 'Technician' }),
+  ).toHaveCount(0)
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByText('Team this month')).toBeHidden()
 
   await choose(page, /God view/)
@@ -87,14 +94,19 @@ test('changing view starts the filters over', async ({ page }) => {
     page.getByRole('button', { name: 'Whose jobs to show' }),
   ).toBeEnabled()
 
-  await page.getByRole('button', { name: 'Filter by staff' }).click()
+  await page.getByRole('button', { name: /^Filters/ }).click()
   await page.getByRole('dialog').getByRole('button', { name: /Kevin/ }).click()
   await expect(ownJob(page)).toBeHidden()
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page).toHaveURL(/[?&]staff=/)
 
   await choose(page, /Just my jobs/)
 
   await expect(ownJob(page)).toBeVisible()
   await expect(page.getByText('No matches', { exact: true })).toBeHidden()
+  // Taken out of the address as well, so a reload doesn't bring it back.
+  await expect(page).not.toHaveURL(/[?&]staff=/)
 })
 
 test('the choice belongs to this device: another sign-in stays in God view', async ({

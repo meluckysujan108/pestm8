@@ -1,6 +1,7 @@
 import { JobCard } from './JobCard'
 import { WeatherBanner } from './WeatherBanner'
-import { ScheduleFilterBar } from './ScheduleFilterBar'
+import { ScheduleFilterButton } from './ScheduleFilterButton'
+import { DaySummary } from './DaySummary'
 import { Segmented } from '#/components/primitives/Segmented'
 import {
   EmptyState,
@@ -8,12 +9,9 @@ import {
   NoMatches,
 } from '#/components/primitives/EmptyState'
 import { formatDayLabel } from '#/lib/format'
-import { useScheduleFilters } from '#/lib/scheduleFilters'
 import { useActing, useViewMode } from '#/lib/access'
 import { useWeather, weatherKeyOf } from '#/lib/weather'
 import { jobsAhead, travelHintsFor } from '#/lib/travel'
-import { isOverdueProjection } from '#/lib/jobCardActions'
-import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { RecurringDueNote } from './RecurringDueNote'
 import { WeatherCredit } from './WeatherCredit'
 import { OutboxGroup } from './OutboxGroup'
@@ -21,17 +19,20 @@ import { useOutboxDay, useOutboxPlaces } from '#/lib/outbox/useOutbox'
 import { SCHEDULE_VIEW_OPTIONS } from '#/lib/scheduleViews'
 import type { ScheduleView } from '#/lib/scheduleViews'
 import type { JobRow } from './JobCard'
+import type { ScheduleFilters } from '#/lib/scheduleFilters'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /** The agenda's cards: one column, two from xl. */
 const AGENDA_GRID = 'grid grid-cols-1 items-stretch gap-3 xl:grid-cols-2'
 
 /**
- * Desktop-only (§2.4) right pane beside MonthCalendarCard. Status and staff
- * filter dropdowns (ScheduleFilterBar) narrow the same jobs the mobile list
- * uses — via the same useScheduleFilters hook, so both layouts filter
- * identically. Its Job|Week switch is the same one the phone shows; the
- * Table view was retired from both, since the card carries all its row did.
+ * Desktop-only (§2.4) right pane beside MonthCalendarCard. Its filters are
+ * the route's (`useScheduleFilters`, in the address), behind the same icon
+ * the phone has, so both layouts filter identically and a change of layout
+ * keeps them. Its View switch is the same one the phone shows, flush right
+ * where the week's and the Recurring view's are, with the icon before it;
+ * the Table view was retired from both, since the card carries all its row
+ * did.
  */
 export function DayAgendaPanel({
   businessId,
@@ -43,6 +44,7 @@ export function DayAgendaPanel({
   members,
   view,
   onViewChange,
+  filters,
   onOpenJob,
   onOpenItem,
   onNewJob,
@@ -62,6 +64,8 @@ export function DayAgendaPanel({
   // desktop layouts cannot end up disagreeing about which view is active.
   view: ScheduleView
   onViewChange: (view: ScheduleView) => void
+  /** The route's, so the phone's and the desktop's are the same filters. */
+  filters: ScheduleFilters<JobRow>
   onOpenJob: (jobId: string) => void
   /** Opens a booking on this phone, not sent yet (`?outboxId=`). */
   onOpenItem: (localId: string) => void
@@ -76,13 +80,7 @@ export function DayAgendaPanel({
 }) {
   const mode = useViewMode()
   const acting = useActing()
-  // Desktop opens on everyone, as it always has; a change of view starts the
-  // filters over (see useScheduleFilters).
-  const { status, setStatus, staffId, setStaffId, filteredJobs } = useScheduleFilters(
-    jobs,
-    'all',
-    `${mode ?? ''}:${acting.membershipId}`,
-  )
+  const { status, staffId, filteredJobs } = filters
 
   // The day's bookings on this phone, not sent yet, as the phone's list has
   // them: a group under the cards, each keeping its slot until the day is
@@ -123,63 +121,43 @@ export function DayAgendaPanel({
       weather.byKey[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)],
   )
 
-  // Three numbers, never one: booked work, projected visits due today, and
-  // projected visits whose day has passed. A projection is work nobody has
-  // committed to, so it is in no job total anywhere (the month grid, the
-  // team legend, the dashboard); and "overdue" means what the card's marker
-  // and the nav badge mean by it, so a visit due later today is not one.
-  const now = Date.now()
-  const booked = filteredJobs.filter((j) => j.status !== 'recurring')
-  const overdue = filteredJobs.filter((j) =>
-    isOverdueProjection(j, timezone, now),
-  )
-  const due = filteredJobs.filter(
-    (j) => j.status === 'recurring' && !isOverdueProjection(j, timezone, now),
-  )
-
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-sheet-title text-ink">
+        {/* Where the week's and the Recurring view's headings are, the
+            same height (`data-view-heading`, which the Schedule's tests
+            measure). */}
+        <div data-view-heading className="min-w-0">
+          <h2 className="truncate text-sheet-title text-ink">
             {formatDayLabel(selectedKey)}
           </h2>
-          <p className="flex flex-wrap items-center gap-x-1.5 text-caption tabular-nums text-ink-2">
-            <span>
-              {booked.length} {booked.length === 1 ? 'job' : 'jobs'}
-            </span>
-            {due.length > 0 && <span>· {due.length} due</span>}
-            {overdue.length > 0 && (
-              <span
-                className={`rounded-full px-2 text-[12px] font-semibold leading-5 ${OVERDUE_CHIP}`}
-              >
-                {overdue.length} overdue
-              </span>
-            )}
-          </p>
+          <DaySummary
+            jobs={jobs}
+            shown={filteredJobs}
+            timezone={timezone}
+            todayKey={todayKey}
+          />
         </div>
-        <Segmented
-          label="View"
-          value={view}
-          options={SCHEDULE_VIEW_OPTIONS}
-          onChange={onViewChange}
-        />
+        <div className="flex shrink-0 items-center gap-3">
+          <ScheduleFilterButton
+            jobs={jobs}
+            members={members}
+            filters={filters}
+            hideStaff={mode === 'mine'}
+          />
+          <Segmented
+            label="View"
+            value={view}
+            options={SCHEDULE_VIEW_OPTIONS}
+            onChange={onViewChange}
+          />
+        </div>
       </div>
 
       <RecurringDueNote
         count={recurringDue}
         businessSlug={businessSlug}
         kept={recurringKept}
-      />
-
-      <ScheduleFilterBar
-        jobs={jobs}
-        members={members}
-        status={status}
-        setStatus={setStatus}
-        staffId={staffId}
-        setStaffId={setStaffId}
-        hideStaff={mode === 'mine'}
       />
 
       {jobs.length > 0 && jobs[0].suburb && (
@@ -206,10 +184,7 @@ export function DayAgendaPanel({
         <NoMatches
           hint="No jobs on this day match these filters."
           clearLabel="Clear filters"
-          onClear={() => {
-            setStatus('all')
-            setStaffId('all')
-          }}
+          onClear={filters.clear}
         />
       ) : (
         <div>

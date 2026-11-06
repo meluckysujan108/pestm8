@@ -24,7 +24,8 @@ export function choosingAnotherSegment(event: PointerEvent): boolean {
 
 /**
  * Kind, status, tag and suburb filters for the client list — the
- * client-context analogue of `ScheduleFilterBar`'s status/staff chips. Kind
+ * client-context analogue of the Schedule's status and staff filters
+ * (`ScheduleFilterButton`), still chips here. Kind
  * is a segmented control (three answers); the rest are dropdowns. Status
  * shows once any client is a lead or inactive, and tags once any client has
  * one: a business that uses neither sees neither.
@@ -69,8 +70,8 @@ export function ClientFilterBar({
   const hydrated = useHydrated()
   const suburbLoad = facets.suburbs
   // A single-suburb business filtering by suburb has nothing to narrow —
-  // same "hide a dropdown with fewer than 2 real choices" rule
-  // `ScheduleFilterBar` applies to the staff filter. One already chosen
+  // same "hide a choice with fewer than 2 real options" rule
+  // `ScheduleFilterButton` applies to the staff filter. One already chosen
   // stays, so it can be seen and changed whatever a search leaves.
   const showSuburbFilter = suburbLoad.length >= 2 || suburb !== 'all'
   const tagLoad = facets.tags

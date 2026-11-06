@@ -100,10 +100,10 @@ test('the Schedule’s Recurring view is the Recurring Job page, beside its Week
     expect(page).toHaveURL(/view=recurring/, { timeout: 2_000 }),
   )
   await expect(page.getByText('1 Recurring Job', { exact: true })).toBeVisible()
-  // The phone's week strip is the day's, and this view is no day's.
+  // The phone's week strip stays, so switching views moves nothing.
   const strip = page.getByRole('button', { name: 'Previous week' })
   const phone = test.info().project.name === 'mobile'
-  if (phone) await expect(strip).toHaveCount(0)
+  if (phone) await expect(strip).toBeVisible()
   const weekly = page.getByRole('button', {
     name: /^J\. Nguyen General Pest Control · Every week/,
   })
@@ -142,4 +142,50 @@ test('the Schedule’s Recurring view is the Recurring Job page, beside its Week
   )
   await expect(page).not.toHaveURL(/by=date/)
   if (phone) await expect(strip).toBeVisible()
+})
+
+/**
+ * The phone's week strip stays above the Recurring view (6 Nov 2026), so
+ * switching views never moves the page. Its arrows page the strip and stay
+ * in Recurring; a day tapped on it opens that day's list, and Back returns
+ * to Recurring.
+ */
+test('the phone’s strip stays over the Recurring view, and a day tapped on it opens that day', async ({
+  page,
+}) => {
+  test.skip(test.info().project.name !== 'mobile', 'phone layout only')
+  const s = await setupBusinessWithSub('recurring-strip')
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/schedule?view=recurring`)
+  await expect(
+    page.getByText('No Recurring Jobs yet', { exact: true }),
+  ).toBeVisible()
+
+  // A week on: the strip moves, the view stays.
+  await clickUntil(page.getByRole('button', { name: 'Next week' }), () =>
+    expect(page).toHaveURL(/[?&]date=\d{4}-\d{2}-\d{2}/, { timeout: 2_000 }),
+  )
+  await expect(page).toHaveURL(/[?&]view=recurring/)
+  await expect(
+    page.getByText('No Recurring Jobs yet', { exact: true }),
+  ).toBeVisible()
+  const dayKey = new URL(page.url()).searchParams.get('date')!
+
+  // A day tapped opens that day's list; Back returns to Recurring.
+  await page
+    .locator('[data-schedule-chrome]')
+    .getByRole('button', { name: dayKey, exact: true })
+    .click()
+  await expect(page).toHaveURL(/[?&]view=job/)
+  await expect(page).toHaveURL(new RegExp(`[?&]date=${dayKey}`))
+  await expect(
+    page
+      .getByRole('tablist', { name: 'View' })
+      .getByRole('tab', { name: 'Job' }),
+  ).toHaveAttribute('aria-selected', 'true')
+  await page.goBack()
+  await expect(page).toHaveURL(/[?&]view=recurring/)
+  await expect(
+    page.getByText('No Recurring Jobs yet', { exact: true }),
+  ).toBeVisible()
 })

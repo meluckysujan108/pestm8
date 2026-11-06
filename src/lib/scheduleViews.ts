@@ -5,8 +5,9 @@
  * panel's) and a zod enum beside them — which is how a view ends up
  * offered on one layout and not the other. `job` reads one day as cards;
  * `week` (Phase 4.4) reads the seven days of the strip; `recurring` is the
- * Job section's Recurring Job (`RecurringView`), which belongs to no day,
- * so the strip makes way for it. The Table view was retired: the card shows
+ * Job section's Recurring Job (`RecurringView`), which belongs to no day:
+ * the strip stays over it, and a day picked on it opens that day's list.
+ * The Table view was retired: the card shows
  * everything its row did, and an old `?view=table` link opens the cards (the
  * route's `.catch`).
  */

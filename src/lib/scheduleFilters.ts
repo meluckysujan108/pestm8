@@ -1,10 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { JOB_STATUS } from '#/lib/statusColours'
 import type { JobStatus } from '#/components/primitives/StatusPill'
 import type { JobListStatus } from '#/lib/routeQueries'
 import { UNASSIGNED_COLOUR } from '../../convex/lib/colours'
-
-export type StatusFilter = 'all' | JobStatus
 
 // Pending is here because every job booked by hand now starts there — without
 // it "Booked" would quietly stop matching new work.
@@ -15,9 +13,33 @@ export type StatusFilter = 'all' | JobStatus
 // today (convex/jobs.ts): they are work nobody has booked, marked as such on
 // their cards and counted apart in the day's header, and read in full in the
 // Recurring Job view.
-export const STATUS_OPTIONS: Array<{ value: JobStatus; label: string }> = (
-  ['pending', 'booked', 'completed', 'invoiced'] as const
-).map((value) => ({ value, label: JOB_STATUS[value].label }))
+export const SCHEDULE_FILTER_STATUSES = [
+  'pending',
+  'booked',
+  'completed',
+  'invoiced',
+] as const satisfies ReadonlyArray<JobStatus>
+
+export type StatusFilter = 'all' | (typeof SCHEDULE_FILTER_STATUSES)[number]
+
+export const STATUS_OPTIONS: Array<{
+  value: (typeof SCHEDULE_FILTER_STATUSES)[number]
+  label: string
+}> = SCHEDULE_FILTER_STATUSES.map((value) => ({
+  value,
+  label: JOB_STATUS[value].label,
+}))
+
+/**
+ * The Schedule's filters as its address holds them (`?status=`, `?staff=`),
+ * each left out while it is at its default — every status, and whoever the
+ * device opens on — so an address with neither is the day as it opens.
+ */
+export type ScheduleFilterSearch = {
+  status?: Exclude<StatusFilter, 'all'>
+  /** A membership's id, or `all` where the device opens on someone. */
+  staff?: string
+}
 
 /**
  * The Job tab's filter. That list holds every job somebody booked, whatever
@@ -133,56 +155,122 @@ export function isOnJob(
   )
 }
 
+/** The day's jobs a status and a person let through. */
+export function filterDayJobs<
+  T extends {
+    status: JobStatus
+    assignedMembershipId: string
+    alsoGoing?: ReadonlyArray<{ _id: string }>
+  },
+>(jobs: Array<T>, status: StatusFilter, staffId: string): Array<T> {
+  return jobs.filter(
+    (job) =>
+      (status === 'all' || job.status === status) &&
+      // Kevin's filter keeps the jobs he is also going on.
+      (staffId === 'all' || isOnJob(job, staffId)),
+  )
+}
+
+/**
+ * The address's filters as they are written back: each left out at its
+ * default, so the address never says what the day would show anyway.
+ */
+export function filterSearchOf(
+  status: StatusFilter,
+  staffId: string,
+  defaultStaffId: string,
+): ScheduleFilterSearch {
+  return {
+    status: status === 'all' ? undefined : status,
+    staff: staffId === defaultStaffId ? undefined : staffId,
+  }
+}
+
+/**
+ * The Schedule's status and staff filters, held in its address (§5: views
+ * and filters live in the URL), so a reload, Back and a link keep them.
+ *
+ * `defaultStaffId` is who the device opens on: the viewer's own jobs on the
+ * phone, everyone on a desktop. An address without `staff` is that, so the
+ * filter follows the account being worked in by itself — a switch that left
+ * it pinned to whoever you were would land on "No matching jobs" with the
+ * picker that caused it hidden, since it hides when there is only one person
+ * left to choose.
+ */
 export function useScheduleFilters<
   T extends {
     status: JobStatus
     assignedMembershipId: string
     alsoGoing?: ReadonlyArray<{ _id: string }>
   },
->(jobs: Array<T>, defaultStaffId: string = 'all', resetKey: string = '') {
-  const [status, setStatus] = useState<StatusFilter>('all')
-  // Defaults to the viewer's own jobs, not everyone's — "All staff" is a
-  // deliberate switch, not the starting point.
-  const [staffId, setStaffId] = useState<string>(defaultStaffId)
-
-  /**
-   * Follow the account being worked in.
-   *
-   * `useState` takes the default once, so without this a switch leaves the
-   * filter pinned to whoever you were — and since the picker hides itself when
-   * there is only one person left to choose, you land on "No matching jobs"
-   * with the control that caused it no longer on screen. React's documented
-   * way to adjust state when a prop changes, rather than an effect that would
-   * render the empty list first and correct it afterwards.
-   */
-  const [lastDefault, setLastDefault] = useState(defaultStaffId)
-  if (lastDefault !== defaultStaffId) {
-    setLastDefault(defaultStaffId)
-    setStaffId(defaultStaffId)
-  }
-
+>({
+  jobs,
+  search,
+  onSearchChange,
+  defaultStaffId = 'all',
+  resetKey = '',
+}: {
+  jobs: Array<T>
+  search: ScheduleFilterSearch
+  /** Writes the filters back into the address, in place. */
+  onSearchChange: (next: ScheduleFilterSearch) => void
+  defaultStaffId?: string
+  resetKey?: string
+}): ScheduleFilters<T> {
   /**
    * And start over when the view changes. Filtered to Kevin in God view, then
    * switched to "Just my jobs", the list would hold only the owner's jobs and
    * the filter would still want Kevin's — "No matching jobs", with the staff
    * picker hidden in that view and so no way to see why. A different view is
    * a different question; its filters begin from nothing.
+   *
+   * The view is the server's, so nothing navigates when it changes: what the
+   * address held then is set aside at once (React's way to adjust state as a
+   * prop changes, so the empty list is never drawn first), and taken out of
+   * the address straight after. A filter picked meanwhile counts as picked.
    */
   const [lastKey, setLastKey] = useState(resetKey)
+  const [setAside, setSetAside] = useState<ScheduleFilterSearch | null>(null)
   if (lastKey !== resetKey) {
     setLastKey(resetKey)
-    setStaffId(defaultStaffId)
-    setStatus('all')
+    setSetAside({ status: search.status, staff: search.staff })
   }
+  const outdated =
+    setAside !== null &&
+    setAside.status === search.status &&
+    setAside.staff === search.staff
+  if (setAside !== null && !outdated) setSetAside(null)
+  const written = search.status !== undefined || search.staff !== undefined
+  useEffect(() => {
+    if (outdated && written) onSearchChange({})
+  }, [outdated, written, onSearchChange])
 
-  const filteredJobs = jobs.filter(
-    (job) =>
-      (status === 'all' || job.status === status) &&
-      // Kevin's filter keeps the jobs he is also going on.
-      (staffId === 'all' || isOnJob(job, staffId)),
-  )
+  const shown = outdated ? {} : search
+  const status: StatusFilter = shown.status ?? 'all'
+  // Defaults to the viewer's own jobs on the phone, not everyone's —
+  // "Everyone" is a deliberate switch there, not the starting point.
+  const staffId = shown.staff ?? defaultStaffId
+  const write = (nextStatus: StatusFilter, nextStaffId: string) =>
+    onSearchChange(filterSearchOf(nextStatus, nextStaffId, defaultStaffId))
 
-  return { status, setStatus, staffId, setStaffId, filteredJobs }
+  return {
+    status,
+    staffId,
+    setStatus: (next: StatusFilter) => write(next, staffId),
+    setStaffId: (next: string) => write(status, next),
+    clear: () => write('all', 'all'),
+    filteredJobs: filterDayJobs(jobs, status, staffId),
+  }
+}
+
+export type ScheduleFilters<T> = {
+  status: StatusFilter
+  staffId: string
+  setStatus: (next: StatusFilter) => void
+  setStaffId: (next: string) => void
+  /** Everything, everyone: what Clear filters means wherever it is. */
+  clear: () => void
+  filteredJobs: Array<T>
 }
 
 /**
