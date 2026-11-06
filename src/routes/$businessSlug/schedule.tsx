@@ -40,7 +40,6 @@ import { MonthPickerSheet } from '#/components/schedule/MonthPickerSheet'
 import { MonthCalendarCard } from '#/components/schedule/MonthCalendarCard'
 import { DayAgendaPanel } from '#/components/schedule/DayAgendaPanel'
 import {
-  RecurringFilterButton,
   ScheduleFilterButton,
   WeekFilterButton,
 } from '#/components/schedule/ScheduleFilterButton'
@@ -74,6 +73,7 @@ import { useToday } from '#/lib/useToday'
 import { WeekSummary, WeekView } from '#/components/schedule/WeekView'
 import { RecurringDueNote } from '#/components/schedule/RecurringDueNote'
 import {
+  RecurringFilterButton,
   RecurringSummary,
   RecurringView,
   warmRecurring,
@@ -784,7 +784,9 @@ function ScheduleBody({
       <RecurringFilterButton
         business={business}
         members={members}
-        filters={filters}
+        staffId={filters.staffId}
+        onStaffChange={filters.setStaffId}
+        onClear={filters.clear}
         sort={recurringSort}
         onSortChange={setRecurringSort}
         byDate={by === 'date'}

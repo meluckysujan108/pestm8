@@ -847,4 +847,23 @@ test('the day sorts by suburb and filters by service; the week and Recurring fil
   await expect(page).toHaveURL(/[?&]sort=client/)
   await done()
   expect(await before(wasps, rodents)).toBe(true)
+
+  // Jobs → Recurring Job: the same filters, at the end of its switch's row,
+  // in its own address.
+  await page.goto(`/${s.slug}/job/recurring`)
+  await expect(rodents).toBeVisible()
+  await expect(wasps).toBeVisible()
+  expect(await before(rodents, wasps)).toBe(true)
+  await open()
+  await sheet.getByRole('button', { name: /Kevin/ }).click()
+  await expect(page).toHaveURL(/\/job\/recurring\?.*staff=\w+/)
+  await sheet
+    .getByRole('radiogroup', { name: 'Sort by' })
+    .getByRole('radio', { name: 'Client A–Z' })
+    .click()
+  await expect(page).toHaveURL(/[?&]sort=client/)
+  await done()
+  await expect(filters).toHaveAccessibleName('Filter and sort, 1 on')
+  await expect(rodents).toBeHidden()
+  await expect(wasps).toBeVisible()
 })

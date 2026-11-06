@@ -7,6 +7,7 @@ import {
 } from '#/components/schedule/RecurringView'
 import { useCan } from '#/lib/access'
 import { searchParam } from '#/lib/routeQueries'
+import { RECURRING_JOB_SORTS } from '#/lib/jobViews'
 
 export const Route = createFileRoute('/$businessSlug/job/recurring')({
   validateSearch: z.object({
@@ -14,6 +15,11 @@ export const Route = createFileRoute('/$businessSlug/job/recurring')({
     // By service unless asked otherwise, so the page's own address stays
     // the plain one.
     view: z.enum(['date']).optional().catch(undefined),
+    // Whose Recurring Jobs, and their order: chosen behind the filter icon
+    // in the section's switch row (`JobSection`), kept here like the view.
+    // Absent is everyone's, with what is to book first.
+    staff: z.string().optional(),
+    sort: z.enum(RECURRING_JOB_SORTS).optional().catch(undefined),
   }),
   // No `loaderDeps` on the view: a new match would put the route's
   // placeholder over the very switch that asked for it.
@@ -35,7 +41,7 @@ function RecurringJobPage() {
   const { business } = Route.useRouteContext()
   const canDispatch = useCan('jobs.dispatch')
   const canManageClients = useCan('clients.manage')
-  const { jobId, view } = Route.useSearch()
+  const { jobId, view, staff, sort } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
   return (
@@ -44,6 +50,15 @@ function RecurringJobPage() {
         <RecurringView
           business={business}
           byDate={view === 'date'}
+          staffId={staff ?? 'all'}
+          sort={sort ?? 'toBook'}
+          onClearFilters={() =>
+            navigate({
+              search: (prev) => ({ ...prev, staff: undefined }),
+              replace: true,
+              resetScroll: false,
+            })
+          }
           onByDateChange={(byDate) =>
             navigate({
               search: (prev) => ({

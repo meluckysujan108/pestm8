@@ -1,7 +1,12 @@
-import { useState } from 'react'
 import { siteContactOf } from '../../convex/lib/siteContact'
 import { phoneKeys } from '../../convex/lib/contactKeys'
 import { queryShape } from './clientSearch'
+import {
+  computeSuburbLoad,
+  statusCounts,
+  tagsInUse,
+} from '../../convex/lib/clientFacets'
+import type { SuburbLoad, TagLoad } from '../../convex/lib/clientFacets'
 
 export type ClientKind = 'person' | 'business'
 export type KindFilter = 'all' | ClientKind
@@ -44,8 +49,8 @@ export const KIND_OPTIONS: Array<{ value: ClientKind; label: string }> = [
  * counts the whole book exactly as this page counts the clients a search has
  * found. Re-exported here, where the page and its tests have always found it.
  */
-export { computeSuburbLoad } from '../../convex/lib/clientFacets'
-export type { SuburbLoad } from '../../convex/lib/clientFacets'
+export { computeSuburbLoad }
+export type { SuburbLoad }
 
 /** Fewer digits than this and a number is more likely a street number, or
  * part of one, than an ABN or a phone: it would bring in clients whose ABN
@@ -204,11 +209,82 @@ export type ClientFilterValues = {
   tag: string
 }
 
+/** Each filter left at its default. */
+export const NO_CLIENT_FILTERS: ClientFilterValues = {
+  kind: 'all',
+  suburb: 'all',
+  status: 'all',
+  tag: 'all',
+}
+
 /**
- * Kind + suburb narrowing for the client list — the client-context analogue
- * of `useScheduleFilters`'s status/staff narrowing. Local state, not the URL,
- * while `q` (durable, "survives a refresh") stays in the route's search
- * params; the Schedule's moved into its address on 6 Nov 2026.
+ * The client types as the address names them: as they are said, rather than
+ * the schema's `person` and `business`, so a shared link reads as what it
+ * shows.
+ */
+export const CLIENT_TYPE_PARAMS = ['residential', 'commercial'] as const
+export type ClientTypeParam = (typeof CLIENT_TYPE_PARAMS)[number]
+const KIND_OF_PARAM: Record<ClientTypeParam, ClientKind> = {
+  residential: 'person',
+  commercial: 'business',
+}
+const PARAM_OF_KIND: Record<ClientKind, ClientTypeParam> = {
+  person: 'residential',
+  business: 'commercial',
+}
+
+export const CLIENT_STATUS_PARAMS = ['active', 'lead', 'inactive'] as const
+
+/** The filters as the Clients page's address holds them, each left out at
+ * its default. */
+export type ClientFilterSearch = {
+  type?: ClientTypeParam
+  status?: (typeof CLIENT_STATUS_PARAMS)[number]
+  tag?: string
+  suburb?: string
+}
+
+/** What the address asks for, as the four filters' values. */
+export function clientFilterValuesOf(
+  search: ClientFilterSearch,
+): ClientFilterValues {
+  return {
+    kind: search.type ? KIND_OF_PARAM[search.type] : 'all',
+    status: search.status ?? 'all',
+    tag: search.tag?.trim() || 'all',
+    suburb: search.suburb?.trim() || 'all',
+  }
+}
+
+/** The four filters as the address holds them: a default is left out. */
+export function clientFilterSearchOf(
+  values: ClientFilterValues,
+): ClientFilterSearch {
+  return {
+    type: values.kind === 'all' ? undefined : PARAM_OF_KIND[values.kind],
+    status: values.status === 'all' ? undefined : values.status,
+    tag: values.tag === 'all' ? undefined : values.tag,
+    suburb: values.suburb === 'all' ? undefined : values.suburb,
+  }
+}
+
+/** How many of the four are set: the filter icon's badge. */
+export function clientFiltersOn(values: ClientFilterValues): number {
+  return (
+    Number(values.kind !== 'all') +
+    Number(values.status !== 'all') +
+    Number(values.tag !== 'all') +
+    Number(values.suburb !== 'all')
+  )
+}
+
+/**
+ * Type, status, tag and suburb narrowing for the client list — the
+ * client-context analogue of `useScheduleFilters`. In the address (`?type=`,
+ * `?status=`, `?tag=`, `?suburb=`) beside the search and the sort, as every
+ * list's filters are (§5, Filters and views): a filtered list survives a
+ * refresh and can be sent to someone. They were local state, lost with the
+ * page, until 7 Nov 2026.
  *
  * The values only; `filterClientRows` does the narrowing. Which rows there
  * are to narrow depends on the values: the page opens on its newest clients
@@ -216,32 +292,69 @@ export type ClientFilterValues = {
  * directory), so the page has to know the filters before it can ask for the
  * rows they apply to.
  */
-export function useClientFilters() {
-  const [kind, setKind] = useState<KindFilter>('all')
-  const [suburb, setSuburb] = useState<string>('all')
-  const [status, setStatus] = useState<StatusFilter>('all')
-  const [tag, setTag] = useState<string>('all')
-
-  const clearFilters = () => {
-    setKind('all')
-    setSuburb('all')
-    setStatus('all')
-    setTag('all')
-  }
-  const filtersActive =
-    kind !== 'all' || suburb !== 'all' || status !== 'all' || tag !== 'all'
-
+export function useClientFilters(
+  search: ClientFilterSearch,
+  write: (next: ClientFilterSearch) => void,
+) {
+  const values = clientFilterValuesOf(search)
+  const set = (next: Partial<ClientFilterValues>) =>
+    write(clientFilterSearchOf({ ...values, ...next }))
   return {
-    kind,
-    setKind,
-    suburb,
-    setSuburb,
-    status,
-    setStatus,
-    tag,
-    setTag,
-    clearFilters,
-    filtersActive,
+    ...values,
+    setKind: (kind: KindFilter) => set({ kind }),
+    setSuburb: (suburb: string) => set({ suburb }),
+    setStatus: (status: StatusFilter) => set({ status }),
+    setTag: (tag: string) => set({ tag }),
+    clearFilters: () => write(clientFilterSearchOf(NO_CLIENT_FILTERS)),
+    filtersOn: clientFiltersOn(values),
+    filtersActive: clientFiltersOn(values) > 0,
+  }
+}
+
+type FilterableRow = {
+  client: {
+    kind: ClientKind
+    status?: 'active' | 'lead' | 'inactive'
+    tags?: ReadonlyArray<string>
+  }
+  properties: ReadonlyArray<{ suburb: string }>
+}
+
+/**
+ * What each choice in the filter sheet would show: each section counted
+ * among the clients the other three filters let through, so a count is what
+ * picking it leaves. `all` is that section's whole.
+ */
+export function clientFilterCounts(
+  rows: ReadonlyArray<FilterableRow>,
+  values: ClientFilterValues,
+): {
+  kinds: Record<KindFilter, number>
+  statuses: Record<StatusFilter, number>
+  tags: { all: number; each: Array<TagLoad> }
+  suburbs: { all: number; each: Array<SuburbLoad> }
+} {
+  const byKind = filterClientRows(rows, { ...values, kind: 'all' })
+  const byStatus = filterClientRows(rows, { ...values, status: 'all' })
+  const byTag = filterClientRows(rows, { ...values, tag: 'all' })
+  const bySuburb = filterClientRows(rows, { ...values, suburb: 'all' })
+  const kinds: Record<KindFilter, number> = {
+    all: byKind.length,
+    person: 0,
+    business: 0,
+  }
+  for (const row of byKind) kinds[row.client.kind]++
+  return {
+    kinds,
+    statuses: {
+      all: byStatus.length,
+      ...statusCounts(byStatus.map((row) => row.client)),
+    },
+    tags: {
+      all: byTag.length,
+      each: tagsInUse(byTag.map((row) => row.client)),
+    },
+    suburbs: { all: bySuburb.length, each: computeSuburbLoad(bySuburb) },
   }
 }
 

@@ -179,8 +179,9 @@ test('an archived client stays off Clients, and stays pickable — last, labelle
   await expect(
     page.locator('main button').filter({ hasText: 'Zed Archived' }),
   ).toHaveCount(0)
-  // Nor is it counted: J. Nguyen is the one client.
-  await expect(page.getByText(/^1 client$/)).toBeVisible()
+  // Nor is it counted: the search finds none of the book's one client,
+  // J. Nguyen.
+  await expect(page.getByText(/^0 of 1 client$/)).toBeVisible()
 
   await page.goto(`/${s.slug}/schedule`)
   const newJob = page.getByRole('dialog')
