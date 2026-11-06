@@ -1,6 +1,12 @@
 /* Sample data for the harness, keyed by Convex function name ("module:fn"). */
 
-import { BUSY_SITES_FOR_LIST, resolveBusy } from './busyFixtures'
+import {
+  BUSY_PROJECTED,
+  BUSY_SERIES,
+  BUSY_SITES_FOR_LIST,
+  busyServices,
+  resolveBusy,
+} from './busyFixtures'
 import { JOB_TYPES_LIST, JOB_TYPES_MANAGE } from './jobTypeFixtures'
 import { resolveMatch } from './matchFixtures'
 import { openWorkFixture, resolveSiteBook } from './siteWorkFixtures'
@@ -946,10 +952,18 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
     count: bookedJobs(args.status).length,
     capped: false,
   }),
-  // The Recurring Job view's bar: the sample's two series and its visits.
+  // The Recurring view (`RecurringView`, the Schedule's Recurring and the
+  // Job section's Recurring Job): the busy client's services, its bar and,
+  // by date, its projected visits, so the three agree.
   'jobs:recurringSummary': () => ({
-    seriesCount: new Set(JOBS.map((j) => j.recurrenceId).filter(Boolean)).size,
-    visitCount: JOBS.filter((j) => j.status === 'recurring').length,
+    seriesCount: BUSY_SERIES.length,
+    visitCount: BUSY_PROJECTED.length,
+    horizonDays: 180,
+  }),
+  'recurrences:services': () => busyServices(),
+  'jobs:listRecurring': () => ({
+    jobs: BUSY_PROJECTED,
+    seriesCount: BUSY_SERIES.length,
     horizonDays: 180,
   }),
   'jobs:photos': () => [],

@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'vitest'
-import { openJobScroll } from './scheduleViews'
+import {
+  SCHEDULE_VIEWS,
+  SCHEDULE_VIEW_OPTIONS,
+  openJobScroll,
+} from './scheduleViews'
 
 /**
  * The Schedule moving to a job's day to open it over that day (New Job's
@@ -26,5 +30,23 @@ describe('to a job’s day, for Open #123 (`openJobScroll`)', () => {
       resetScroll: false,
       focusWeek: true,
     })
+  })
+
+  test('in the Recurring view, which is no day’s, the page stays put', () => {
+    expect(openJobScroll('recurring', '2026-11-02', '2026-11-05')).toEqual({
+      resetScroll: false,
+      focusWeek: false,
+    })
+  })
+})
+
+describe('the Schedule’s views', () => {
+  test('are Job, Week and Recurring, in that order', () => {
+    expect(SCHEDULE_VIEWS).toEqual(['job', 'week', 'recurring'])
+    expect(SCHEDULE_VIEW_OPTIONS.map((option) => option.label)).toEqual([
+      'Job',
+      'Week',
+      'Recurring',
+    ])
   })
 })
