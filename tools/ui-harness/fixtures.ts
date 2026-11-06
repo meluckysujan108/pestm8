@@ -9,6 +9,7 @@ import {
 } from './busyFixtures'
 import { JOB_TYPES_LIST, JOB_TYPES_MANAGE } from './jobTypeFixtures'
 import { resolveMatch } from './matchFixtures'
+import { resolveMergeFixture } from './mergeFixtures'
 import { openWorkFixture, resolveSiteBook } from './siteWorkFixtures'
 import { resolveSheetCheckBook, sheetCheckMutation } from './sheetCheckFixtures'
 import { clientFacets } from '../../convex/lib/clientFacets'
@@ -1151,6 +1152,7 @@ export function resolveFixture(fn: string, args: unknown): unknown {
   if (busy !== undefined) return busy
   const match =
     resolveMatch(fn, args) ??
+    resolveMergeFixture(fn, args) ??
     resolveSiteBook(fn, args) ??
     resolveSheetCheckBook(fn, args)
   if (match !== undefined) return match
