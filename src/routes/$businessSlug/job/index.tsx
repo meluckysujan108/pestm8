@@ -57,6 +57,10 @@ export const Route = createFileRoute('/$businessSlug/job/')({
     staff: z.string().optional(),
     sort: z.enum(JOB_LIST_SORTS).optional().catch(undefined),
     jobId: z.string().optional(),
+    // A booking on this phone, not sent yet: its `localId`, never in `jobId`
+    // (`jobs.get` refuses it). Opened once the page has hydrated and the
+    // phone's bookings have been read (`JobDetailSheet`).
+    outboxId: z.string().optional(),
   }),
   // The list's first page and its count, for the list this person sees. No
   // `loaderDeps` on the status: that would make every pick in the filter a
@@ -121,7 +125,7 @@ function JobListPage() {
   const { business } = Route.useRouteContext()
   const canDispatch = useCan('jobs.dispatch')
   const canManageClients = useCan('clients.manage')
-  const { status, staff, sort, jobId } = Route.useSearch()
+  const { status, staff, sort, jobId, outboxId } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
   // Follows the view live: "Just my jobs" turns the paged list into the
@@ -234,7 +238,7 @@ function JobListPage() {
   // at its start.
   const openJob = (id: string) =>
     navigate({
-      search: (prev) => ({ ...prev, jobId: id }),
+      search: (prev) => ({ ...prev, jobId: id, outboxId: undefined }),
       replace: true,
       resetScroll: false,
     })
@@ -358,15 +362,21 @@ function JobListPage() {
         businessSlug={business.slug}
         timezone={business.timezone}
         jobId={jobId ?? null}
+        outboxId={outboxId ?? null}
         canReassign={canDispatch}
         canDelete={canManageClients}
         onClose={() =>
           navigate({
-            search: (prev) => ({ ...prev, jobId: undefined }),
+            search: (prev) => ({
+              ...prev,
+              jobId: undefined,
+              outboxId: undefined,
+            }),
             replace: true,
             resetScroll: false,
           })
         }
+        onSent={openJob}
       />
     </>
   )

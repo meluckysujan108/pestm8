@@ -281,7 +281,39 @@ describe('New Job (every client mode)', () => {
 
   test('FormAlert’s words are for the booking as it was sent: a new site for a client has its own for MATCHED_CLIENT (bookingCopy.test.ts)', () => {
     expect(newJob()).toMatch(
-      /copy=\{bookingErrorCopy\(\s+create\.variables\?\.property,\s+\(id\) => matchIndex\.clients\.get\(id\)\?\.name,\s+\)\}/,
+      // An Edit of a booking on the phone adds its own refusals after them.
+      /copy=\{\{\s+\.\.\.bookingErrorCopy\(\s+create\.variables\?\.property,\s+\(id\) => matchIndex\.clients\.get\(id\)\?\.name,\s+\),\s+\/\/ [^\n]*\n\s+\.\.\.\(item !== undefined && OUTBOX_ACTION_COPY\),\s+\}\}/,
+    )
+  })
+
+  test('“Change the date” puts focus on the date once New Job’s own focus trap is up, or the booking’s sheet under it takes it straight back', () => {
+    expect(newJob()).toMatch(
+      /useEffect\(\(\) => \{\s+if \(!focusDate\) return\s+const timer = setTimeout\(\(\) => dateInput\.current\?\.focus\(\), 0\)\s+return \(\) => clearTimeout\(timer\)\s+\}, \[focusDate\]\)/,
+    )
+    expect(newJob().match(/dateInput\.current\?\.focus\(\)/g)).toHaveLength(1)
+  })
+
+  test('an Edit’s Book books nothing once “Discard your changes?” is confirmed, however long it waits on the phone (itemActions.test.ts)', () => {
+    expect(newJob()).toMatch(
+      /discarded: \(\) => \{\s+editDiscarded\.current = true\s+\},/,
+    )
+    expect(newJob()).toMatch(
+      /replaceItem\([^;]*\(\) => setReplaced\(true\),\s+\(\) => editDiscarded\.current,\s+finished,\s+\)/,
+    )
+  })
+
+  test('a Book pressed after a Discard the Edit’s form didn’t close on is the person’s own, and books; one on “Checking…” as Discard is confirmed still books nothing', () => {
+    // At the press, once it is one that can book, and before it waits.
+    expect(newJob()).toMatch(
+      /if \(saveWarnings\.isArmed\(\)\) return\s+if \(!readyToBook\(\)\) return\s+(?:\/\/[^\n]*\n\s+)*editDiscarded\.current = false\s+(?:\/\/[^\n]*\n\s+)*saveWarnings\.guard\(e, \(\) =>/,
+    )
+    // Only there: never in the save a press on “Checking…” runs later.
+    expect(newJob().match(/editDiscarded\.current = false/g)).toHaveLength(1)
+  })
+
+  test('an Edit’s Book the phone’s storage answers late closes the form when it lands, as one answered in time does (itemActions.test.ts)', () => {
+    expect(newJob()).toMatch(
+      /const finished = \(\) => \{\s+onBooked\?\.\(\)\s+onClose\(\)\s+\}\s+const outcome = await replaceItem\([^;]*finished,\s+\)\s+finished\(\)\s+return outcome/,
     )
   })
 

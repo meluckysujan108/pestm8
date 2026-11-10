@@ -59,6 +59,7 @@ import { useLineDown } from '#/lib/offline/useLineDown'
 import { editSaveWaits } from '#/lib/editSaveWaits'
 import { editTriggerLabel, jobEditChoices } from '#/lib/jobEditChoices'
 import type { JobEditTarget } from '#/lib/jobEditChoices'
+import type { BodyLanding } from '#/lib/offline/useKept'
 import { JobEditChooser } from './JobEditChooser'
 import type { JobRecordEdit, RecordEditTarget } from './JobRecordEdit'
 import { JobTimeFields, useJobTimes } from './JobTimeFields'
@@ -200,6 +201,7 @@ export function JobDetailSheet({
   canReassign,
   canDelete,
   onClose,
+  onSent,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
@@ -217,9 +219,25 @@ export function JobDetailSheet({
    * they may edit (the server's `canEdit`). */
   canDelete: boolean
   onClose: () => void
+  /**
+   * The booking open (`outboxId`) was sent: the page's way of opening its
+   * job in the same sheet, replacing `?outboxId=` with `?jobId=` (plan
+   * §9.5). Without it the sheet stays on the booking, "Sent".
+   */
+  onSent?: (jobId: string) => void
 }) {
   const outboxReadable = useOutboxReadable()
   const itemOpen = jobId === null && outboxId !== null && outboxReadable
+  // How the booking's body stood as it was sent: the job handed over to
+  // lands there, in the same sheet, so nothing moves (plan §9.5).
+  const [landing, setLanding] = useState<{
+    jobId: string
+    body: BodyLanding | null
+  } | null>(null)
+  const closed = jobId === null && outboxId === null
+  useEffect(() => {
+    if (closed) setLanding(null)
+  }, [closed])
   return (
     <SheetShell open={jobId !== null || itemOpen} onClose={onClose}>
 
@@ -237,6 +255,7 @@ export function JobDetailSheet({
           canReassign={canReassign}
           canDelete={canDelete}
           onClose={onClose}
+          landing={landing?.jobId === jobId ? landing.body : null}
         />
       )}
       {itemOpen && (
@@ -245,6 +264,14 @@ export function JobDetailSheet({
           businessId={businessId}
           localId={outboxId}
           timezone={timezone}
+          onSent={
+            onSent &&
+            ((sentAs, body) => {
+              setLanding({ jobId: sentAs, body })
+              onSent(sentAs)
+            })
+          }
+          onClose={onClose}
         />
       )}
     </SheetShell>
@@ -259,6 +286,7 @@ function JobDetailBody({
   canReassign,
   canDelete,
   onClose,
+  landing,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
@@ -267,6 +295,8 @@ function JobDetailBody({
   canReassign: boolean
   canDelete: boolean
   onClose: () => void
+  /** Handed over from a booking's sheet: how its body stood. */
+  landing: BodyLanding | null
 }) {
   const jobQuery = useQuery(convexQuery(api.jobs.get, { businessId, jobId }))
   const job = jobQuery.data
@@ -285,6 +315,7 @@ function JobDetailBody({
       !jobQuery.isError &&
       kept.state === 'kept' &&
       kept.day !== null,
+    landing,
   )
   // Everyone going beside the lead. Read as possibly absent: a backend older
   // than shared jobs sends no such field.

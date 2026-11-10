@@ -181,6 +181,21 @@ describe('reading again', () => {
     expect(model.all().map((i) => i.localId)).toEqual([item.localId])
   })
 
+  test('another tab renewing its Edit is heard, though nothing else of the booking changed: a sheet here goes by when it runs out', async () => {
+    const item = itemFor('u1', { editing: { tab: 'there', until: 5_000 } })
+    const backend = await outboxOf('u1', [item])
+    const { model, broadcast } = await tab(backend)
+    const before = model.revision()
+    backend.items.set(item.localId, {
+      ...structuredClone(item),
+      editing: { tab: 'there', until: 65_000 },
+    })
+    broadcast.current.onmessage?.({ data: { changed: true } } as MessageEvent)
+    await settled()
+    expect(model.get(item.localId)?.editing?.until).toBe(65_000)
+    expect(model.revision()).toBeGreaterThan(before)
+  })
+
   test('a read out while this tab changed something is read again, never taken over it', async () => {
     const item = itemFor('u1')
     const backend = await outboxOf('u1', [item])

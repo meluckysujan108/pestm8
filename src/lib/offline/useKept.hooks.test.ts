@@ -154,6 +154,20 @@ describe('a sheet’s body across the hand-over (`useHandOverBody`)', () => {
     expect(held.current().style).toEqual({ flex: '0 1 auto', height: 652 })
   })
 
+  test('landing in place of another view’s body: held at that height from the first draw, and scrolled where that was', () => {
+    const { node } = body(900)
+    const held = hookHarness.mount(() =>
+      useHandOverBody(false, { height: 409, scrollTop: 120 }),
+    )
+    expect(held.current().style).toEqual({ flex: '0 1 auto', height: 409 })
+    held.current().ref(node)
+    expect((node as { scrollTop?: number }).scrollTop).toBe(120)
+    // Scrolled from then on by the thumb on it, not by this.
+    ;(node as { scrollTop?: number }).scrollTop = 40
+    held.rerender()
+    expect((node as { scrollTop?: number }).scrollTop).toBe(40)
+  })
+
   test('a sheet that never showed the kept view is never held', () => {
     const { node } = body(630)
     const held = hookHarness.mount(() => useHandOverBody(false))

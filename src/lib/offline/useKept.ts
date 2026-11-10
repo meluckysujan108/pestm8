@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useRef,
   useReducer,
   useState,
   useSyncExternalStore,
@@ -386,6 +387,9 @@ export function useNewerClientsHint(directoryKey: QueryKey): string | null {
     : null
 }
 
+/** What a view's scrolling body was as another took its place. */
+export type BodyLanding = { height: number; scrollTop: number }
+
 /**
  * How a sheet's scrolling body is held once the live sheet has taken the
  * place of a kept view drawn in it (`useHandOverBody`): at the kept view's
@@ -410,14 +414,27 @@ export function handOverStyle(
  * to its cap, so a live sheet taller or shorter than the kept view would
  * move its top edge, and every Call with it. `kept`: the kept view is what
  * the body shows now. Its height is measured as it draws and whenever it
- * changes.
+ * changes. `landing`: drawn in place of another view's body, which can't be
+ * the same element (a booking's sheet, once it is sent): held at that one's
+ * height from the first draw, and scrolled where that one was.
  */
-export function useHandOverBody(kept: boolean): {
+export function useHandOverBody(
+  kept: boolean,
+  landing: BodyLanding | null = null,
+): {
   ref: (node: HTMLElement | null) => void
   style: CSSProperties | undefined
 } {
   const [node, setNode] = useState<HTMLElement | null>(null)
-  const [keptHeight, setKeptHeight] = useState<number | null>(null)
+  const [keptHeight, setKeptHeight] = useState<number | null>(
+    landing?.height ?? null,
+  )
+  const landed = useRef(false)
+  useLayoutEffect(() => {
+    if (landing === null || !node || landed.current) return
+    landed.current = true
+    node.scrollTop = landing.scrollTop
+  }, [landing, node])
   useLayoutEffect(() => {
     if (!kept || !node) return
     const measure = () => setKeptHeight(node.getBoundingClientRect().height)

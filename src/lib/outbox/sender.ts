@@ -6,7 +6,8 @@ import { rq } from '#/lib/routeQueries'
 import { flagIfTwoStepNeeded, isTwoStepNeeded } from '#/lib/twoStep'
 import { outbox as pageOutbox } from './outbox'
 import { bookingCall, newRequestId } from './outboxItem'
-import { SEND_LOCK, itemLock, takeLock } from './outboxLocks'
+import { lapseLeftEdits } from './itemActions'
+import { SEND_LOCK, itemLock, retakeTabLock, takeLock } from './outboxLocks'
 import {
   classify,
   codeOf,
@@ -293,8 +294,12 @@ export class Sender {
   >()
   // A request id this page load replaced, which isn't replaced twice.
   private readonly renewed = new Set<string>()
-  // How many finds were refused, by booking (for "may already be booked").
-  private readonly findRefusals = new Map<string, number>()
+  // How many finds were refused, by booking, for which attempt (for "may
+  // already be booked"): one another tab has made since starts again.
+  private readonly findRefusals = new Map<
+    string,
+    { attemptAt: number | null; n: number }
+  >()
   // Each booking's held reason as last noted, and how many looks found it.
   private readonly heldNotes = new Map<
     string,
@@ -331,10 +336,21 @@ export class Sender {
       this.kick()
     }
     doc?.addEventListener('visibilitychange', onVisibility)
+    // Back from the back/forward cache: Safari let go of this page's locks.
+    const page = typeof window === 'undefined' ? null : window
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return
+      void retakeTabLock(ready.locks, ready.outbox.tab).then(() => {
+        this.renewEdits()
+        this.kick()
+      })
+    }
+    page?.addEventListener('pageshow', onPageShow)
     const detach = () => {
       for (const stop of stops) stop()
       stopOutbox()
       doc?.removeEventListener('visibilitychange', onVisibility)
+      page?.removeEventListener('pageshow', onPageShow)
       clearTimeout(this.timer)
       this.timer = undefined
       if (this.detachNow === detach) {
@@ -406,9 +422,13 @@ export class Sender {
     return why === 'gone' || why === 'earlier-stint' ? null : why
   }
 
-  /** Whether another tab or window had `localId`'s lock when this looked. */
+  /** Whether another tab or window had `localId`'s lock when this looked:
+   * never this tab's own, held for a write still landing. */
   sendingElsewhere(localId: string): boolean {
-    return this.elsewhere.has(localId)
+    return (
+      this.elsewhere.has(localId) &&
+      this.deps?.outbox.landingHere.has(localId) !== true
+    )
   }
 
   /** Whether this tab has a call out for `localId`. */
@@ -421,9 +441,14 @@ export class Sender {
     return this.storageTrouble
   }
 
-  /** How many times the server refused to say whether it was booked. */
+  /** How many times the server refused to say whether its last attempt
+   * was booked. */
   refusedFinds(localId: string): number {
-    return this.findRefusals.get(localId) ?? 0
+    const refused = this.findRefusals.get(localId)
+    const item = this.deps?.outbox.get(localId)
+    return refused !== undefined && refused.attemptAt === item?.lastAttemptAt
+      ? refused.n
+      : 0
   }
 
   // ── From the sheet ───────────────────────────────────────────────────────
@@ -826,6 +851,19 @@ export class Sender {
   private async tidy(userId: string): Promise<void> {
     const deps = this.deps
     if (!deps) return
+    // An Edit's lease no page holds any more (one that went mid-Edit) holds
+    // nothing: let go, so it goes now rather than once the lease runs out.
+    await lapseLeftEdits(
+      deps.outbox.all().filter((item) => item.userId === userId),
+      {
+        tab: deps.outbox.tab,
+        editingHere: deps.outbox.editingHere,
+        locks: deps.locks,
+        change: (op, localId, change) =>
+          deps.outbox.change(op, localId, change),
+        now: () => Date.now(),
+      },
+    )
     const mine = deps.outbox.all().filter((item) => item.userId === userId)
     const now = Date.now()
     for (const item of mine) {
@@ -958,6 +996,8 @@ export class Sender {
       // look says it needs a look for. The refusal reads it again.
       if (typeof begun !== 'object') return 'skipped'
       this.storageTrouble = false
+      // A new attempt: finds refused for an earlier one say nothing of it.
+      this.findRefusals.delete(id)
       // The booking as that mark read it, in the same transaction: an Edit
       // in another tab may have changed it since this step read it. And a
       // switch, a sign-in or the line can have moved while it was written.
@@ -1271,6 +1311,9 @@ export class Sender {
       }
       const found = answer.found
       const now = Date.now()
+      // Settled: refusals before it count for nothing from here (§6.3 counts
+      // those of an attempt still unsettled).
+      this.findRefusals.delete(id)
       await deps.outbox.change(
         'settle',
         id,
@@ -1297,6 +1340,7 @@ export class Sender {
       return 'progress'
     }
     if (answers.every((a) => a !== 'timeout' && 'found' in a)) {
+      this.findRefusals.delete(id)
       const unlocked = await deps.outbox.change(
         'unlock',
         id,
@@ -1317,7 +1361,18 @@ export class Sender {
         )
         return 'progress'
       }
-      this.findRefusals.set(id, (this.findRefusals.get(id) ?? 0) + 1)
+      // Signed out or two-step owed: a hold, as a send's would be (§6.2),
+      // not the find refused for good after a deploy that §6.3 counts.
+      const { cls } = classify(answer.refused, {
+        sameConnection: true,
+        access: this.accessContext(item),
+      })
+      if (cls === 'SIGNED_OUT' || cls === 'TWO_STEP') continue
+      const before = this.findRefusals.get(id)
+      this.findRefusals.set(id, {
+        attemptAt: item.lastAttemptAt,
+        n: before?.attemptAt === item.lastAttemptAt ? before.n + 1 : 1,
+      })
     }
     return 'acted'
   }

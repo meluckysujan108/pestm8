@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { FakeLockManager } from './fakeLocks.fixtures'
-import { SEND_LOCK, itemLock, lockHeld, takeLock } from './outboxLocks'
+import {
+  SEND_LOCK,
+  holdTabLock,
+  itemLock,
+  lockHeld,
+  retakeTabLock,
+  tabLock,
+  takeLock,
+} from './outboxLocks'
 import {
   duringSwitchStart,
   onSwitchGate,
@@ -78,6 +86,36 @@ describe('a lock', () => {
     } as unknown as Parameters<typeof takeLock>[0]
     expect(await takeLock(broken, SEND_LOCK)).toBeNull()
     expect(await lockHeld(broken, SEND_LOCK)).toBe(false)
+  })
+})
+
+describe('a tab’s own lock, back from the back/forward cache', () => {
+  test('let go of as the page went in, it is taken again, and held only the once', async () => {
+    const phone = new FakeLockManager()
+    const tab = phone.forTab('a')
+    expect(await holdTabLock(tab, 'restored')).toBe(true)
+    phone.closeTab('a')
+    expect(phone.isHeld(tabLock('restored'))).toBe(false)
+    await retakeTabLock(tab, 'restored')
+    expect(phone.isHeld(tabLock('restored'), 'a')).toBe(true)
+    expect(await holdTabLock(tab, 'restored')).toBe(true)
+    expect(phone.held).toHaveLength(1)
+  })
+
+  test('where the browser kept it, nothing waits on itself, and it is still held', async () => {
+    const phone = new FakeLockManager()
+    const tab = phone.forTab('a')
+    await holdTabLock(tab, 'kept')
+    await retakeTabLock(tab, 'kept')
+    expect(phone.waiting).toEqual([])
+    expect(phone.held).toHaveLength(1)
+    expect(await holdTabLock(tab, 'kept')).toBe(true)
+  })
+
+  test('a tab that never took it takes nothing', async () => {
+    const phone = new FakeLockManager()
+    await retakeTabLock(phone.forTab('a'), 'never')
+    expect(phone.held).toEqual([])
   })
 })
 

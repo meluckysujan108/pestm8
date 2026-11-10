@@ -36,6 +36,7 @@ import {
   preSendChange,
   readOutboxNow,
   renewEditChange,
+  unreplaceChange,
   replaceChange,
   resultChange,
   retryOutbox,
@@ -892,6 +893,16 @@ describe('a change to an item', () => {
         editing: null,
       })
     })
+
+    test.each(['sending', 'sent'] as const)(
+      'is not renewed once %s: another tab sent it while this one slept, and a lease would keep every tab from settling it',
+      async (state) => {
+        const phone = await phoneWith(
+          itemFor('u1', { state, editing: { tab: 't1', until: NOW } }),
+        )
+        expect(await phone.change(renewEditChange('t1', NOW))).toBe('refused')
+      },
+    )
   })
 
   describe('replace (Book, from an Edit)', () => {
@@ -1070,6 +1081,43 @@ describe('a change to an item', () => {
     expect(await going.change(confirmStaleChange(NOW))).toBe('refused')
   })
 
+  describe('an Edit’s Book put back', () => {
+    const before = itemFor('u1', {
+      state: 'needsLook',
+      problem: { code: 'SERVER' },
+      editing: { tab: 't1', until: NOW + 1 },
+    })
+    const replaced = {
+      ...before,
+      state: 'waiting' as const,
+      problem: null,
+      editing: null,
+      updatedAt: NOW,
+    }
+
+    test('goes back as the form opened on it, its Edit over', async () => {
+      const phone = await phoneWith(replaced)
+      expect(
+        await phone.change(unreplaceChange(before, replaced, NOW + 5)),
+      ).toMatchObject({
+        state: 'needsLook',
+        problem: { code: 'SERVER' },
+        editing: null,
+        updatedAt: NOW + 5,
+      })
+    })
+
+    test.each([
+      ['anything since that write', { updatedAt: NOW + 1 }],
+      ['one no longer waiting', { state: 'sending' as const }],
+    ])('refused over %s', async (_, since) => {
+      const phone = await phoneWith({ ...replaced, ...since })
+      expect(
+        await phone.change(unreplaceChange(before, replaced, NOW + 5)),
+      ).toBe('refused')
+    })
+  })
+
   describe('discard', () => {
     test.each(['waiting', 'needsLook'] as const)(
       'goes while %s',
@@ -1102,6 +1150,31 @@ describe('a change to an item', () => {
     test('a newer build’s item can be discarded, though never changed', async () => {
       const phone = await phoneWith(itemFor('u1', { v: OUTBOX_V + 1 }))
       expect(await phone.change(discardChange())).toBe('deleted')
+      // Whatever a newer build keeps, or doesn't, where a lease goes.
+      const bare = await phoneWith({
+        ...itemFor('u1', { v: OUTBOX_V + 1 }),
+        editing: undefined as never,
+      })
+      expect(
+        await bare.change(discardChange({ from: { tab: 't1', now: NOW } })),
+      ).toBe('deleted')
+    })
+
+    test('refused while an Edit is open in another tab, until its lease runs out; never for the tab’s own', async () => {
+      const editing = { tab: 't2', until: NOW + 1 }
+      const phone = await phoneWith(itemFor('u1', { editing }))
+      expect(
+        await phone.change(discardChange({ from: { tab: 't1', now: NOW } })),
+      ).toBe('refused')
+      expect(
+        await phone.change(discardChange({ from: { tab: 't2', now: NOW } })),
+      ).toBe('deleted')
+      const lapsed = await phoneWith(itemFor('u1', { editing }))
+      expect(
+        await lapsed.change(
+          discardChange({ from: { tab: 't1', now: NOW + 1 } }),
+        ),
+      ).toBe('deleted')
     })
 
     test('takes the bookings made after it on it, and theirs, in one go; nothing else', async () => {
