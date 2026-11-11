@@ -6,6 +6,7 @@ import {
   chooseProperty,
   signInViaUi,
   signUpActor,
+  skipNearPerthMidnight,
   uniqueEmail,
   inviteAndJoin,
 } from './fixtures'
@@ -51,6 +52,9 @@ const ANSWER_WAIT_MS = 4_000
  * own limit (STORE_OP_MS, 3 s). */
 const KEEP_WAIT_MS = 1_500
 const LATE_OPEN_MS = 2_500
+/** How long after it went a booking sent with no answer is settled
+ * (SETTLE_MIN_AGE_MS): its "hasn’t answered yet" line is drawn till then. */
+const SETTLE_MIN_AGE_MS = 30_000
 
 const convexHost = new URL(process.env.VITE_CONVEX_URL!).host
 
@@ -238,6 +242,7 @@ type StoredBooking = {
   state: string
   requestId: string
   attempts: number
+  lastAttemptAt: number | null
   result: { id: string } | null
   sentAt: number | null
 }
@@ -770,4 +775,459 @@ test('with no signal and nothing of it on the phone, New Job says so rather than
   } finally {
     await context.setOffline(false)
   }
+})
+
+// ── The booking's own sheet (plan part 2c, PR 2c-E) ────────────────────────
+//
+// A booking on the phone opened from its card: what it says of itself, its
+// fix and Discard. A booking's age, or its first visit's, is moved by
+// rewriting the booking the phone stored, never `page.clock`: the server's
+// clock can't be moved with it, and a page three days ahead of it would hold
+// every sign-in token as long expired.
+
+/** One Book of New Job with no signal, kept on the phone: Arthur Wellard's
+ * site, General Pest Control, for `assignee` if given, repeating if asked. */
+async function bookArthurOffline(
+  page: Page,
+  options: { assignee?: string; repeats?: boolean } = {},
+) {
+  const sheet = await openNewJob(page)
+  await chooseProperty(page, sheet, 'Arthur', /Arthur Wellard/)
+  await chooseJobTypes(page, sheet, ['General Pest Control'])
+  if (options.assignee) {
+    await sheet.getByLabel('Assigned to').selectOption(options.assignee)
+  }
+  if (options.repeats) {
+    await sheet.getByRole('radio', { name: 'Recurring Job' }).click()
+  }
+  await sheet.getByRole('button', { name: 'Book job' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect.poll(() => bookingsOnPhone(page)).toHaveLength(1)
+}
+
+/** The one booking the phone holds, rewritten in its storage: when it was
+ * saved, and when it is for. Read by the page once it reloads. */
+async function rewriteBooking(
+  page: Page,
+  change: { createdAt?: number; scheduledAt?: number },
+) {
+  await page.evaluate(async (next) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const open = indexedDB.open('pestm8-outbox')
+      open.onsuccess = () => resolve(open.result)
+      open.onerror = () => reject(open.error ?? new Error('no db'))
+    })
+    try {
+      const store = db.transaction('items', 'readwrite').objectStore('items')
+      const all = await new Promise<Array<Record<string, unknown>>>(
+        (resolve, reject) => {
+          const read = store.getAll()
+          read.onsuccess = () =>
+            resolve(read.result as Array<Record<string, unknown>>)
+          read.onerror = () => reject(read.error ?? new Error('no read'))
+        },
+      )
+      for (const item of all) {
+        const booking = item.booking as Record<string, unknown>
+        store.put({
+          ...item,
+          ...(next.createdAt !== undefined && { createdAt: next.createdAt }),
+          booking: {
+            ...booking,
+            ...(next.scheduledAt !== undefined && {
+              scheduledAt: next.scheduledAt,
+            }),
+          },
+        })
+      }
+      await new Promise<void>((resolve, reject) => {
+        store.transaction.oncomplete = () => resolve()
+        store.transaction.onerror = () =>
+          reject(store.transaction.error ?? new Error('no write'))
+      })
+    } finally {
+      db.close()
+    }
+  }, change)
+}
+
+/**
+ * Waits for the sender, back with signal, to find the phone's one booking
+ * needs a look, then draws the page afresh. Today's group takes another
+ * day's booking in only as needing a look, and a booking that comes to need
+ * one after a day was drawn empty is left for the next draw (plan §9.3: no
+ * card replaces "This day is clear." after ADD_AFTER_DRAW_MS), as the
+ * sender can only look once the line and access:me are live, which is after
+ * the first draw.
+ */
+async function needsLookAtFirstDraw(page: Page) {
+  await expect
+    .poll(async () => (await bookingsOnPhone(page)).map((b) => b.state), {
+      timeout: 30_000,
+    })
+    .toEqual(['needsLook'])
+  await page.reload()
+}
+
+/** The booking's sheet, opened from its card. */
+async function openItem(page: Page, clientName: string): Promise<Locator> {
+  await card(page, clientName).click()
+  const sheet = page.getByRole('dialog')
+  await expect(sheet).toHaveCount(1)
+  return sheet
+}
+
+/** New Job over a booking's sheet, opened by its Edit. */
+const editSheet = (page: Page) =>
+  page
+    .getByRole('dialog')
+    .filter({ has: page.getByRole('heading', { name: 'New job' }) })
+
+/** Recurring Jobs on the server, for Arthur Wellard. */
+async function seriesForArthur(s: Business) {
+  const all = await s.owner.client.query(api.recurrences.listForBusiness, {
+    businessId: s.businessId,
+  })
+  return all.filter((r) => JSON.stringify(r).includes('Arthur Wellard'))
+}
+
+test('the answer lost: “Sending…”, locked, not to be booked again; a new page settles it as the one job', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-lost')
+  // Every frame from the server dropped once `jobs:create` has gone: the
+  // booking went, and nothing ever says so.
+  let sent = false
+  await page.routeWebSocket(
+    (url) => url.host === convexHost,
+    (ws: WebSocketRoute) => {
+      const server = ws.connectToServer()
+      ws.onMessage((message) => {
+        if (typeof message === 'string' && message.includes('"jobs:create"')) {
+          sent = true
+        }
+        server.send(message)
+      })
+      server.onMessage((message) => {
+        if (!sent) ws.send(message)
+      })
+    },
+  )
+  await signInViaUi(page, s.owner.email)
+  await openSchedule(page, s.slug, day)
+  await bookArthur(page)
+  await expect(page.getByRole('dialog')).toHaveCount(0, { timeout: 15_000 })
+  await expect(card(page, 'Arthur Wellard')).toContainText('Sending…')
+  const sheet = await openItem(page, 'Arthur Wellard')
+  await expect(sheet.getByRole('button', { name: 'Edit' })).toBeDisabled()
+  await expect(sheet.getByRole('button', { name: 'Discard' })).toBeDisabled()
+  const [{ localId, lastAttemptAt }] = await bookingsOnPhone(page)
+  await page.close()
+
+  // A new page, the line whole: the booking from an earlier page says not to
+  // book it again until PestM8 says, then settles as the one job it made.
+  // Opened by its address: the day's list has the job it made already, which
+  // carries its request id, so its card is the job's.
+  const next = await context.newPage()
+  await next.goto(`/${s.slug}/schedule?date=${day}&outboxId=${localId}`)
+  const again = next.getByRole('dialog')
+  // That line is drawn only until the sender settles it, SETTLE_MIN_AGE_MS
+  // after it went, and a loaded machine can take most of that to get here:
+  // looked for while there is time to draw it, never raced against the
+  // settle, which the rest of the test sees either way.
+  const left = (lastAttemptAt ?? 0) + SETTLE_MIN_AGE_MS - Date.now()
+  if (left > 12_000) {
+    await expect(again).toContainText(
+      'It was sent and PestM8 hasn’t answered yet, so it may already be booked. Don’t book it again',
+      { timeout: left - 5_000 },
+    )
+    await expect(again.getByRole('button', { name: 'Edit' })).toBeDisabled()
+  } else {
+    test.info().annotations.push({
+      type: 'note',
+      description: `Reached the new page ${Math.round(-left / 1000) + 30} s after the send: its line wasn't looked for.`,
+    })
+  }
+  // Settled with `find` 30 s after it went (SETTLE_MIN_AGE_MS): the sheet
+  // becomes its job's.
+  await expect(again).toContainText(/Job #\d+/, { timeout: 60_000 })
+  await expect(again).not.toContainText('Not sent yet')
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(1)
+})
+
+test('needs a look after an offline booking for someone removed meanwhile: Edit, someone else, Book; one job, theirs', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-look')
+  const third = await signUpActor(
+    uniqueEmail('third-outbox-look'),
+    FIXTURE_PASSWORD,
+    'Wendy',
+  )
+  await inviteAndJoin(s.owner, third, s.businessId)
+  const members = await s.owner.client.query(api.memberships.listForBusiness, {
+    businessId: s.businessId,
+  })
+  const wendy = members.find((m) => m.email === third.email)!._id
+  await signInViaUi(page, s.owner.email)
+  await openSchedule(page, s.slug, day)
+  await keepPageInWorker(page)
+  await waitForKeptCopy(page)
+
+  await context.setOffline(true)
+  try {
+    await bookArthurOffline(page, { assignee: s.subMembershipId })
+    await s.owner.client.mutation(api.team.remove, {
+      businessId: s.businessId,
+      membershipId: s.subMembershipId,
+    })
+  } finally {
+    await context.setOffline(false)
+  }
+
+  await expect(card(page, 'Arthur Wellard')).toContainText('Needs a look', {
+    timeout: 30_000,
+  })
+  const sheet = await openItem(page, 'Arthur Wellard')
+  await expect(sheet).toContainText(
+    'Could not book this job: someone on it is no longer on the team.',
+  )
+  await sheet.getByRole('button', { name: 'Edit' }).click()
+  const edit = editSheet(page)
+  await expect(edit.getByRole('button', { name: 'Book job' })).toBeEnabled()
+  await edit.getByLabel('Assigned to').selectOption(wendy)
+  await edit.getByRole('button', { name: 'Book job' }).click()
+  await expect(editSheet(page)).toHaveCount(0, { timeout: 15_000 })
+  await expect
+    .poll(() => jobsFor(s, 'Arthur Wellard', day), { timeout: 30_000 })
+    .toEqual([expect.objectContaining({ assignedMembershipId: wendy })])
+})
+
+test('a Recurring Job whose first visit went by before it was sent: needs a look before any send; Change the date books its first visit; one a week back goes as online', async ({
+  page,
+  context,
+}) => {
+  skipNearPerthMidnight('today’s group is the page’s own today')
+  const day = perthDay(0)
+  const s = await business('outbox-late-series')
+  await signInViaUi(page, s.owner.email)
+  await openSchedule(page, s.slug, day)
+  await keepPageInWorker(page)
+  await waitForKeptCopy(page)
+
+  await context.setOffline(true)
+  try {
+    await bookArthurOffline(page, { repeats: true })
+    // Booked for an hour before it was saved, and sent 25 h on.
+    const now = Date.now()
+    await rewriteBooking(page, {
+      scheduledAt: now - 25 * HOUR,
+      createdAt: now - 24 * HOUR,
+    })
+  } finally {
+    await context.setOffline(false)
+  }
+  await page.reload()
+  await needsLookAtFirstDraw(page)
+  // Another day's, needing a look: in today's group too (D13).
+  await expect(card(page, 'Arthur Wellard')).toContainText('Needs a look', {
+    timeout: 30_000,
+  })
+  const sheet = await openItem(page, 'Arthur Wellard')
+  await expect(sheet).toContainText(
+    /Could not book this job: its first visit, .* went by before it was sent\. Change the start date to book it\./,
+  )
+  expect(await seriesForArthur(s)).toHaveLength(0)
+  await sheet.getByRole('button', { name: 'Change the date' }).click()
+  const edit = editSheet(page)
+  await expect(edit.getByLabel('Date')).toBeFocused()
+  await edit.getByLabel('Date').fill(day)
+  await edit.getByRole('button', { name: 'Book job' }).click()
+  await expect
+    .poll(() => seriesForArthur(s), { timeout: 30_000 })
+    .toHaveLength(1)
+  await expect
+    .poll(() => jobsFor(s, 'Arthur Wellard', day), { timeout: 30_000 })
+    .toHaveLength(1)
+})
+
+test('a Recurring Job saved with its start a week back already: booked as online would, no first visit, never needing a look', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-week-back')
+  await signInViaUi(page, s.owner.email)
+  await openSchedule(page, s.slug, day)
+  await keepPageInWorker(page)
+  await waitForKeptCopy(page)
+
+  await context.setOffline(true)
+  try {
+    await bookArthurOffline(page, { repeats: true })
+    await rewriteBooking(page, { scheduledAt: perthAt(perthDay(-7), 9) })
+    // Still with no signal, so the new page is the one that sends it. Back
+    // online first, this page can send it as it unloads, and the new page's
+    // sweep then takes the sent row.
+    await page.reload()
+  } finally {
+    await context.setOffline(false)
+  }
+  await expect
+    .poll(() => seriesForArthur(s), { timeout: 30_000 })
+    .toHaveLength(1)
+  expect(await jobsFor(s, 'Arthur Wellard', perthDay(-7))).toHaveLength(0)
+  await expect
+    .poll(async () => (await bookingsOnPhone(page)).map((b) => b.state))
+    .toEqual(['sent'])
+  await expect(page.getByText('Needs a look')).toHaveCount(0)
+})
+
+test('kept with no signal for three days: needs a look before any send, and Send books it once', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-stale')
+  await signInViaUi(page, s.owner.email)
+  await openSchedule(page, s.slug, day)
+  await keepPageInWorker(page)
+  await waitForKeptCopy(page)
+
+  await context.setOffline(true)
+  try {
+    await bookArthurOffline(page)
+    // Three days, as the owner set it (STALE_AFTER_MS), and an hour on.
+    await rewriteBooking(page, { createdAt: Date.now() - 73 * HOUR })
+  } finally {
+    await context.setOffline(false)
+  }
+  await page.reload()
+  await expect(card(page, 'Arthur Wellard')).toContainText('Needs a look', {
+    timeout: 30_000,
+  })
+  const sheet = await openItem(page, 'Arthur Wellard')
+  await expect(sheet).toContainText(
+    /Saved on this phone on .* and not sent\. Send it now, or discard it\./,
+  )
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(0)
+  await sheet.getByRole('button', { name: 'Send' }).click()
+  await expect(sheet).toContainText(/Job #\d+/, { timeout: 30_000 })
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(1)
+})
+
+test('Discard: asked first, then gone from the phone, and nothing booked once back', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-discard')
+  await signInViaUi(page, s.owner.email)
+  await openSchedule(page, s.slug, day)
+  await keepPageInWorker(page)
+  await waitForKeptCopy(page)
+
+  await context.setOffline(true)
+  try {
+    await bookArthurOffline(page)
+    const sheet = await openItem(page, 'Arthur Wellard')
+    await sheet.getByRole('button', { name: 'Discard' }).click()
+    const confirm = page.getByRole('alertdialog')
+    await expect(confirm).toContainText('Discard this job?')
+    await expect(confirm).toContainText(
+      'It hasn’t been sent, so it’s only on this phone. This can’t be undone.',
+    )
+    await confirm.getByRole('button', { name: 'Discard' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(card(page, 'Arthur Wellard')).toHaveCount(0)
+    await expect.poll(() => bookingsOnPhone(page)).toEqual([])
+  } finally {
+    await context.setOffline(false)
+  }
+  await expect(newJobButton(page)).toBeEnabled()
+  await page.waitForTimeout(5_000)
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(0)
+})
+
+test('Edit while it waits with no signal: the time changed on the phone, and once back one job at the new time', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-edit')
+  await signInViaUi(page, s.owner.email)
+  await openSchedule(page, s.slug, day)
+  await keepPageInWorker(page)
+  await waitForKeptCopy(page)
+
+  await context.setOffline(true)
+  try {
+    await bookArthurOffline(page)
+    const sheet = await openItem(page, 'Arthur Wellard')
+    await sheet.getByRole('button', { name: 'Edit' }).click()
+    const edit = editSheet(page)
+    await expect(edit.getByRole('button', { name: 'Book job' })).toBeEnabled()
+    await edit.getByLabel('Start').fill('11:00')
+    await edit.getByRole('button', { name: 'Book job' }).click()
+    await expect(editSheet(page)).toHaveCount(0)
+    await expect(sheet).toContainText('Not sent yet')
+    await expect(sheet).toContainText('11:00')
+  } finally {
+    await context.setOffline(false)
+  }
+  await expect
+    .poll(() => jobsFor(s, 'Arthur Wellard', day), { timeout: 30_000 })
+    .toEqual([expect.objectContaining({ scheduledAt: perthAt(day, 11) })])
+})
+
+test('a Recurring Job of another day needing a look, opened from today’s group: once fixed the sheet lands on its first visit', async ({
+  page,
+  context,
+}) => {
+  skipNearPerthMidnight('today’s group is the page’s own today')
+  const day = perthDay(0)
+  const s = await business('outbox-handover')
+  await signInViaUi(page, s.owner.email)
+  await openSchedule(page, s.slug, day)
+  await keepPageInWorker(page)
+  await waitForKeptCopy(page)
+
+  await context.setOffline(true)
+  try {
+    await bookArthurOffline(page, {
+      assignee: s.subMembershipId,
+      repeats: true,
+    })
+    await rewriteBooking(page, { scheduledAt: perthAt(perthDay(2), 9) })
+    await s.owner.client.mutation(api.team.remove, {
+      businessId: s.businessId,
+      membershipId: s.subMembershipId,
+    })
+  } finally {
+    await context.setOffline(false)
+  }
+  await page.reload()
+  await needsLookAtFirstDraw(page)
+  // In today's group with its date, as it needs a look.
+  await expect(card(page, 'Arthur Wellard')).toContainText('Needs a look', {
+    timeout: 30_000,
+  })
+  const sheet = await openItem(page, 'Arthur Wellard')
+  await sheet.getByRole('button', { name: 'Edit' }).click()
+  const edit = editSheet(page)
+  // Nobody left to choose but the owner: the form has them already.
+  await expect(edit.getByText('Assigned to you')).toBeVisible()
+  await edit.getByRole('button', { name: 'Book job' }).click()
+  // The first visit's own sheet, in the same one.
+  await expect(page.getByRole('dialog')).toContainText(/Job #\d+/, {
+    timeout: 30_000,
+  })
+  await expect(page.getByRole('dialog')).not.toContainText('Needs a look')
+  await expect(page).toHaveURL(/jobId=/)
+  await expect(page).not.toHaveURL(/outboxId=/)
+  expect(await jobsFor(s, 'Arthur Wellard', perthDay(2))).toHaveLength(1)
 })

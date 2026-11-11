@@ -16,7 +16,7 @@ import { hasService, isOnJob } from '#/lib/scheduleFilters'
 import { useHydrated } from '#/lib/useHydrated'
 import { outbox } from './outbox'
 import { BookingSession, canKeepNow } from './book'
-import { addRule, answeredView, latchSlots } from './latchSlots'
+import { addRule, answeredView, latchForeign, latchSlots } from './latchSlots'
 import { browserLocks } from './outboxLocks'
 import { newRequestId } from './outboxItem'
 import { bookingDay, outboxRow } from './outboxRow'
@@ -27,11 +27,14 @@ import {
   localNotesWork,
   outboxReadable,
 } from './outboxStore'
+import { countsOf, outboxHeading } from './outboxRules'
 import { sender } from './sender'
+import { dayKeyOf } from '../../../convex/lib/dates'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { JobRow } from '#/components/schedule/JobCard'
 import type { BookingDraft, BookingPath, BookingSheet } from './book'
-import type { DrawnSlot, SlotLatch } from './latchSlots'
+import type { ItemDeps } from './itemActions'
+import type { DrawnSlot, ForeignLatch, SlotLatch } from './latchSlots'
 import type { BookingCall, OutboxItem } from './outboxItem'
 import type { RosterPerson } from './outboxRow'
 
@@ -162,6 +165,9 @@ export function useCanKeep(keepable: boolean): boolean {
  */
 export function useOutboxItems(
   businessId: Id<'businesses'>,
+  /** Those saved by a newer build too, which this one can't read
+   * (`isReadable`): for their sheet and today's group (plan D13). */
+  { foreign = false }: { foreign?: boolean } = {},
 ): ReadonlyArray<OutboxItem> | null {
   const hydrated = useHydrated()
   const revision = useSyncExternalStore(
@@ -180,19 +186,20 @@ export function useOutboxItems(
         (item) =>
           item.userId === userId &&
           item.businessId === businessId &&
-          isReadable(item),
+          (foreign || isReadable(item)),
       )
     // `revision` is what says the outbox changed.
-  }, [hydrated, revision, ownLens, businessId])
+  }, [hydrated, revision, ownLens, businessId, foreign])
 }
 
-/** One booking on this phone, as `useOutboxItems` would show it: null
- * until the outbox can be read, undefined when it isn't on the phone. */
+/** One booking on this phone, as `useOutboxItems` would show it (one saved
+ * by a newer build included, for its Discard): null until the outbox can be
+ * read, undefined when it isn't on the phone. */
 export function useOutboxItem(
   businessId: Id<'businesses'>,
   localId: string,
 ): OutboxItem | undefined | null {
-  const items = useOutboxItems(businessId)
+  const items = useOutboxItems(businessId, { foreign: true })
   return items === null ? null : items.find((item) => item.localId === localId)
 }
 
@@ -201,6 +208,9 @@ export type OutboxDaySlot = DrawnSlot<JobRow> & { row: JobRow }
 
 export type OutboxDay = {
   slots: Array<OutboxDaySlot>
+  /** Bookings saved by a newer build, whose day can't be read: today's
+   * group lists them after its slots (plan D13). */
+  foreign?: ReadonlyArray<OutboxItem>
   /** The jobs the slots draw, which the day's ordered list leaves out. */
   hidden: ReadonlySet<string>
   heading: string | null
@@ -209,14 +219,28 @@ export type OutboxDay = {
 }
 
 /**
+ * Whether a day's group (`OutboxGroup`) draws anything: a slot, or one of
+ * today's bookings saved by a newer build. A day that does draws no
+ * EmptyState or NoMatches, which would be untrue, and keeps WeatherCredit
+ * under the group, the last thing on the day (plan §9.3).
+ */
+export function outboxDrawn(day: OutboxDay): boolean {
+  return day.slots.length > 0 || (day.foreign?.length ?? 0) > 0
+}
+
+/**
  * A day's bookings not sent yet, slotted (`latchSlots`): those of the day
  * shown, under the status filter "All" only (a booking has no status yet),
  * and, like the jobs, only those the staff and service filters or "Just my
  * jobs" would let through (the lead, or someone also going; any of its
  * services). Each as the server's
- * answer has it, the moment it is heard (`answeredView`). Needs-a-look
- * bookings of other days join today's group with 2c-E (plan D13), with the
- * sheet that settles them; until then a booking shows on its own day.
+ * answer has it, the moment it is heard (`answeredView`). Today's group
+ * also lists every booking of another day that needs a look, with its date
+ * (`JobCard` prints it), kept in its slot until the day is drawn afresh
+ * once it no longer does, or until it is sent (plan D13, S18); and, after
+ * its slots, every booking saved by a newer build, whose day this build
+ * can't read, under the status filter "All" only, coming on and staying as
+ * a slot does (`latchForeign`).
  */
 export function useOutboxDay(at: {
   businessId: Id<'businesses'>
@@ -239,7 +263,11 @@ export function useOutboxDay(at: {
 }): OutboxDay {
   const access = useAccess()
   const queryClient = useQueryClient()
-  const items = useOutboxItems(at.businessId)
+  const everything = useOutboxItems(at.businessId, { foreign: true })
+  const items = useMemo(
+    () => everything?.filter((item) => isReadable(item)) ?? null,
+    [everything],
+  )
   const dayKey = rq.day(at.businessId, at.dayShown).queryKey
   const dayLive = useSyncExternalStore(
     keeper.subscribe,
@@ -257,8 +285,23 @@ export function useOutboxDay(at: {
       rq.roster(at.businessId).queryKey,
     ),
   }
+  const hydrated = useHydrated()
+  const [latch, setLatch] = useState<SlotLatch | null>(null)
+  const [foreignLatch, setForeignLatch] = useState<ForeignLatch | null>(null)
+  // Only once drawn in the browser: the phone's clock.
+  const today = items === null ? null : dayKeyOf(Date.now(), at.timezone)
+  const showsToday = today !== null && at.dayShown === today
   const passes = (item: OutboxItem) => {
-    if (bookingDay(item, at.timezone) !== at.dayShown) return false
+    if (bookingDay(item, at.timezone) !== at.dayShown) {
+      // Another day's, in today's group: needing a look, or slotted there
+      // already until the day is drawn afresh (D13).
+      const latched =
+        latch?.redrawKey === at.redrawKey &&
+        latch.slots.some((slot) => slot.localId === item.localId)
+      if (!showsToday || (item.state !== 'needsLook' && !latched)) {
+        return false
+      }
+    }
     if (!at.allStatuses) return false
     const row = outboxRow(item, live)
     if (at.staffId !== 'all' && !isOnJob(row, at.staffId)) return false
@@ -267,9 +310,11 @@ export function useOutboxDay(at: {
     if (at.mineOnly !== null && !isOnJob(row, at.mineOnly)) return false
     return true
   }
-  const hydrated = useHydrated()
-  const [latch, setLatch] = useState<SlotLatch | null>(null)
   const now = Date.now()
+  // Not while its sheet is still deciding, nor once it closed on its job
+  // (booked with signal, it lands in the list as it always did); then
+  // wherever it moves nothing.
+  const mayAdd = addRule(outbox, { drawsCards: at.drawsCards, now })
   const result = latchSlots(latch, {
     items:
       items === null
@@ -286,10 +331,7 @@ export function useOutboxDay(at: {
     timezone: at.timezone,
     dayLive,
     now,
-    // Not while its sheet is still deciding, nor once it closed on its job
-    // (booked with signal, it lands in the list as it always did); then
-    // wherever it moves nothing.
-    mayAdd: addRule(outbox, { drawsCards: at.drawsCards, now }),
+    mayAdd,
   })
   // Held between renders, as React holds state adjusted while rendering.
   if (result.latch !== latch) setLatch(result.latch)
@@ -304,13 +346,40 @@ export function useOutboxDay(at: {
     )
     return () => clearTimeout(timer)
   }, [recheckAt])
+  // Saved by a newer build: today's, under "All" only, whatever the other
+  // filters, since nothing of it can be read to filter on.
+  const foreignDrawn = latchForeign(foreignLatch, {
+    items:
+      showsToday && at.allStatuses && everything !== null
+        ? everything.filter(
+            (item) => !isReadable(item) && item.state !== 'sent',
+          )
+        : [],
+    redrawKey: at.redrawKey,
+    mayAdd: (item, drawn) =>
+      drawn > 0 || (result.latch !== null && mayAdd(item, result.latch)),
+  })
+  if (foreignDrawn.latch !== foreignLatch) setForeignLatch(foreignDrawn.latch)
+  const foreign = foreignDrawn.shown
+  const heading =
+    foreign.length === 0
+      ? result.heading
+      : outboxHeading(
+          countsOf([
+            ...result.slots.map((slot) => ({
+              state: slot.real !== null ? ('sent' as const) : slot.item.state,
+            })),
+            ...foreign,
+          ]),
+        )
   return {
     slots: result.slots.map((slot) => ({
       ...slot,
       row: slot.real ?? outboxRow(slot.item, live),
     })),
+    foreign,
     hidden: result.hidden,
-    heading: result.heading,
+    heading,
     lineLive,
   }
 }
@@ -354,4 +423,23 @@ export function useOutboxReadable(): boolean {
     () => false,
   )
   return hydrated && readable
+}
+
+/** What a booking's sheet changes it with (lib/outbox/itemActions.ts): the
+ * page's own outbox, its sender, the browser's locks. */
+export function pageItemDeps(): ItemDeps {
+  return {
+    tab: outbox.tab,
+    editingHere: outbox.editingHere,
+    landingHere: outbox.landingHere,
+    get: (localId) => outbox.get(localId),
+    refresh: () => outbox.refresh(),
+    change: (op, localId, change) => outbox.change(op, localId, change),
+    changeLanded: (op, localId, change) =>
+      outbox.changeLanded(op, localId, change),
+    locks: browserLocks(),
+    lineLive: () => keeper.lineLive(),
+    sender,
+    now: () => Date.now(),
+  }
 }

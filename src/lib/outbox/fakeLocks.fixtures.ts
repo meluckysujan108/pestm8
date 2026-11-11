@@ -45,6 +45,18 @@ export class FakeLockManager {
     }
   }
 
+  /** A page gone (reloaded, closed, killed): every lock it held or waited
+   * for let go, as the browser lets them go. */
+  closeTab(clientId: string): void {
+    for (let i = this.held.length - 1; i >= 0; i--) {
+      if (this.held[i].clientId === clientId) this.held.splice(i, 1)
+    }
+    for (let i = this.waiting.length - 1; i >= 0; i--) {
+      if (this.waiting[i].clientId === clientId) this.waiting.splice(i, 1)
+    }
+    this.next()
+  }
+
   /** Whether any tab holds `name`. */
   isHeld(name: string, clientId?: string): boolean {
     return this.held.some(

@@ -390,13 +390,15 @@ export function beginEditChange(
       : 'abort'
 }
 
-/** The Edit still open in `tab`: held a while longer. */
+/** The Edit still open in `tab`: held a while longer, only while nothing
+ * can have been made of it, as a lease on one another tab has sent since
+ * would keep every tab from settling it. */
 export function renewEditChange(
   tab: string,
   now: number,
 ): (item: OutboxItem) => Change {
   return (item) =>
-    isReadable(item) && item.editing?.tab === tab
+    isReadable(item) && open(item.state) && item.editing?.tab === tab
       ? { ...item, editing: { tab, until: now + EDIT_LEASE_MS } }
       : 'abort'
 }
@@ -449,6 +451,24 @@ export function replaceChange(
       updatedAt: now,
     }
   }
+}
+
+/**
+ * Holds the lock. "Discard your changes?" confirmed while Book's write was
+ * landing: the booking as the form opened on it (`before`) back in place of
+ * the edits thrown away, its Edit over. Only over that write (`replaced`).
+ */
+export function unreplaceChange(
+  before: OutboxItem,
+  replaced: OutboxItem,
+  now: number,
+): (item: OutboxItem) => Change {
+  return (item) =>
+    isReadable(item) &&
+    item.state === 'waiting' &&
+    item.updatedAt === replaced.updatedAt
+      ? { ...before, editing: null, updatedAt: now }
+      : 'abort'
 }
 
 /**
@@ -519,6 +539,37 @@ export function confirmStaleChange(now: number): (item: OutboxItem) => Change {
 }
 
 /**
+ * Try again, on one the server wouldn't take three times (`SERVER`), or Send,
+ * on one the phone couldn't take off after New Job sent it straight
+ * (book.ts `LEFT_ON_PHONE`): it goes again, under the same request id, so a
+ * booking already made of it is answered with that one, never made twice. It
+ * is the person's own say-so, so on one that has waited too long it counts
+ * as their Send too (`isStale`), as `replaceChange` does.
+ */
+export function resendChange(now: number): (item: OutboxItem) => Change {
+  return (item) => {
+    const code = item.problem?.code
+    if (
+      !isReadable(item) ||
+      item.state !== 'needsLook' ||
+      (code !== 'SERVER' && code !== 'LEFT_ON_PHONE')
+    ) {
+      return 'abort'
+    }
+    return {
+      ...item,
+      state: 'waiting',
+      problem: null,
+      serverFailures: 0,
+      retryAt: null,
+      holdUntil: null,
+      confirmedAt: isStale(item, now) ? now : item.confirmedAt,
+      updatedAt: now,
+    }
+  }
+}
+
+/**
  * Discard: with the bookings made after it on it. Only while nothing can
  * have been made of it, a newer build's included, since what its state means
  * is the same in every build. `mayHaveGone`: one sent with no answer that
@@ -526,12 +577,22 @@ export function confirmStaleChange(now: number): (item: OutboxItem) => Change {
  * (holds the lock).
  */
 export function discardChange(
-  opts: { mayHaveGone?: boolean } = {},
+  opts: {
+    mayHaveGone?: boolean
+    /** Who asks: never over an Edit open in another tab, as `beginEdit` and
+     * a send aren't, whatever a sheet last read of its lease. */
+    from?: { tab: string; now: number }
+  } = {},
 ): (item: OutboxItem) => Change {
-  return (item) =>
-    open(item.state) || (opts.mayHaveGone === true && item.state === 'sending')
-      ? 'discard'
-      : 'abort'
+  return (item) => {
+    if (opts.mayHaveGone === true && item.state === 'sending') return 'discard'
+    if (!open(item.state)) return 'abort'
+    return opts.from &&
+      isReadable(item) &&
+      editedElsewhere(item, opts.from.now, opts.from.tab)
+      ? 'abort'
+      : 'discard'
+  }
 }
 
 // ── The sign-out tombstone ─────────────────────────────────────────────────

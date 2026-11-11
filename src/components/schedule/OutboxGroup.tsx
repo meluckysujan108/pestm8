@@ -1,5 +1,8 @@
 import { useId } from 'react'
+import { chipFor } from '#/lib/outbox/outboxRules'
+import { dayKeyOf } from '../../../convex/lib/dates'
 import { JobCard } from './JobCard'
+import { OutboxChip } from './OutboxChip'
 import type { JobRow } from './JobCard'
 import type { OutboxDay } from '#/lib/outbox/useOutbox'
 import type { WeatherCell } from '#/lib/weather'
@@ -13,7 +16,11 @@ import type { WeatherCell } from '#/lib/weather'
  * are. A sibling of the day's grid, never cells in it, so it moves nothing
  * above it whenever it comes; and each booking keeps its slot until the
  * next redraw, the real job taking its place there once sent
- * (`useOutboxDay`, lib/outbox/latchSlots.ts). Nothing when there are none.
+ * (`useOutboxDay`, lib/outbox/latchSlots.ts). Today's also lists the
+ * bookings of other days that need a look, with their date and no forecast,
+ * the page's being the day shown's, and after them any saved by a newer
+ * PestM8, whose day can't be read: a card of their own that opens their
+ * sheet, for its Discard (plan D13). Nothing when there are none.
  */
 export function OutboxGroup({
   day,
@@ -33,13 +40,15 @@ export function OutboxGroup({
   onOpenItem: (localId: string) => void
   /** Opens a job a slot now draws, once sent. */
   onOpenJob: (jobId: string) => void
+  /** The forecast for a card of the day shown. */
   weatherOf: (row: JobRow) => WeatherCell
   /** The day's own grid classes, so the group's cards are the day's. */
   grid: string
   className?: string
 }) {
   const headingId = useId()
-  if (day.slots.length === 0) return null
+  const foreign = day.foreign ?? []
+  if (day.slots.length === 0 && foreign.length === 0) return null
   return (
     <section aria-labelledby={headingId} className={className}>
       {/* Its counts change in place as the bookings go. */}
@@ -55,7 +64,11 @@ export function OutboxGroup({
           <JobCard
             key={slot.key}
             job={slot.row}
-            weather={weatherOf(slot.row)}
+            weather={
+              dayKeyOf(slot.row.scheduledAt, timezone) === dayShown
+                ? weatherOf(slot.row)
+                : { status: 'outOfWindow' }
+            }
             timezone={timezone}
             onOpen={onOpenJob}
             hideTechnician
@@ -70,6 +83,19 @@ export function OutboxGroup({
                   }
             }
           />
+        ))}
+        {foreign.map((item) => (
+          <button
+            key={`outbox:${item.localId}`}
+            type="button"
+            onClick={() => onOpenItem(item.localId)}
+            className="relative flex w-full flex-col items-start gap-2 rounded-2xl border border-hairline bg-surface p-4 text-left shadow-elevation transition active:scale-[.99]"
+          >
+            <OutboxChip chip={chipFor(item)} lineLive={day.lineLive} />
+            <span className="text-body font-semibold text-ink">
+              A job saved by a newer PestM8
+            </span>
+          </button>
         ))}
       </div>
     </section>

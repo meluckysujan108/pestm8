@@ -7,13 +7,19 @@ import { useNewJobBooking } from '#/components/schedule/useNewJobBooking'
 import { hookHarness } from '#/lib/offline/hooks.fixtures'
 import { rq } from '#/lib/routeQueries'
 import { FakeLockManager } from './fakeLocks.fixtures'
+import { ADD_AFTER_DRAW_MS } from './latchSlots'
 import { outbox } from './outbox'
 import { KEEP_WAIT_MS, STORE_OP_MS } from './outboxSet'
-import { checkOutboxOwner, setOutboxBackendForTests } from './outboxStore'
+import {
+  checkOutboxOwner,
+  confirmStaleChange,
+  setOutboxBackendForTests,
+} from './outboxStore'
 import {
   B1,
   DISPLAY,
   bookingFor,
+  itemFor,
   memoryStorage,
   outboxOf,
   personOf,
@@ -21,6 +27,7 @@ import {
 import { sender } from './sender'
 import { resetSwitchGateForTests } from './switchGate'
 import {
+  outboxDrawn,
   useBooking,
   useCanKeep,
   useDraftRequestId,
@@ -817,6 +824,15 @@ describe('New Job’s lock and what Book hears of the screen go in one commit (`
     }
   }
 
+  test('a Discard confirmed is told to the form too, for an Edit’s Book, which no session carries (`replaceItem`’s `discarded`)', async () => {
+    const { convex } = await phone()
+    const form = newJobForm(convex)
+    const discarded = vi.fn()
+    Object.assign(form.sheet, { discarded })
+    form.discard()
+    expect(discarded).toHaveBeenCalledOnce()
+  })
+
   test('sent only once the sheet’s lock is off: a tap from the moment Book goes on as kept closes it without asking', async () => {
     const { backend, convex } = await phone()
     slowKeep(backend, KEEP_WAIT_MS / 2)
@@ -933,5 +949,131 @@ describe('New Job’s lock and what Book hears of the screen go in one commit (`
     expect(localStorage.getItem(GIVEN_UP_KEY) ?? '[]').toBe('[]')
     expect(convex.calls).toHaveLength(1)
     expect(form.sheet.booked).not.toHaveBeenCalled()
+  })
+})
+
+describe('today’s group also lists what needs a look on other days, and what a newer PestM8 saved (D13)', () => {
+  /** The day's list for `dayShown`, as the page draws it. */
+  function dayOf(
+    dayShown: string,
+    list: { drawsCards: boolean; redrawKey?: string } = { drawsCards: true },
+  ) {
+    const draws: Array<ReturnType<typeof useOutboxDay>> = []
+    const hook = hookHarness.mount(() => {
+      const day = useOutboxDay({
+        businessId: B1,
+        dayShown,
+        timezone: TZ,
+        rows: [],
+        drawsCards: list.drawsCards,
+        redrawKey: list.redrawKey ?? `day|${dayShown}`,
+        allStatuses: true,
+        staffId: 'all',
+        mineOnly: null,
+      })
+      draws.push(day)
+      return day
+    })
+    return { now: () => draws[draws.length - 1], hook }
+  }
+
+  /** Kept on the phone already as the page loads, the line down. */
+  async function phoneWith(items: Array<ReturnType<typeof itemFor>>) {
+    const made = await phone()
+    page.keeper.live = false
+    for (const item of items) made.backend.items.set(item.localId, item)
+    await outbox.refresh()
+    await flush()
+    return made
+  }
+
+  const lastWeek = itemFor(
+    'u1',
+    {
+      booking: bookingFor({ scheduledAt: Date.UTC(2026, 9, 20, 1) }),
+      state: 'needsLook',
+      problem: { code: 'STALE' },
+    },
+    Date.UTC(2026, 9, 20, 0),
+  )
+  const nextWeek = itemFor('u1', {
+    booking: bookingFor({ scheduledAt: Date.UTC(2026, 10, 3, 1) }),
+  })
+  const newer = itemFor('u1', { v: 2 })
+
+  test('today: the needs-a-look booking of another day among the slots, the newer build’s after them; the one simply waiting on another day stays on its day', async () => {
+    await phoneWith([lastWeek, nextWeek, newer])
+    const { now } = dayOf(DAY)
+    expect(now().slots.map((slot) => slot.localId)).toEqual([lastWeek.localId])
+    expect(now().foreign?.map((item) => item.localId)).toEqual([newer.localId])
+    expect(now().heading).not.toBeNull()
+  })
+
+  test('today with only the newer build’s: the group draws it, so the day draws no “This day is clear.”', async () => {
+    await phoneWith([newer])
+    const { now } = dayOf(DAY)
+    expect(now().slots).toEqual([])
+    expect(outboxDrawn(now())).toBe(true)
+  })
+
+  test('a day drawn clear keeps it: the newer build’s coming after the first half second waits for the next redraw, as a booking does', async () => {
+    const { backend } = await phone()
+    page.keeper.live = false
+    const list = { drawsCards: false, redrawKey: 'first' }
+    const { now, hook } = dayOf(DAY, list)
+    expect(outboxDrawn(now())).toBe(false)
+    await vi.advanceTimersByTimeAsync(ADD_AFTER_DRAW_MS + 500)
+    backend.items.set(newer.localId, newer)
+    await outbox.refresh()
+    await flush()
+    hook.rerender()
+    expect(outboxDrawn(now())).toBe(false)
+    expect(now().heading).toBeNull()
+    list.redrawKey = 'next'
+    hook.rerender()
+    expect(now().foreign?.map((item) => item.localId)).toEqual([newer.localId])
+    expect(outboxDrawn(now())).toBe(true)
+  })
+
+  test('coming within the first half second it draws, and stays', async () => {
+    const { backend } = await phone()
+    page.keeper.live = false
+    const { now, hook } = dayOf(DAY, { drawsCards: false })
+    backend.items.set(newer.localId, newer)
+    await outbox.refresh()
+    hook.rerender()
+    expect(outboxDrawn(now())).toBe(true)
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flush()
+    hook.rerender()
+    expect(outboxDrawn(now())).toBe(true)
+  })
+
+  test('another day: neither', async () => {
+    await phoneWith([lastWeek, newer])
+    const { now } = dayOf('2026-10-28')
+    expect(now().slots).toEqual([])
+    expect(now().foreign).toEqual([])
+  })
+
+  test('fixed, it keeps its slot until the day is drawn afresh; sent, it goes at once, as its day may never be live here (S18)', async () => {
+    const { backend } = await phoneWith([lastWeek])
+    const { now, hook } = dayOf(DAY)
+    expect(now().slots.map((slot) => slot.chip)).toEqual(['needsLook'])
+    await outbox.change('send', lastWeek.localId, confirmStaleChange(NOW))
+    await flush()
+    hook.rerender()
+    expect(now().slots.map((slot) => slot.chip)).toEqual(['waiting'])
+    const fixed = backend.items.get(lastWeek.localId)!
+    backend.items.set(lastWeek.localId, {
+      ...fixed,
+      state: 'sent',
+      result: { id: 'job-9' },
+      sentAt: NOW,
+    })
+    await outbox.refresh()
+    await flush()
+    hook.rerender()
+    expect(now().slots).toEqual([])
   })
 })

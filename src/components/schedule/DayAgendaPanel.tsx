@@ -16,7 +16,11 @@ import { dayTravelHints } from '#/lib/scheduleFilters'
 import { RecurringDueNote } from './RecurringDueNote'
 import { WeatherCredit } from './WeatherCredit'
 import { OutboxGroup } from './OutboxGroup'
-import { useOutboxDay, useOutboxPlaces } from '#/lib/outbox/useOutbox'
+import {
+  outboxDrawn,
+  useOutboxDay,
+  useOutboxPlaces,
+} from '#/lib/outbox/useOutbox'
 import { SCHEDULE_VIEW_OPTIONS } from '#/lib/scheduleViews'
 import type { ScheduleView } from '#/lib/scheduleViews'
 import type { JobRow } from './JobCard'
@@ -174,7 +178,7 @@ export function DayAgendaPanel({
         />
       )}
 
-      {jobs.length === 0 && outboxDay.slots.length === 0 ? (
+      {jobs.length === 0 && !outboxDrawn(outboxDay) ? (
         <EmptyState
           title={mode === 'mine' ? 'Nothing booked for you' : 'Nothing booked'}
           body="This day is clear."
@@ -184,7 +188,7 @@ export function DayAgendaPanel({
             )
           }
         />
-      ) : filteredJobs.length === 0 && outboxDay.slots.length === 0 ? (
+      ) : filteredJobs.length === 0 && !outboxDrawn(outboxDay) ? (
         <NoMatches
           hint="No jobs on this day match these filters."
           clearLabel="Clear filters"
@@ -210,7 +214,7 @@ export function DayAgendaPanel({
                   dayShown={selectedKey}
                 />
               ))}
-              {outboxDay.slots.length === 0 &&
+              {!outboxDrawn(outboxDay) &&
                 Object.keys(weather.byKey).length > 0 && (
                   <WeatherCredit className="xl:col-span-2" />
                 )}
@@ -229,7 +233,7 @@ export function DayAgendaPanel({
             grid={AGENDA_GRID}
             className={listedJobs.length > 0 ? 'mt-6' : ''}
           />
-          {(outboxDay.slots.length > 0 || listedJobs.length === 0) &&
+          {(outboxDrawn(outboxDay) || listedJobs.length === 0) &&
             Object.keys(weather.byKey).length > 0 && (
               <WeatherCredit className="mt-3" />
             )}

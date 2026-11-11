@@ -88,6 +88,15 @@ export const EDIT_LEASE_MS = 10 * 60_000
 export const EDIT_RENEW_MS = 60_000
 
 /**
+ * A booking sent with no answer that can't be settled (`clientRequests.find`
+ * keeps failing, after a deploy say): its sheet offers Discard ("This may
+ * already be booked") once it has been this long since it went…
+ */
+export const MAY_HAVE_GONE_AFTER_MS = 24 * 3_600_000
+/** …or once the server has refused to say this many times (plan §6.3). */
+export const MAY_HAVE_GONE_FINDS = 3
+
+/**
  * An item the phone could not send for this long (it never got online) is
  * never sent by itself: it needs a look, with Send and Discard. The owner,
  * 27 Oct 2026: bookings go as soon as there is signal, and only one stuck

@@ -75,12 +75,16 @@ import {
   NewJobSheet,
 } from '#/components/schedule/NewJobSheet'
 import { OutboxGroup } from '#/components/schedule/OutboxGroup'
+import { OutboxItemView } from '#/components/schedule/OutboxItemSheet'
+import { DISCARD_ITEM, outboxFooter } from '#/lib/outbox/outboxInset'
+import type { InsetFacts } from '#/lib/outbox/outboxInset'
 import { DayAgendaPanel } from '#/components/schedule/DayAgendaPanel'
 import { keeper } from '#/lib/offline/keeper'
 import { outbox } from '#/lib/outbox/outbox'
 import { keepOutboxItem, peekOutbox } from '#/lib/outbox/outboxStore'
 import type { OutboxItem } from '#/lib/outbox/outboxItem'
 import type { OutboxDay } from '#/lib/outbox/useOutbox'
+import { countsOf, outboxHeading } from '#/lib/outbox/outboxRules'
 import {
   HARNESS_TOKEN,
   MADE,
@@ -2045,6 +2049,35 @@ function ScheduleOutboxOnly() {
   )
 }
 
+/**
+ * Today with no jobs: a booking of another day that needs a look, in
+ * today's group with its date, and after it one saved by a newer PestM8,
+ * a card of its own (plan D13).
+ */
+function ScheduleOutboxTodayForeign() {
+  const today = perthTodayKey()
+  const look: OutboxItem = {
+    ...WAITING,
+    localId: 'harness-look',
+    state: 'needsLook',
+    problem: { code: 'INVALID_ASSIGNEE' },
+    booking: { ...WAITING.booking, scheduledAt: laterAt(3) },
+  }
+  const foreign: OutboxItem = { ...SENDING, localId: 'harness-newer', v: 2 }
+  const drawn = outboxDayOf([{ items: [look] }])
+  return (
+    <OutboxSchedule
+      heading={formatDayLabel(today)}
+      day={{
+        ...drawn,
+        foreign: [foreign],
+        heading: outboxHeading(countsOf([look, foreign])),
+      }}
+      jobs={[]}
+    />
+  )
+}
+
 /** The Schedule's day on a phone with its "Not sent yet" group, as the page
  * draws it (the route's own markup; `KeptSchedule` above it). */
 function OutboxSchedule({
@@ -2154,6 +2187,169 @@ function AgendaOutbox() {
         </WithBookings>
       </AccessProvider>
     </div>
+  )
+}
+
+/**
+ * A booking on the phone opened from its card (plan part 2c §9.5), in one
+ * state: `OutboxItemView` as `OutboxItemBody` draws it, from what the
+ * sender would say of it (`facts`), with its footer's fix and Discard.
+ */
+function OutboxSheet({
+  item,
+  facts = {},
+  roster = MEMBERS,
+  children,
+}: {
+  item: OutboxItem
+  facts?: Partial<InsetFacts>
+  roster?: ReadonlyArray<(typeof MEMBERS)[number]>
+  children?: ReactNode
+}) {
+  const now = Date.now()
+  return (
+    <Phone>
+      <Header title="Schedule" />
+      <SheetShell open onClose={() => {}}>
+        <OutboxItemView
+          facts={{
+            item,
+            lineLive: false,
+            held: null,
+            sendingHere: false,
+            sendingElsewhere: false,
+            storageTrouble: false,
+            timezone: TZ,
+            todayKey: perthTodayKey(),
+            ...facts,
+          }}
+          footer={outboxFooter(item, { now, mayHaveGone: false })}
+          roster={roster as never}
+          down={null}
+          seesPrices
+        >
+          {children}
+        </OutboxItemView>
+      </SheetShell>
+    </Phone>
+  )
+}
+
+/** Needing a look, for `code`. */
+function lookingAt(item: OutboxItem, code: string): OutboxItem {
+  return { ...item, state: 'needsLook', problem: { code } }
+}
+
+/** A Recurring Job booked offline for yesterday morning, its first visit
+ * gone by before it was sent. */
+const LATE_SERIES: OutboxItem = lookingAt(
+  {
+    ...WAITING,
+    kind: 'series',
+    booking: {
+      ...WAITING.booking,
+      scheduledAt: laterAt(-1, 8),
+      repeat: { count: 3, unit: 'month' },
+    },
+    createdAt: laterAt(-1, 7),
+  },
+  'FIRST_VISIT_PAST',
+)
+
+const OUTBOX_SHEETS: Record<string, () => ReactNode> = {
+  // Waiting with no signal; going now; sent as the signal went; sent by an
+  // earlier page and not answered (locked); being sent from another tab;
+  // and the phone's storage not answering.
+  'outbox-sheet-waiting': () => <OutboxSheet item={WAITING} />,
+  'outbox-sheet-sending': () => (
+    <OutboxSheet item={SENDING} facts={{ lineLive: true, sendingHere: true }} />
+  ),
+  'outbox-sheet-sending-dead-line': () => (
+    <OutboxSheet item={SENDING} facts={{ sendingHere: true }} />
+  ),
+  'outbox-sheet-locked': () => (
+    <OutboxSheet item={SENDING} facts={{ lineLive: true }} />
+  ),
+  'outbox-sheet-other-tab': () => (
+    <OutboxSheet
+      item={SENDING}
+      facts={{ lineLive: true, sendingElsewhere: true }}
+    />
+  ),
+  'outbox-sheet-storage': () => (
+    <OutboxSheet
+      item={WAITING}
+      facts={{ lineLive: true, storageTrouble: true }}
+    />
+  ),
+  // Needing a look: its lead removed from the team; its client deleted; a
+  // Recurring Job's first visit gone by; the server refusing three times;
+  // and kept on the phone four days with no signal.
+  'outbox-sheet-needs-look-assignee': () => (
+    <OutboxSheet
+      item={lookingAt(SENDING, 'INVALID_ASSIGNEE')}
+      facts={{ lineLive: true }}
+      roster={MEMBERS.filter((member) => member._id !== 'm_kev')}
+    />
+  ),
+  'outbox-sheet-site-gone': () => (
+    <OutboxSheet
+      item={lookingAt(SENDING, 'NOT_FOUND')}
+      facts={{ lineLive: true }}
+    />
+  ),
+  'outbox-sheet-first-visit-past': () => (
+    <OutboxSheet item={LATE_SERIES} facts={{ lineLive: true }} />
+  ),
+  'outbox-sheet-server': () => (
+    <OutboxSheet
+      item={lookingAt(WAITING, 'SERVER')}
+      facts={{ lineLive: true }}
+    />
+  ),
+  'outbox-sheet-stale': () => (
+    <OutboxSheet
+      item={lookingAt({ ...WAITING, createdAt: laterAt(-4, 15) }, 'STALE')}
+      facts={{ lineLive: true }}
+    />
+  ),
+  // Saved by a newer PestM8: its chip, its line and Discard alone.
+  'outbox-sheet-foreign': () => (
+    <OutboxSheet item={{ ...WAITING, v: 2 }} facts={{ lineLive: true }} />
+  ),
+  // Discard, asked first.
+  'outbox-discard-confirm': () => (
+    <OutboxSheet item={WAITING}>
+      <ConfirmDialog
+        open
+        onOpenChange={() => {}}
+        title={DISCARD_ITEM.title}
+        body={DISCARD_ITEM.body}
+        confirm={DISCARD_ITEM.confirm}
+        cancel={DISCARD_ITEM.cancel}
+        onConfirm={() => {}}
+      />
+    </OutboxSheet>
+  ),
+}
+
+/** Edit of a booking on the phone: New Job opened on it, the date a field. */
+function NewJobEditItem() {
+  const day = useBusinessDay(TZ).key
+  return (
+    <Phone>
+      <AccessProvider businessId={bizId}>
+        <Header title="Schedule" />
+        <NewJobSheet
+          businessId={bizId}
+          dayKey={day}
+          timezone={TZ}
+          open
+          onClose={() => {}}
+          item={WAITING}
+        />
+      </AccessProvider>
+    </Phone>
   )
 }
 
@@ -3676,7 +3872,10 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'schedule-outbox-day': ScheduleOutboxDay,
   'schedule-outbox-latched': ScheduleOutboxLatched,
   'schedule-outbox-only': ScheduleOutboxOnly,
+  'schedule-outbox-today-foreign': ScheduleOutboxTodayForeign,
   'agenda-outbox': AgendaOutbox,
+  ...OUTBOX_SHEETS,
+  'newjob-edit-item': NewJobEditItem,
   // Search first (the matching plan's M2, 28 Oct 2026).
   'newjob-picker-email-match': NewJobPickerMatch,
   'newjob-picker-no-match-add': NewJobPickerMatch,

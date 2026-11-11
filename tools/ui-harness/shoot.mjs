@@ -1704,11 +1704,32 @@ const PLAN = {
   'schedule-outbox-day': { full: true },
   'schedule-outbox-latched': { full: true },
   'schedule-outbox-only': { full: true },
+  // Today's group with another day's booking needing a look (its date on
+  // the card) and one saved by a newer PestM8: its own one-line card.
+  'schedule-outbox-today-foreign': { full: true },
   'agenda-outbox': {
     full: true,
     viewport: { width: 760, height: 900 },
     before: async (p) => p.waitForTimeout(900),
   },
+  // A booking on the phone opened from its card (plan part 2c §9.5), in
+  // each state its sheet words: check the inset and the footer's fix and
+  // Discard fit one line at 390, and the dialog over the sheet.
+  'outbox-sheet-waiting': {},
+  'outbox-sheet-sending': {},
+  'outbox-sheet-sending-dead-line': {},
+  'outbox-sheet-locked': {},
+  'outbox-sheet-other-tab': {},
+  'outbox-sheet-storage': {},
+  'outbox-sheet-needs-look-assignee': {},
+  'outbox-sheet-site-gone': {},
+  'outbox-sheet-first-visit-past': {},
+  'outbox-sheet-server': {},
+  'outbox-sheet-stale': {},
+  'outbox-sheet-foreign': {},
+  'outbox-discard-confirm': {},
+  // Edit of one: New Job opened on it, its date a field.
+  'newjob-edit-item': { before: async (p) => p.waitForTimeout(500) },
   'schedule-not-kept-page': { before: async (p) => p.waitForTimeout(300) },
   // A job opened with no signal, from its day, and one no day lists; the
   // Clients page from the copy, with the note under the search box; and a

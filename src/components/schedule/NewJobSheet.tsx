@@ -39,9 +39,7 @@ import {
   NewClientFields,
   SiteAddressFields,
   SiteContactFields,
-  newClientArgs,
   newClientFieldId,
-  newSiteArgs,
 } from '#/components/clients/NewClientFields'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { convexCode } from '#/components/forms/describeError'
@@ -65,9 +63,13 @@ import type {
 import { useLineFixHold } from '#/components/clients/useMatchLines'
 import type { FieldFix } from '#/components/forms/FieldMessage'
 import type { Id } from '../../../convex/_generated/dataModel'
-import type { SendableBooking } from '#/lib/outbox/outboxItem'
+import type { OutboxItem, SendableBooking } from '#/lib/outbox/outboxItem'
 import { bookingDisplay, contactPersonFor } from '#/lib/outbox/outboxRow'
-import { useCanKeep, useDraftRequestId } from '#/lib/outbox/useOutbox'
+import {
+  pageItemDeps,
+  useCanKeep,
+  useDraftRequestId,
+} from '#/lib/outbox/useOutbox'
 import { OUTBOX_ENABLED } from '#/lib/outbox/outboxSet'
 import { saysKept } from '#/lib/outbox/book'
 import type { BookingWho } from '#/lib/outbox/book'
@@ -186,7 +188,6 @@ import { bookingErrorCopy } from './bookingCopy'
 import { dayKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
 import { MAX_JOB_NOTES_LENGTH } from '../../../convex/lib/jobNotes'
-import { joinJobTypes } from '../../../convex/lib/jobTypes'
 import { HELD_BUTTON, PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FIELD, FIELD_SURFACE } from '#/components/forms/FormField'
 import { Plus } from 'lucide-react'
@@ -194,9 +195,10 @@ import { alsoGoingFullLabel } from '#/lib/jobPeople'
 import { MAX_ALSO_GOING } from '../../../convex/lib/jobPeople'
 import { useAccess } from '#/lib/access'
 import { isOffline } from '#/lib/online'
-
-/** 'site' is a new site for an existing client (Prompt 6.3). */
-type ClientMode = 'existing' | 'new' | 'site'
+import { OUTBOX_ACTION_COPY } from '#/lib/outbox/outboxInset'
+import { replaceItem } from '#/lib/outbox/itemActions'
+import { bookingFromForm, formFromBooking } from './newJobEdit'
+import type { ClientMode } from './newJobEdit'
 
 /** What New Job's checks found at a press (lib/sheetChecks.ts
  * `createPressReads`), for the booking it sends (`sheetChecksFor`). */
@@ -379,6 +381,8 @@ export function NewJobSheet({
   forProperty,
   pickDate = false,
   onOpenJob,
+  item,
+  focusDate = false,
 }: {
   businessId: Id<'businesses'>
   dayKey: string
@@ -399,6 +403,16 @@ export function NewJobSheet({
    * has closed (the Schedule's, keeping its view and place). Without it,
    * the Schedule on the job's day. */
   onOpenJob?: (jobId: Id<'jobs'>, dayKey: string) => void
+  /**
+   * Edit of a booking on this phone, not sent yet (plan part 2c §10.3),
+   * once its sheet has taken the Edit (lib/outbox/itemActions.ts
+   * `beginEdit`): the form opens on it, with the date a field, and Book
+   * books it in its place, under its own ids. Still "New job" and "Book
+   * job": it is a booking not made yet.
+   */
+  item?: OutboxItem
+  /** "Change the date": the date field has focus as the form opens. */
+  focusDate?: boolean
 }) {
   // What the form is made of, on the phone or on its way: with the line
   // down and none of it here, the sheet says so rather than wait for good.
@@ -444,6 +458,8 @@ export function NewJobSheet({
             pickDate={pickDate}
             onOpenJob={onOpenJob}
             onShown={setFormUp}
+            item={item}
+            focusDate={focusDate}
           />
         </Suspense>
       )}
@@ -459,9 +475,11 @@ function NewJobForm({
   assignTo,
   onBooked,
   forProperty,
-  pickDate,
+  pickDate: pickDateAsked,
   onOpenJob,
   onShown,
+  item,
+  focusDate = false,
 }: {
   businessId: Id<'businesses'>
   dayKey: string
@@ -474,6 +492,8 @@ function NewJobForm({
   onOpenJob?: (jobId: Id<'jobs'>, dayKey: string) => void
   /** The form is up (`newJobBody`). */
   onShown: (shown: true) => void
+  item?: OutboxItem
+  focusDate?: boolean
 }) {
   // The slim directory the Schedule warms (`clients.directory`), as the
   // screens read it (`normaliseDirectory`: the same object for the same
@@ -490,86 +510,145 @@ function NewJobForm({
   )
   const jobTypeList = useJobTypes(businessId).entries
   useEffect(() => onShown(true), [onShown])
-
-  // A business with no properties yet has nothing to pick from, so it starts
-  // straight in "new client" mode rather than hitting a dead end.
-  const [mode, setMode] = useState<ClientMode>(
-    properties.length > 0 ? 'existing' : 'new',
-  )
-  // Chosen already when booked from a client's sheet: that is the client.
-  // Anywhere else nothing is, until the person chooses.
-  const [openedProperty] = useState<string>(() =>
-    forProperty && properties.some((p) => p._id === forProperty)
-      ? forProperty
-      : '',
-  )
-  const [propertyId, setPropertyId] = useState(openedProperty)
-  // A day of its own only where the form asks for one; the Schedule's New
-  // Job books on the day the Schedule is showing, as it always has.
-  const [openedDay] = useState(dayKey)
-  const [pickedDay, setDay] = useState(dayKey)
-  const day = pickDate ? pickedDay : dayKey
   const business = useRouteContext({
     from: '/$businessSlug',
     select: (context) => context.business,
   })
   const businessState = business.state
+  // An Edit of a booking on the phone opens on it (newJobEdit.ts), the date
+  // a field of the form; New Job opens empty, as it always has.
+  const [edit] = useState(() =>
+    item === undefined
+      ? null
+      : formFromBooking(item.booking as SendableBooking, {
+          timezone,
+          businessState,
+        }),
+  )
+  const pickDate = pickDateAsked || edit !== null
+
+  // A business with no properties yet has nothing to pick from, so it starts
+  // straight in "new client" mode rather than hitting a dead end.
+  const [mode, setMode] = useState<ClientMode>(
+    edit?.mode ?? (properties.length > 0 ? 'existing' : 'new'),
+  )
+  // Chosen already when booked from a client's sheet: that is the client.
+  // Anywhere else nothing is, until the person chooses.
+  const [openedProperty] = useState<string>(() =>
+    edit !== null
+      ? edit.propertyId
+      : forProperty && properties.some((p) => p._id === forProperty)
+        ? forProperty
+        : '',
+  )
+  const [propertyId, setPropertyId] = useState(openedProperty)
+  // A day of its own only where the form asks for one; the Schedule's New
+  // Job books on the day the Schedule is showing, as it always has.
+  const [openedDay] = useState(edit?.day ?? dayKey)
+  const [pickedDay, setDay] = useState(openedDay)
+  const day = pickDate ? pickedDay : dayKey
+  // "Change the date" opens an Edit on the field it names, a moment after
+  // the form is up: it usually comes up a commit before New Job's own focus
+  // trap, and until that is up the booking's sheet under it, still trapping,
+  // takes focus straight back to the button.
+  const dateInput = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (!focusDate) return
+    const timer = setTimeout(() => dateInput.current?.focus(), 0)
+    return () => clearTimeout(timer)
+  }, [focusDate])
   // A new address starts in the business's own state, not WA for everyone:
   // most of a Darwin business's clients are in the NT, and a Darwin address
   // typed by hand and left on WA is how prod came to hold "Fannybay WA".
-  const [newClient, setNewClient] = useState<NewClientFieldsValue>(() => ({
-    ...EMPTY_NEW_CLIENT,
-    state: businessState || EMPTY_NEW_CLIENT.state,
-  }))
-  const [siteClientId, setSiteClientId] = useState('')
-  const [newSite, setNewSite] = useState<NewSiteValue>(() => ({
-    ...EMPTY_NEW_SITE,
-    state: businessState || EMPTY_NEW_SITE.state,
-  }))
-  const [assignee, setAssignee] = useState<string>(assignTo ?? '')
+  const [newClient, setNewClient] = useState<NewClientFieldsValue>(
+    () =>
+      edit?.newClient ?? {
+        ...EMPTY_NEW_CLIENT,
+        state: businessState || EMPTY_NEW_CLIENT.state,
+      },
+  )
+  const [openedSiteClient] = useState(edit?.siteClientId ?? '')
+  const [siteClientId, setSiteClientId] = useState(openedSiteClient)
+  const [newSite, setNewSite] = useState<NewSiteValue>(
+    () =>
+      edit?.newSite ?? {
+        ...EMPTY_NEW_SITE,
+        state: businessState || EMPTY_NEW_SITE.state,
+      },
+  )
+  const [openedAssignee] = useState<string>(edit?.assignee ?? assignTo ?? '')
+  const [assignee, setAssignee] = useState<string>(openedAssignee)
   // Nothing ticked until the person ticks it, like the client. It used to
   // start on General Pest Control, which was harmless while picking another
   // REPLACED it. Now that picking adds, a default would be added to: tap
   // Bed Bugs out of habit and the job is booked, and its report started, as
   // general pest control too.
-  const [jobTypes, setJobTypes] = useState<Array<string>>([])
+  const [jobTypes, setJobTypes] = useState<Array<string>>(
+    () => edit?.jobTypes ?? [],
+  )
   const [jobTypeMissing, setJobTypeMissing] = useState(false)
   const jobTypeTrigger = useRef<HTMLButtonElement>(null)
-  const [notes, setNotes] = useState('')
-  const times = useJobTimes(OPENING_TIMES)
-  const [price, setPrice] = useState('')
-  const [workOrder, setWorkOrder] = useState('')
+  const [notes, setNotes] = useState(edit?.notes ?? '')
+  const times = useJobTimes(edit ?? OPENING_TIMES)
+  const [price, setPrice] = useState(edit?.price ?? '')
+  const [workOrder, setWorkOrder] = useState(edit?.workOrder ?? '')
   const [addingWorkOrder, setAddingWorkOrder] = useState(false)
   const workOrderInput = useRef<HTMLInputElement>(null)
   // "Does it repeat" and "how often" are two questions, so they are two
   // controls: the interval fields stay mounted but disabled when it does not,
   // rather than appearing and reflowing the form under the person's thumb.
-  const [repeats, setRepeats] = useState(false)
-  const [interval, setInterval] = useState(DEFAULT_INTERVAL)
+  const [repeats, setRepeats] = useState(edit?.repeats ?? false)
+  const [interval, setInterval] = useState(edit?.interval ?? DEFAULT_INTERVAL)
 
   // Anything filled in locks the sheet against a swipe, and ✕ asks before
   // throwing it away (useSheetLock). An untouched New Job still swipes shut.
   const [assigneeChosen, setAssigneeChosen] = useState(false)
   // Everyone going beside the lead (a shared job): behind "Add someone else",
   // so the form stays as short as it was for the usual one-person job.
-  const [addingPeople, setAddingPeople] = useState(false)
-  const [alsoGoing, setAlsoGoing] = useState<Array<string>>([])
+  const [addingPeople, setAddingPeople] = useState(
+    (edit?.alsoGoing.length ?? 0) > 0,
+  )
+  const [alsoGoing, setAlsoGoing] = useState<Array<string>>(
+    () => edit?.alsoGoing ?? [],
+  )
   const [openedClient] = useState(newClient)
   const [openedSite] = useState(newSite)
+  // What the form opened with: empty for a new booking, the booking itself
+  // for an Edit, which is changed only once something differs from it.
+  const [opened] = useState(() => ({
+    alsoGoing,
+    jobTypes,
+    notes,
+    price,
+    workOrder,
+    repeats,
+    interval,
+  }))
+  // Whether the booking an Edit opened on has been booked in its place:
+  // closing the form loses nothing from then (`replaceItem`).
+  const [replaced, setReplaced] = useState(false)
+  // "Discard your changes?" confirmed: an Edit's Book still waiting books
+  // nothing (`replaceItem`'s `discarded`), from the moment it is confirmed
+  // until a press of the person's own on a form it didn't close (`onSubmit`).
+  const editDiscarded = useRef(false)
   const changed =
     propertyId !== openedProperty ||
     (pickDate && pickedDay !== openedDay) ||
     typedIn(newClient, openedClient) ||
-    siteClientId !== '' ||
+    siteClientId !== openedSiteClient ||
     typedIn(newSite, openedSite) ||
     assigneeChosen ||
-    alsoGoing.length > 0 ||
-    jobTypes.length > 0 ||
-    notes.trim() !== '' ||
+    (edit !== null && assignee !== openedAssignee) ||
+    alsoGoing.join() !== opened.alsoGoing.join() ||
+    jobTypes.join() !== opened.jobTypes.join() ||
+    notes.trim() !== opened.notes.trim() ||
     times.changed ||
-    price !== '' ||
-    workOrder.trim() !== '' ||
-    repeats
+    price !== opened.price ||
+    workOrder.trim() !== opened.workOrder.trim() ||
+    repeats !== opened.repeats ||
+    (repeats &&
+      (interval.count !== opened.interval.count ||
+        interval.unit !== opened.interval.unit))
   // Each opening of the sheet is one draft, with its own request id
   // (`useDraftRequestId`), and its own Book, with the sheet's lock
   // (`useNewJobBooking`): once the booking is kept on the phone, closing the
@@ -579,8 +658,14 @@ function NewJobForm({
   const convexCreate = useConvexMutation(api.jobs.create)
   const convexCreateRecurrence = useConvexMutation(api.recurrences.create)
   const booking = useNewJobBooking(
-    changed,
-    { booked: onBooked, close: onClose },
+    changed && !replaced,
+    {
+      booked: onBooked,
+      close: onClose,
+      discarded: () => {
+        editDiscarded.current = true
+      },
+    },
     (call) =>
       call.fn === 'jobs.create'
         ? convexCreate(call.args)
@@ -729,7 +814,26 @@ function NewJobForm({
   // hold what they book at (`refusalHeld`, up to HOLD_WAIT_MS), and no
   // longer than the panel would take their rows: an edit meanwhile ends it.
   const create = useMutation({
-    mutationFn: (args: SendableBooking) => {
+    mutationFn: async (args: SendableBooking) => {
+      // An Edit: in the booking's place, as it is kept (no checks go with
+      // it, as none go with a booking the phone sends), and the form closes
+      // on whatever comes of it, the booking's own sheet saying the rest.
+      if (item !== undefined) {
+        const finished = () => {
+          onBooked?.()
+          onClose()
+        }
+        const outcome = await replaceItem(
+          item.localId,
+          { booking: args, display: whoFor(args).display() },
+          pageItemDeps(),
+          () => setReplaced(true),
+          () => editDiscarded.current,
+          finished,
+        )
+        finished()
+        return outcome
+      }
       // The first send carries what the press's checks found
       // (`sheetChecksFor`); sent again, what that send carried and what the
       // refusal named, never read afresh (`pressChecks`).
@@ -828,45 +932,33 @@ function NewJobForm({
    * was typed meanwhile is what gets booked.
    */
   function bookingArgs() {
-    const [hh, mm] = times.start.split(':').map(Number)
-    // The picker gives a wall-clock time on the selected day, in the
-    // tenant's own timezone — not the viewer's browser zone, which may
-    // differ (a technician travelling, or simply a differently-configured
-    // device) and would otherwise silently book the wrong instant.
-    const scheduledAt = zonedDateTimeToUtc(day, hh, mm, timezone)
-    return {
-      businessId,
-      property:
-        mode === 'existing'
-          ? { propertyId: propertyId as Id<'properties'> }
-          : mode === 'site'
-            ? {
-                newProperty: newSiteArgs(
-                  siteClientId as Id<'clients'>,
-                  clientKind,
-                  newSite,
-                ),
-              }
-            : { newClient: newClientArgs(newClient) },
-      assignedMembershipId: assignee as Id<'memberships'>,
-      jobType: joinJobTypes(jobTypes),
-      price: Math.round(Number(price || '0') * 100),
-      scheduledAt,
-      // Never null here: readyToBook, read just before, stops a booking
-      // whose end is not after its start.
-      durationMinutes: times.lengthOn(day, timezone)!,
-      workOrder: workOrder.trim() || undefined,
-      // Only for a one-off, and only when someone was added: a repeating
-      // service takes people visit by visit, for now.
-      alsoGoing:
-        !repeats && alsoGoingNow.length > 0
-          ? (alsoGoingNow as Array<Id<'memberships'>>)
-          : undefined,
-      // Left out when blank, so a booking without one never depends on a
-      // backend that knows the field.
-      notes: notes.trim() || undefined,
-      repeat: chosenInterval,
-    }
+    return bookingFromForm(
+      {
+        mode,
+        propertyId,
+        siteClientId,
+        newSite,
+        newClient,
+        assignee,
+        jobTypes,
+        day,
+        start: times.start,
+        price,
+        workOrder,
+        notes,
+        alsoGoing: alsoGoingNow,
+        repeats,
+        interval,
+      },
+      {
+        businessId,
+        timezone,
+        // Never null here: readyToBook, read just before, stops a booking
+        // whose end is not after its start.
+        durationMinutes: times.lengthOn(day, timezone)!,
+        clientKind,
+      },
+    )
   }
   const latestBooking = useLatest(bookingArgs)
 
@@ -2163,6 +2255,11 @@ function NewJobForm({
           // double tap books nothing (Book shows aria-disabled meanwhile).
           if (saveWarnings.isArmed()) return
           if (!readyToBook()) return
+          // After a Discard an Edit's form didn't close on (a Back whose move
+          // never landed), a new press of the person's own. Here, at the
+          // press: one still on "Checking…" as Discard is confirmed books
+          // nothing when its save runs.
+          editDiscarded.current = false
           // Only then the warnings: nothing is worth confirming on a booking
           // that is still missing its client. mutateAsync, so a booking that
           // fails keeps them confirmed and Retry does not ask again. The
@@ -2490,6 +2587,7 @@ function NewJobForm({
         {pickDate && (
           <Field label="Date">
             <input
+              ref={dateInput}
               type="date"
               required
               value={pickedDay}
@@ -2578,10 +2676,14 @@ function NewJobForm({
           }
           // As the booking was sent: a new site for a client has words of
           // its own for MATCHED_CLIENT.
-          copy={bookingErrorCopy(
-            create.variables?.property,
-            (id) => matchIndex.clients.get(id)?.name,
-          )}
+          copy={{
+            ...bookingErrorCopy(
+              create.variables?.property,
+              (id) => matchIndex.clients.get(id)?.name,
+            ),
+            // An Edit's own refusals (lib/outbox/itemActions.ts).
+            ...(item !== undefined && OUTBOX_ACTION_COPY),
+          }}
           className="mt-3"
         />
         <SaveWarningsPanel
@@ -2619,11 +2721,13 @@ function NewJobForm({
             <p id={lineDownId} className="mb-2 text-caption text-ink-2">
               {bookingCaption(
                 lineDown,
-                saysKept({
-                  pending: create.isPending,
-                  path: booking.path,
-                  canKeep,
-                }),
+                // An Edit's booking is on the phone already.
+                item !== undefined ||
+                  saysKept({
+                    pending: create.isPending,
+                    path: booking.path,
+                    canKeep,
+                  }),
               )}
             </p>
           )}

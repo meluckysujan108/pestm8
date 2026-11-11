@@ -165,6 +165,47 @@ export function addRule(
       source.keptHere.has(item.localId))
 }
 
+/** Which bookings saved by a newer build a day's list has up, until the
+ * next redraw. */
+export type ForeignLatch = {
+  redrawKey: string
+  ids: ReadonlyArray<string>
+}
+
+/**
+ * Those of `items` (bookings saved by a newer build, listed after the slots)
+ * on screen now: each comes on only as a slot does (`mayAdd`, told how many
+ * of these are drawn already), and keeps its place until the next redraw,
+ * or until it goes from the phone.
+ */
+export function latchForeign(
+  prev: ForeignLatch | null,
+  input: {
+    items: ReadonlyArray<OutboxItem>
+    redrawKey: string
+    mayAdd: (item: OutboxItem, drawn: number) => boolean
+  },
+): { latch: ForeignLatch; shown: Array<OutboxItem> } {
+  const held = prev?.redrawKey === input.redrawKey ? prev.ids : []
+  const shown = held.flatMap(
+    (id) => input.items.find((item) => item.localId === id) ?? [],
+  )
+  for (const item of input.items) {
+    if (held.includes(item.localId)) continue
+    if (input.mayAdd(item, shown.length)) shown.push(item)
+  }
+  const ids = shown.map((item) => item.localId)
+  const same =
+    prev !== null &&
+    prev.redrawKey === input.redrawKey &&
+    prev.ids.length === ids.length &&
+    prev.ids.every((id, i) => id === ids[i])
+  return {
+    latch: same ? prev : { redrawKey: input.redrawKey, ids },
+    shown,
+  }
+}
+
 /**
  * A booking as a day's list draws it: as sent, with its job, from the moment
  * the server's answer is heard (`OutboxModel.noteAnswered`), though the

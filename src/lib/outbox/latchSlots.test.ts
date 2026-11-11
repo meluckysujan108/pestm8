@@ -4,6 +4,7 @@ import {
   ROW_WAIT_MS,
   addRule,
   answeredView,
+  latchForeign,
   latchSlots,
   realRowOf,
 } from './latchSlots'
@@ -413,6 +414,68 @@ describe('coming onto the screen', () => {
       redrawKey: 'next',
     })
     expect(redrawn.latch?.since).toBe(NOW + 20_000)
+  })
+})
+
+describe('bookings saved by a newer build (`latchForeign`)', () => {
+  const a = itemFor('u1', { v: 2 })
+  const b = itemFor('u1', { v: 2 })
+  const never = () => false
+  const always = () => true
+
+  test('come on only as the rule lets them, keep their place, and go only with the next redraw or from the phone', () => {
+    const first = latchForeign(null, {
+      items: [a],
+      redrawKey: 'day',
+      mayAdd: never,
+    })
+    expect(first.shown).toEqual([])
+    const allowed = latchForeign(first.latch, {
+      items: [a],
+      redrawKey: 'day',
+      mayAdd: always,
+    })
+    expect(allowed.shown).toEqual([a])
+    // Up: it stays, whatever the rule says now.
+    const stays = latchForeign(allowed.latch, {
+      items: [a],
+      redrawKey: 'day',
+      mayAdd: never,
+    })
+    expect(stays.shown).toEqual([a])
+    expect(stays.latch).toBe(allowed.latch)
+    // Discarded, or the day drawn afresh.
+    expect(
+      latchForeign(allowed.latch, {
+        items: [],
+        redrawKey: 'day',
+        mayAdd: never,
+      }).shown,
+    ).toEqual([])
+    expect(
+      latchForeign(allowed.latch, {
+        items: [a],
+        redrawKey: 'another',
+        mayAdd: never,
+      }).shown,
+    ).toEqual([])
+  })
+
+  test('each is told how many are up already, and those up keep their order', () => {
+    const asked: Array<number> = []
+    const { shown } = latchForeign(
+      { redrawKey: 'day', ids: [b.localId] },
+      {
+        items: [a, b],
+        redrawKey: 'day',
+        mayAdd: (_item, drawn) => {
+          asked.push(drawn)
+          return drawn > 0
+        },
+      },
+    )
+    expect(asked).toEqual([1])
+    expect(shown).toEqual([b, a])
   })
 })
 

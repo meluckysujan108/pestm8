@@ -13,16 +13,21 @@ import type { BookingCall } from '#/lib/outbox/outboxItem'
  * the sheet goes. In one hook so the pairing is the one the tests run.
  *
  * `changed`: whether anything in the form has been filled in.
+ * `sheet.discarded`: told too, for a Book that doesn't go through the
+ * session (an Edit's, `replaceItem`), which then books nothing.
  */
 export function useNewJobBooking(
   changed: boolean,
-  sheet: { booked?: () => void; close: () => void },
+  sheet: { booked?: () => void; close: () => void; discarded?: () => void },
   call: (call: BookingCall) => Promise<unknown>,
 ): ReturnType<typeof useBooking> {
   const booking = useBooking(sheet, call)
   useSheetLock(changed && !booking.kept, {
     whileUnchanged: false,
-    onDiscard: () => booking.session.discard(),
+    onDiscard: () => {
+      sheet.discarded?.()
+      booking.session.discard()
+    },
   })
   return booking
 }

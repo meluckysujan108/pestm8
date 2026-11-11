@@ -9,7 +9,13 @@ import { rq } from '#/lib/routeQueries'
 import { flagIfTwoStepNeeded, isTwoStepNeeded } from '#/lib/twoStep'
 import { FakeLockManager } from './fakeLocks.fixtures'
 import { OutboxModel } from './outbox'
-import { SEND_LOCK, itemLock, takeLock } from './outboxLocks'
+import {
+  SEND_LOCK,
+  holdTabLock,
+  itemLock,
+  tabLock,
+  takeLock,
+} from './outboxLocks'
 import {
   ANSWER_WAIT_MS,
   EARLIER_STINT_MARGIN_MS,
@@ -540,6 +546,17 @@ describe('locks', () => {
     expect(p.convex.calls).toHaveLength(1)
   })
 
+  test('its lock held by this tab, for a write still landing, is never said to be another tab’s sending', async () => {
+    const item = unanswered(SETTLE_MIN_AGE_MS + 1_000)
+    const locks = new FakeLockManager()
+    // The Discard's, in this tab: the sender can't have it either.
+    await takeLock(locks.forTab('tab-a'), itemLock(item.localId))
+    const p = await phone([item], { locks })
+    expect(p.sender.sendingElsewhere(item.localId)).toBe(true)
+    p.model.landingHere.add(item.localId)
+    expect(p.sender.sendingElsewhere(item.localId)).toBe(false)
+  })
+
   test('a booking is settled only by the tab holding its lock: never while another tab has it', async () => {
     const item = unanswered(SETTLE_MIN_AGE_MS + 1_000)
     const locks = new FakeLockManager()
@@ -904,8 +921,22 @@ describe('the gates', () => {
       { editing: { tab: 'tab-b', until: NOW + 600_000 } },
     ],
   ])('G8: never while %s', async (_what, extra) => {
-    const { p } = await held(() => {}, waiting(extra))
+    // The other tab is still open: it holds its own lock.
+    const { p } = await held(
+      (made) => takeLock(made.locks.forTab('tab-b'), tabLock('tab-b')),
+      waiting(extra),
+    )
     expect(p.convex.calls).toEqual([])
+  })
+
+  test('G8: an Edit left open by a page that has gone holds nothing: it goes now, not once its lease runs out', async () => {
+    const { p, item } = await held(
+      () => {},
+      waiting({ editing: { tab: 'tab-gone', until: NOW + 600_000 } }),
+    )
+    expect(p.convex.calls).toHaveLength(1)
+    expect(p.convex.calls[0].args.clientRequestId).toBe(item.requestId)
+    expect(p.convex.calls[0].stored?.editing).toBeNull()
   })
 
   test('G8: one made on a booking not sent yet waits for it', async () => {
@@ -1577,8 +1608,84 @@ describe('settling one sent with no answer', () => {
     await flush()
     expect(p.convex.watches.every((w) => w.stops === 1)).toBe(true)
     expect(stored(p, item)?.state).toBe('sending')
-    expect(p.sender.refusedFinds(item.localId)).toBe(1)
     expect(p.convex.calls).toEqual([])
+  })
+
+  test('a find refused because the phone is signed out or owes two-step is a hold, not a refusal: it counts for nothing towards “may already be booked” (§6.2)', async () => {
+    const item = unanswered(SETTLE_MIN_AGE_MS)
+    const p = await phone([item])
+    const refusals = [
+      new ConvexError('Unauthenticated'),
+      new ConvexError('Unauthenticated'),
+      new ConvexError('MFA_ENROLMENT_REQUIRED'),
+    ]
+    for (const [i, error] of refusals.entries()) {
+      if (i > 0) {
+        await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+        await flush()
+      }
+      p.convex.refuseFind('job', error)
+      await flush()
+    }
+    expect(p.sender.refusedFinds(item.localId)).toBe(0)
+    expect(stored(p, item)?.state).toBe('sending')
+    // A refusal for good still counts.
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    await flush()
+    p.convex.refuseFind('job', new Error('Server Error'))
+    await flush()
+    expect(p.sender.refusedFinds(item.localId)).toBe(1)
+  })
+
+  test('refusals before a find that answered count for nothing: sent again after three, the count starts again (§6.3)', async () => {
+    const item = unanswered(SETTLE_MIN_AGE_MS)
+    const p = await phone([item])
+    for (let i = 0; i < 3; i++) {
+      if (i > 0) {
+        await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+        await flush()
+      }
+      p.convex.refuseFind('job', new Error('Server Error'))
+      await flush()
+    }
+    expect(p.sender.refusedFinds(item.localId)).toBe(3)
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    await flush()
+    p.convex.answerFind('job', null)
+    await flush()
+    // Nothing made under its id: unlocked and sent again, a new attempt
+    // whose answer may yet come.
+    expect(p.convex.calls).toHaveLength(1)
+    expect(p.sender.refusedFinds(item.localId)).toBe(0)
+  })
+
+  test('refusals for one attempt say nothing of a newer one another tab made: the count starts again for it (§6.3)', async () => {
+    const item = unanswered(SETTLE_MIN_AGE_MS)
+    const p = await phone([item])
+    for (let i = 0; i < 3; i++) {
+      if (i > 0) {
+        await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+        await flush()
+      }
+      p.convex.refuseFind('job', new Error('Server Error'))
+      await flush()
+    }
+    expect(p.sender.refusedFinds(item.localId)).toBe(3)
+    // Another tab's find answered null: it unlocked it and sent it again,
+    // and that answer was lost.
+    p.backend.items.set(item.localId, {
+      ...stored(p, item)!,
+      lastAttemptAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+    p.broadcast.fromAnotherTab()
+    await flush()
+    expect(p.sender.refusedFinds(item.localId)).toBe(0)
+    await vi.advanceTimersByTimeAsync(SETTLE_MIN_AGE_MS)
+    await flush()
+    p.convex.refuseFind('job', new Error('Server Error'))
+    await flush()
+    expect(p.sender.refusedFinds(item.localId)).toBe(1)
   })
 
   test('the line coming up wakes one waiting only to be settled (S3)', async () => {
@@ -1696,6 +1803,48 @@ describe('wakes', () => {
       until: Date.now() + 10 * 60_000,
     })
     expect(p.convex.calls).toEqual([])
+  })
+})
+
+describe('a page back from the back/forward cache', () => {
+  /** A page with an Edit open, whose tab's lock it took. */
+  async function editing() {
+    const page = new EventTarget()
+    vi.stubGlobal('window', page)
+    const locks = new FakeLockManager()
+    const p = await phone([], { locks })
+    await holdTabLock(locks.forTab('tab-a'), p.model.tab)
+    const item = waiting({ editing: { tab: p.model.tab, until: NOW + 60_000 } })
+    p.backend.items.set(item.localId, structuredClone(item))
+    p.model.editingHere.add(item.localId)
+    p.broadcast.fromAnotherTab()
+    await flush()
+    return { page, locks, p, item }
+  }
+
+  const shown = (persisted: boolean) =>
+    Object.assign(new Event('pageshow'), { persisted })
+
+  test('takes its tab’s lock again and renews its Edits: Safari let go of the lock as it went in, and another tab would take the lease as left', async () => {
+    const { page, locks, p, item } = await editing()
+    expect(locks.isHeld(tabLock(p.model.tab))).toBe(true)
+    locks.closeTab('tab-a')
+    await vi.advanceTimersByTimeAsync(30_000)
+    page.dispatchEvent(shown(true))
+    await flush()
+    expect(locks.isHeld(tabLock(p.model.tab), 'tab-a')).toBe(true)
+    expect(stored(p, item)?.editing).toEqual({
+      tab: p.model.tab,
+      until: Date.now() + 10 * 60_000,
+    })
+  })
+
+  test('shown the ordinary way, takes nothing again', async () => {
+    const { page, locks, p } = await editing()
+    locks.closeTab('tab-a')
+    page.dispatchEvent(shown(false))
+    await flush()
+    expect(locks.isHeld(tabLock(p.model.tab))).toBe(false)
   })
 })
 

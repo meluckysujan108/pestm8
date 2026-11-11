@@ -106,7 +106,11 @@ import type { Access } from '#/lib/access'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { HEADER_ADD_BUTTON } from '#/components/primitives/buttons'
 import { OutboxGroup } from '#/components/schedule/OutboxGroup'
-import { useOutboxDay, useOutboxPlaces } from '#/lib/outbox/useOutbox'
+import {
+  outboxDrawn,
+  useOutboxDay,
+  useOutboxPlaces,
+} from '#/lib/outbox/useOutbox'
 
 const searchSchema = z.object({
   // Lives in the URL, not useState: the day a tech is looking at survives a
@@ -1057,7 +1061,7 @@ function ScheduleBody({
               </>
             ) : shownView === 'week' ? (
               weekView
-            ) : jobs.length === 0 && outboxDay.slots.length === 0 ? (
+            ) : jobs.length === 0 && !outboxDrawn(outboxDay) ? (
               <EmptyState
                 title={
                   mode === 'mine' ? 'Nothing booked for you' : 'Nothing booked'
@@ -1072,7 +1076,7 @@ function ScheduleBody({
                   </EmptyStateButton>
                 }
               />
-            ) : filteredJobs.length === 0 && outboxDay.slots.length === 0 ? (
+            ) : filteredJobs.length === 0 && !outboxDrawn(outboxDay) ? (
               // The day has jobs; the filters hide them. The thing to do is
               // change the filters, not book one.
               <NoMatches
@@ -1103,7 +1107,7 @@ function ScheduleBody({
                         dayShown={selectedKey}
                       />
                     ))}
-                    {outboxDay.slots.length === 0 &&
+                    {!outboxDrawn(outboxDay) &&
                       Object.keys(weather.byKey).length > 0 && (
                         <WeatherCredit className="md:col-span-2" />
                       )}
@@ -1124,7 +1128,7 @@ function ScheduleBody({
                   className={listedJobs.length > 0 ? 'mt-6' : ''}
                 />
                 {/* Still the last thing on the day, under the group. */}
-                {(outboxDay.slots.length > 0 || listedJobs.length === 0) &&
+                {(outboxDrawn(outboxDay) || listedJobs.length === 0) &&
                   Object.keys(weather.byKey).length > 0 && (
                     <WeatherCredit className="mt-2.5" />
                   )}
@@ -1143,6 +1147,7 @@ function ScheduleBody({
         canReassign={canDispatch}
         canDelete={canManageClients}
         onClose={() => setOpenJobId(null)}
+        onSent={setOpenJobId}
       />
 
       <MonthPickerSheet

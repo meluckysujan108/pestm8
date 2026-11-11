@@ -114,6 +114,12 @@ export class OutboxModel {
    */
   readonly editingHere = new Set<string>()
   /**
+   * The bookings with a Book or a Discard of this tab's the phone's storage
+   * hasn't answered, whose lock stays held till it does: refused a second
+   * one (lib/outbox/itemActions.ts), and never another tab's doing.
+   */
+  readonly landingHere = new Set<string>()
+  /**
    * The bookings New Job kept in this tab this page load: the person's own
    * doing, just now, so a day's list may put them on screen where it would
    * put nothing else in after it has drawn (lib/outbox/latchSlots.ts).
@@ -333,7 +339,10 @@ export class OutboxModel {
         return (
           was === undefined ||
           was.updatedAt !== item.updatedAt ||
-          was.state !== item.state
+          was.state !== item.state ||
+          // An Edit's lease renewed changes nothing else, and a sheet open
+          // on it in this tab goes by when it runs out.
+          was.editing?.until !== item.editing?.until
         )
       })
     this.items = next
