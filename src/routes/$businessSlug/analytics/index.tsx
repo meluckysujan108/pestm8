@@ -7,6 +7,8 @@ import {
   preloadTrendChart,
 } from '#/components/analytics/AnalyticsOverview'
 import { AnalyticsBreakdowns } from '#/components/analytics/AnalyticsBreakdowns'
+import { ExportButton } from '#/components/analytics/ExportButton'
+import { PaperworkCard } from '#/components/analytics/PaperworkCard'
 import {
   RANGE_PRESETS,
   analyticsArgs,
@@ -89,6 +91,13 @@ function AnalyticsPage() {
     placeholderData: keepPreviousData,
   })
 
+  // The same question as the breakdowns, asked of the reports: a query of
+  // its own, because reports are heavy and nothing else here reads them.
+  const paperwork = useQuery({
+    ...rq.analyticsPaperwork(breakdownArgs(business._id, search, today)),
+    placeholderData: keepPreviousData,
+  })
+
   const onSearch = (next: Partial<AnalyticsSearch>) =>
     navigate({
       search: (prev) => ({ ...prev, ...next }),
@@ -126,6 +135,18 @@ function AnalyticsPage() {
           failed={breakdowns.isError}
           onRetry={() => void breakdowns.refetch()}
           onSearch={onSearch}
+        />
+        <PaperworkCard
+          businessSlug={business.slug}
+          today={today}
+          data={paperwork.data ?? undefined}
+          failed={paperwork.isError}
+          onRetry={() => void paperwork.refetch()}
+        />
+        <ExportButton
+          report={report.data ?? undefined}
+          breakdown={breakdowns.data ?? undefined}
+          disabled={!hydrated}
         />
         {/* Being explicit beats a subcontractor wondering why the owner's
             numbers differ from theirs. */}

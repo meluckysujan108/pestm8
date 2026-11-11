@@ -487,3 +487,54 @@ describe('where the work came from', () => {
     }
   })
 })
+
+describe('paperwork', () => {
+  test('a finished job with a form and no finalised report is listed', async () => {
+    const s = await setup()
+    const done = await job(s, '2026-11-01', 'completed', 20000, {
+      jobNumber: 12,
+    })
+    const drafted = await job(s, '2026-11-02', 'completed', 20000)
+    const reported = await job(s, '2026-11-03', 'invoiced', 20000)
+    // Not finished: nothing is due yet.
+    await job(s, '2026-11-04', 'booked', 20000)
+    await s.t.run(async (ctx) => {
+      const written = {
+        businessId: s.businessId,
+        propertyId: s.propertyId,
+        authorMembershipId: s.ownerMembershipId,
+        template: 'serviceReport' as const,
+        legalBasis: 'test',
+        templateVersion: 1,
+        data: {},
+        photoIds: [],
+        createdAt: 0,
+        updatedAt: 0,
+      }
+      await ctx.db.insert('reports', {
+        ...written,
+        jobId: drafted,
+        status: 'draft',
+      })
+      await ctx.db.insert('reports', {
+        ...written,
+        jobId: reported,
+        status: 'finalised',
+      })
+    })
+
+    const r = await s.owner.as.query(api.analytics.paperwork, {
+      businessId: s.businessId,
+      ...RANGE,
+    })
+    expect(r).toMatchObject({ checked: 3, missing: 2, more: false })
+    // Newest first: the one with only a draft, then the one with nothing.
+    expect(r?.jobs.map((j) => j.jobId)).toEqual([drafted, done])
+    expect(r?.jobs[1]).toMatchObject({
+      jobNumber: 12,
+      client: 'J. Nguyen',
+      suburb: 'Bayswater',
+      dayKey: '2026-11-01',
+    })
+  })
+})
