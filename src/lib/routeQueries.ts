@@ -119,6 +119,9 @@ export const rq = {
   /** Where a range's finished work came from: the cards under the overview. */
   analyticsBreakdowns: (args: FunctionArgs<typeof api.analytics.breakdowns>) =>
     convexQuery(api.analytics.breakdowns, args),
+  /** Finished jobs in a range with no finalised report: Analytics' Paperwork. */
+  analyticsPaperwork: (args: FunctionArgs<typeof api.analytics.paperwork>) =>
+    convexQuery(api.analytics.paperwork, args),
   /** Finished work not yet invoiced, by age: Analytics → Awaiting invoice. */
   analyticsUninvoiced: (args: FunctionArgs<typeof api.analytics.uninvoiced>) =>
     convexQuery(api.analytics.uninvoiced, args),

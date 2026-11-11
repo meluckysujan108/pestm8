@@ -16,6 +16,8 @@ import { requireActor } from './lib/actor'
 import { jobsInScope, wireScope } from './lib/jobScope'
 import { DONE_STATUSES, isCountedJob } from './lib/jobStatus'
 import { intervalOf } from './lib/recurrence'
+import { loadJobTypes } from './lib/jobTypeList'
+import { suggestTemplates } from '../src/lib/reportTemplates/suggest'
 import {
   AGE_BANDS,
   OLD_AFTER_DAYS,
@@ -887,6 +889,100 @@ export const breakdowns = query({
         bounced: number
       } | null,
       emailsCapped: EMAILS_READ,
+    }
+  },
+})
+
+/** Most finished jobs checked for a report, newest first: each is a read of
+ * its reports, which are the heaviest documents there are. Past it the
+ * answer says so (`more`). */
+const PAPERWORK_CHECKED = 150
+
+/** Most jobs with no report listed, newest first. */
+const PAPERWORK_LISTED = 25
+
+/**
+ * Finished jobs in a range that should have left a report behind and have
+ * none finalised: the Paperwork card on Analytics.
+ *
+ * "Should" is the rule completing a job uses (`assertReportIssued` in
+ * jobs.ts): any of its services has a form in the business's own list. A
+ * draft does not count, nor a report in the Recycle bin. A query of its own,
+ * because it reads reports and nothing else on the page does.
+ */
+export const paperwork = query({
+  args: {
+    businessId: v.id('businesses'),
+    from: v.string(),
+    to: v.string(),
+    staff: v.optional(v.id('memberships')),
+    service: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { businessId, service } = args
+    const range: DayRange = { from: args.from, to: args.to }
+    if (!isValidRange(range)) throw new ConvexError('INVALID_RANGE')
+    const env = await requireActor(ctx, businessId)
+    const business = await ctx.db.get(businessId)
+    if (!business) return null
+    const scope = env.listScope
+    const staff = scope.kind === 'business' ? args.staff : undefined
+
+    const now = await jobsOn(ctx, scope, businessId, range, business.timezone)
+    const people: People =
+      staff !== undefined
+        ? await alsoGoingInWindow(ctx, businessId, now.from, now.to)
+        : new Map()
+    const jobTypes = await loadJobTypes(ctx, businessId)
+    const due = now.jobs
+      .filter(
+        (job) =>
+          DONE_STATUSES.has(job.status) &&
+          isForService(job, service) &&
+          isForPerson(job, staff, people) &&
+          suggestTemplates(job.jobType, jobTypes).length > 0,
+      )
+      .sort((a, b) => b.scheduledAt - a.scheduledAt)
+    const checked = due.slice(0, PAPERWORK_CHECKED)
+
+    const issued = await Promise.all(
+      checked.map(async (job) => {
+        const reports = await ctx.db
+          .query('reports')
+          .withIndex('by_job', (q) => q.eq('jobId', job._id))
+          .take(10)
+        return reports.some(
+          (written) =>
+            written.businessId === businessId &&
+            written.status === 'finalised' &&
+            written.deletedAt === undefined,
+        )
+      }),
+    )
+    const missing = checked.filter((_, i) => !issued[i])
+
+    const listed = await Promise.all(
+      missing.slice(0, PAPERWORK_LISTED).map(async (job) => {
+        const property = await ctx.db.get(job.propertyId)
+        const client = property ? await ctx.db.get(property.clientId) : null
+        return {
+          jobId: job._id,
+          jobNumber: job.jobNumber ?? null,
+          client: client?.name ?? 'Client removed',
+          suburb: property?.suburb ?? '',
+          jobType: job.jobType,
+          dayKey: dayKeyOf(job.scheduledAt, business.timezone),
+        }
+      }),
+    )
+
+    return {
+      /** Finished jobs that should have a report, of those checked. */
+      checked: checked.length,
+      missing: missing.length,
+      jobs: listed,
+      /** More finished jobs were due a report than were checked. */
+      more: due.length > checked.length,
     }
   },
 })

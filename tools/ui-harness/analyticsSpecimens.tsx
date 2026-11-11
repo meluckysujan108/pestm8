@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { AnalyticsBreakdowns } from '#/components/analytics/AnalyticsBreakdowns'
 import { AnalyticsOverview } from '#/components/analytics/AnalyticsOverview'
+import { ExportButton } from '#/components/analytics/ExportButton'
+import { PaperworkCard } from '#/components/analytics/PaperworkCard'
+import type { AnalyticsPaperwork } from '#/components/analytics/PaperworkCard'
 import type { AnalyticsBreakdown } from '#/components/analytics/AnalyticsBreakdowns'
 import { UninvoicedView } from '#/components/analytics/UninvoicedView'
 import { resolveRange } from '#/lib/analyticsView'
@@ -246,6 +249,40 @@ const BREAKDOWN_NO_PRICES: AnalyticsBreakdown = {
   emails: null,
 }
 
+const PAPERWORK: AnalyticsPaperwork = {
+  checked: 96,
+  missing: 7,
+  more: false,
+  jobs: [
+    ['K. Thompson', 'Scarborough', 'General Pest Control', '2026-11-10', 371],
+    ['S. Patel', 'Subiaco', 'Termite Treatment', '2026-11-03', 355],
+    ['M. O’Brien', 'Joondalup', 'General Pest Control', '2026-10-27', 340],
+    [
+      'Harbour Café',
+      'Fremantle',
+      'Rodents, General Pest Control',
+      '2026-10-19',
+      322,
+    ],
+    ['J. Nguyen', 'Morley', 'Termite Inspection', '2026-10-16', 318],
+    [
+      'Ray White Bayswater',
+      'Bayswater',
+      'Termite Inspection',
+      '2026-10-14',
+      309,
+    ],
+    ['L. Rossi', 'Midland', 'General Pest Control', '2026-10-13', 305],
+  ].map(([client, suburb, jobType, dayKey, jobNumber], i) => ({
+    jobId: `late_${i}` as never,
+    jobNumber: jobNumber as number,
+    client: client as string,
+    suburb: suburb as string,
+    jobType: jobType as string,
+    dayKey: dayKey as string,
+  })),
+}
+
 function overview(
   report: AnalyticsReport | undefined,
   opts: {
@@ -281,6 +318,16 @@ function overview(
               search={search}
               onSearch={(next) => setSearch((prev) => ({ ...prev, ...next }))}
             />
+          )}
+          {opts.breakdown && (
+            <>
+              <PaperworkCard
+                businessSlug="swan-river"
+                today={TODAY}
+                data={PAPERWORK}
+              />
+              <ExportButton report={report} breakdown={opts.breakdown} />
+            </>
           )}
           {opts.note}
         </AnalyticsOverview>
