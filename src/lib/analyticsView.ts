@@ -163,6 +163,22 @@ export function analyticsArgs(
   }
 }
 
+/** What `analytics.breakdowns` is asked, the same way. */
+export function breakdownArgs(
+  businessId: Id<'businesses'>,
+  search: AnalyticsSearch,
+  today: string,
+) {
+  const { from, to } = resolveRange(search, today)
+  return {
+    businessId,
+    from,
+    to,
+    ...(search.staff ? { staff: search.staff as Id<'memberships'> } : {}),
+    ...(search.service ? { service: search.service } : {}),
+  }
+}
+
 /** What `analytics.uninvoiced` is asked, the same way. */
 export function uninvoicedArgs(
   businessId: Id<'businesses'>,

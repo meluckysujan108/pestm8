@@ -50,6 +50,7 @@ import type * as lib_abn from "../lib/abn.js";
 import type * as lib_access from "../lib/access.js";
 import type * as lib_accountEmail from "../lib/accountEmail.js";
 import type * as lib_actor from "../lib/actor.js";
+import type * as lib_analyticsRange from "../lib/analyticsRange.js";
 import type * as lib_audit from "../lib/audit.js";
 import type * as lib_base64 from "../lib/base64.js";
 import type * as lib_bin from "../lib/bin.js";
@@ -216,6 +217,7 @@ declare const fullApi: ApiFromModules<{
   "lib/access": typeof lib_access;
   "lib/accountEmail": typeof lib_accountEmail;
   "lib/actor": typeof lib_actor;
+  "lib/analyticsRange": typeof lib_analyticsRange;
   "lib/audit": typeof lib_audit;
   "lib/base64": typeof lib_base64;
   "lib/bin": typeof lib_bin;

@@ -116,6 +116,9 @@ export const rq = {
   /** The Analytics overview for a range of days (`analyticsArgs`). */
   analyticsReport: (args: FunctionArgs<typeof api.analytics.report>) =>
     convexQuery(api.analytics.report, args),
+  /** Where a range's finished work came from: the cards under the overview. */
+  analyticsBreakdowns: (args: FunctionArgs<typeof api.analytics.breakdowns>) =>
+    convexQuery(api.analytics.breakdowns, args),
   /** Finished work not yet invoiced, by age: Analytics → Awaiting invoice. */
   analyticsUninvoiced: (args: FunctionArgs<typeof api.analytics.uninvoiced>) =>
     convexQuery(api.analytics.uninvoiced, args),

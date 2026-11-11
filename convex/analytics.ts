@@ -15,6 +15,7 @@ import type { RowScope } from './lib/capabilities'
 import { requireActor } from './lib/actor'
 import { jobsInScope, wireScope } from './lib/jobScope'
 import { DONE_STATUSES, isCountedJob } from './lib/jobStatus'
+import { intervalOf } from './lib/recurrence'
 import {
   AGE_BANDS,
   OLD_AFTER_DAYS,
@@ -609,6 +610,283 @@ export const uninvoiced = query({
       jobs: listed,
       // More waiting than is listed, or than was read at all.
       more: jobs.length > listed.length || waiting.more,
+    }
+  },
+})
+
+/** Most properties one breakdown looks up, each a document read, and each
+ * client after it another: well inside a query's 4,096 reads. Past it the
+ * answer says it is part of the picture (`partial`). */
+const PLACES_READ = 1500
+
+/** Most rows a breakdown lists, most first. */
+const ROWS_LISTED = 20
+
+/** Most running services read to value what is booked to repeat. */
+const RECURRENCES_READ = 1000
+
+/** Most report emails of one outcome counted, newest first. */
+const EMAILS_READ = 500
+
+type Tally = { completed: number; revenue: number }
+
+function add<TKey>(into: Map<TKey, Tally>, key: TKey, revenue: number): void {
+  const tally = into.get(key) ?? { completed: 0, revenue: 0 }
+  tally.completed += 1
+  tally.revenue += revenue
+  into.set(key, tally)
+}
+
+/** Whether a lead is someone this scope covers. */
+function isInScopeOf(scope: RowScope, lead: Id<'memberships'>): boolean {
+  if (scope.kind === 'business') return true
+  if (scope.kind === 'own') return scope.membershipId === lead
+  return scope.membershipIds.includes(lead)
+}
+
+/** Visits a year for a service that repeats this often. */
+function visitsPerYear(recurrence: Doc<'recurrences'>): number {
+  const { count, unit } = intervalOf(recurrence)
+  const perYear = { day: 365, week: 52, month: 12, year: 1 }[unit]
+  return perYear / Math.max(1, count)
+}
+
+/**
+ * Where a range's finished work came from: by service, by who led it, by
+ * client and by suburb, with what is booked to repeat and how the range's
+ * report emails went. The cards under the Analytics overview.
+ *
+ * A query of its own, so the overview's figures never wait for the property
+ * and client of every job. Finished jobs only (completed or invoiced), dated
+ * as `report` dates them, and narrowed by the same service and person.
+ */
+export const breakdowns = query({
+  args: {
+    businessId: v.id('businesses'),
+    from: v.string(),
+    to: v.string(),
+    staff: v.optional(v.id('memberships')),
+    service: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { businessId, service } = args
+    const range: DayRange = { from: args.from, to: args.to }
+    if (!isValidRange(range)) throw new ConvexError('INVALID_RANGE')
+    const env = await requireActor(ctx, businessId)
+    const business = await ctx.db.get(businessId)
+    if (!business) return null
+    const scope = env.listScope
+    const whole = scope.kind === 'business'
+    const staff = whole ? args.staff : undefined
+
+    const now = await jobsOn(ctx, scope, businessId, range, business.timezone)
+    const people: People =
+      staff !== undefined
+        ? await alsoGoingInWindow(ctx, businessId, now.from, now.to)
+        : new Map()
+    const done = now.jobs.filter(
+      (job) =>
+        DONE_STATUSES.has(job.status) &&
+        isForService(job, service) &&
+        isForPerson(job, staff, people),
+    )
+
+    const byService = new Map<string, Tally & { name: string }>()
+    const byLead = new Map<Id<'memberships'>, Tally>()
+    const byProperty = new Map<Id<'properties'>, Tally>()
+    let recurringDone = 0
+    let recurringRevenue = 0
+    for (const job of done) {
+      // A job for several services is one job under each, with its price
+      // shared between them, so the services add up to the range's revenue.
+      const names = servicesOf(job)
+      for (const name of names) {
+        const key = name.toLowerCase()
+        const tally = byService.get(key) ?? { name, completed: 0, revenue: 0 }
+        tally.completed += 1
+        tally.revenue += job.price / names.length
+        byService.set(key, tally)
+      }
+      add(byLead, job.assignedMembershipId, job.price)
+      add(byProperty, job.propertyId, job.price)
+      if (job.recurrenceId) {
+        recurringDone += 1
+        recurringRevenue += job.price
+      }
+    }
+
+    // The busiest properties first, so a cut-off loses the least.
+    const places = [...byProperty.entries()].sort(
+      (a, b) => b[1].completed - a[1].completed,
+    )
+    const read = places.slice(0, PLACES_READ)
+    const properties = await Promise.all(
+      read.map(([propertyId]) => ctx.db.get(propertyId)),
+    )
+    const clientIds = [
+      ...new Set(properties.flatMap((p) => (p ? [p.clientId] : []))),
+    ]
+    const clientDocs = await Promise.all(clientIds.map((id) => ctx.db.get(id)))
+    const clientOf = new Map(
+      clientDocs.flatMap((c) => (c ? [[c._id, c] as const] : [])),
+    )
+
+    const rangeStart = now.from
+    const bySuburb = new Map<string, Tally & { suburb: string }>()
+    const byClient = new Map<Id<'clients'>, Tally>()
+    const byKind = {
+      person: { completed: 0, revenue: 0 },
+      business: { completed: 0, revenue: 0 },
+    }
+    read.forEach(([, tally], i) => {
+      const property = properties[i]
+      if (!property) return
+      const suburb = property.suburb.trim()
+      if (suburb) {
+        const key = suburb.toLowerCase()
+        const area = bySuburb.get(key) ?? { suburb, completed: 0, revenue: 0 }
+        area.completed += tally.completed
+        area.revenue += tally.revenue
+        bySuburb.set(key, area)
+      }
+      const client = clientOf.get(property.clientId)
+      if (!client) return
+      const seen = byClient.get(client._id) ?? { completed: 0, revenue: 0 }
+      seen.completed += tally.completed
+      seen.revenue += tally.revenue
+      byClient.set(client._id, seen)
+      byKind[client.kind].completed += tally.completed
+      byKind[client.kind].revenue += tally.revenue
+    })
+    // New is a client first put on the books within the range.
+    let newClients = 0
+    let newClientJobs = 0
+    for (const [clientId, tally] of byClient) {
+      if ((clientOf.get(clientId)?.createdAt ?? 0) >= rangeStart) {
+        newClients += 1
+        newClientJobs += tally.completed
+      }
+    }
+
+    const running = (
+      await ctx.db
+        .query('recurrences')
+        .withIndex('by_business_active', (q) =>
+          q.eq('businessId', businessId).eq('active', true),
+        )
+        .take(RECURRENCES_READ)
+    ).filter(
+      (r) =>
+        r.deletedAt === undefined &&
+        isInScopeOf(scope, r.assignedMembershipId) &&
+        (staff === undefined || r.assignedMembershipId === staff) &&
+        (service === undefined ||
+          splitJobTypes(r.jobType).some(
+            (name) => name.toLowerCase() === service.trim().toLowerCase(),
+          )),
+    )
+
+    // Every email of the business's reports is the owner's to see; a
+    // narrower view has its own reports' emails in each report.
+    const emails = whole
+      ? Object.fromEntries(
+          await Promise.all(
+            (['sent', 'failed', 'bounced'] as const).map(async (status) => {
+              const rows = await ctx.db
+                .query('reportDeliveries')
+                .withIndex('by_business_status', (q) =>
+                  q.eq('businessId', businessId).eq('status', status),
+                )
+                .order('desc')
+                .take(EMAILS_READ)
+              return [
+                status,
+                rows.filter(
+                  (row) => row.createdAt >= now.from && row.createdAt < now.to,
+                ).length,
+              ] as const
+            }),
+          ),
+        )
+      : null
+
+    const team = whole
+      ? await Promise.all(
+          [...byLead.entries()].map(async ([membershipId, tally]) => {
+            const member = await ctx.db.get(membershipId)
+            const user = member
+              ? await authComponent.getAnyUserById(ctx, member.userId)
+              : null
+            return {
+              membershipId,
+              name: user?.name ?? 'Unassigned',
+              colour: member?.colour ?? UNASSIGNED_COLOUR,
+              ...tally,
+            }
+          }),
+        )
+      : []
+
+    const hidden = hidePrices(env.caps)
+    const money = (cents: number) => redactTotal(env.caps, Math.round(cents))
+    // By money for someone who sees it, by jobs for someone who doesn't:
+    // an order by revenue would say who paid most without the figures.
+    const ranked = <T extends Tally>(rows: Array<T>) =>
+      rows
+        .sort((a, b) =>
+          hidden
+            ? b.completed - a.completed
+            : b.revenue - a.revenue || b.completed - a.completed,
+        )
+        .slice(0, ROWS_LISTED)
+        .map((row): Omit<T, 'revenue'> & { revenue: number | null } => ({
+          ...row,
+          revenue: money(row.revenue),
+        }))
+
+    return {
+      scope: wireScope(scope),
+      pricesHidden: hidden,
+      /** More properties had finished work than were looked up: the client
+       * and suburb figures cover the busiest of them. */
+      partial: places.length > read.length,
+      completed: done.length,
+      revenue: money(done.reduce((total, job) => total + job.price, 0)),
+      services: ranked([...byService.values()]),
+      team: ranked(team),
+      clients: {
+        served: byClient.size,
+        new: newClients,
+        newJobs: newClientJobs,
+        person: { ...byKind.person, revenue: money(byKind.person.revenue) },
+        business: {
+          ...byKind.business,
+          revenue: money(byKind.business.revenue),
+        },
+        top: ranked(
+          [...byClient.entries()].map(([clientId, tally]) => ({
+            clientId,
+            name: clientOf.get(clientId)?.name ?? 'Client removed',
+            ...tally,
+          })),
+        ),
+      },
+      areas: ranked([...bySuburb.values()]),
+      recurring: {
+        services: running.length,
+        more: running.length >= RECURRENCES_READ,
+        yearlyValue: money(
+          running.reduce((total, r) => total + r.price * visitsPerYear(r), 0),
+        ),
+        completed: recurringDone,
+        revenue: money(recurringRevenue),
+      },
+      emails: emails as {
+        sent: number
+        failed: number
+        bounced: number
+      } | null,
+      emailsCapped: EMAILS_READ,
     }
   },
 })
