@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { AnalyticsBreakdowns } from '#/components/analytics/AnalyticsBreakdowns'
 import { AnalyticsOverview } from '#/components/analytics/AnalyticsOverview'
+import type { AnalyticsBreakdown } from '#/components/analytics/AnalyticsBreakdowns'
 import { UninvoicedView } from '#/components/analytics/UninvoicedView'
 import { resolveRange } from '#/lib/analyticsView'
 import type { ReactNode } from 'react'
@@ -145,9 +147,112 @@ const QUIET: AnalyticsReport = {
   people: [],
 }
 
+const BREAKDOWN: AnalyticsBreakdown = {
+  scope: 'business',
+  pricesHidden: false,
+  partial: false,
+  completed: REPORT.totals.completed,
+  revenue: REPORT.totals.revenue,
+  services: [
+    { name: 'General Pest Control', completed: 58, revenue: 1420000 },
+    { name: 'Termite Inspection', completed: 31, revenue: 980000 },
+    { name: 'Rodents', completed: 22, revenue: 615000 },
+    { name: 'Termite Treatment', completed: 9, revenue: 540000 },
+    { name: 'Bird Proofing', completed: 4, revenue: 210000 },
+    { name: 'Possum Removal', completed: 3, revenue: 96000 },
+  ],
+  team: [
+    {
+      membershipId: 'm_1',
+      name: 'Terence',
+      colour: '#0a84ff',
+      completed: 61,
+      revenue: 1730000,
+    },
+    {
+      membershipId: 'm_2',
+      name: 'Jas',
+      colour: '#34c759',
+      completed: 48,
+      revenue: 1264000,
+    },
+    {
+      membershipId: 'm_3',
+      name: 'Miko',
+      colour: '#af52de',
+      completed: 14,
+      revenue: 396000,
+    },
+  ] as never,
+  clients: {
+    served: 96,
+    new: 18,
+    newJobs: 21,
+    person: { completed: 88, revenue: 2110000 },
+    business: { completed: 35, revenue: 1280000 },
+    top: [
+      {
+        clientId: 'c_1',
+        name: 'Ray White Bayswater',
+        completed: 9,
+        revenue: 342000,
+      },
+      { clientId: 'c_2', name: 'Harbour Café', completed: 4, revenue: 168000 },
+      { clientId: 'c_3', name: 'S. Patel', completed: 1, revenue: 96000 },
+      {
+        clientId: 'c_4',
+        name: 'Swan Strata Management',
+        completed: 3,
+        revenue: 87000,
+      },
+    ] as never,
+  },
+  areas: [
+    { suburb: 'Joondalup', completed: 21, revenue: 588000 },
+    { suburb: 'Bayswater', completed: 17, revenue: 512000 },
+    { suburb: 'Fremantle', completed: 14, revenue: 431000 },
+    { suburb: 'Morley', completed: 12, revenue: 302000 },
+    { suburb: 'Subiaco', completed: 9, revenue: 296000 },
+    { suburb: 'Scarborough', completed: 8, revenue: 204000 },
+    { suburb: 'Midland', completed: 6, revenue: 151000 },
+  ],
+  recurring: {
+    services: 64,
+    more: false,
+    yearlyValue: 8640000,
+    completed: 47,
+    revenue: 1128000,
+  },
+  emails: { sent: 118, failed: 1, bounced: 2 },
+  emailsCapped: 500,
+}
+
+/** The same, as someone who may not see prices gets it. */
+const BREAKDOWN_NO_PRICES: AnalyticsBreakdown = {
+  ...BREAKDOWN,
+  scope: 'assignee',
+  pricesHidden: true,
+  revenue: null,
+  services: BREAKDOWN.services.map((row) => ({ ...row, revenue: null })),
+  team: [],
+  clients: {
+    ...BREAKDOWN.clients,
+    person: { completed: 88, revenue: null },
+    business: { completed: 35, revenue: null },
+    top: BREAKDOWN.clients.top.map((row) => ({ ...row, revenue: null })),
+  },
+  areas: BREAKDOWN.areas.map((row) => ({ ...row, revenue: null })),
+  recurring: { ...BREAKDOWN.recurring, yearlyValue: null, revenue: null },
+  emails: null,
+}
+
 function overview(
   report: AnalyticsReport | undefined,
-  opts: { failed?: boolean; note?: ReactNode } = {},
+  opts: {
+    failed?: boolean
+    note?: ReactNode
+    breakdown?: AnalyticsBreakdown
+  } = {},
 ) {
   return function Overview() {
     const [search, setSearch] = useState<AnalyticsSearch>({})
@@ -169,6 +274,14 @@ function overview(
           onRetry={() => {}}
           onSearch={(next) => setSearch((prev) => ({ ...prev, ...next }))}
         >
+          {(report || opts.breakdown) && (
+            <AnalyticsBreakdowns
+              data={opts.breakdown}
+              report={report}
+              search={search}
+              onSearch={(next) => setSearch((prev) => ({ ...prev, ...next }))}
+            />
+          )}
           {opts.note}
         </AnalyticsOverview>
       </Phone>
@@ -263,8 +376,9 @@ function waiting(report: UninvoicedReport | undefined, narrowed = false) {
 }
 
 export const ANALYTICS_SPECIMENS = {
-  analytics: overview(REPORT),
+  analytics: overview(REPORT, { breakdown: BREAKDOWN }),
   'analytics-no-prices': overview(NO_PRICES, {
+    breakdown: BREAKDOWN_NO_PRICES,
     note: (
       <p className="text-caption text-muted">
         These figures cover your own jobs.

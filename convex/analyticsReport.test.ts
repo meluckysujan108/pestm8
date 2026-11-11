@@ -321,3 +321,169 @@ describe('awaiting invoice, by age', () => {
     expect(r?.more).toBe(false)
   })
 })
+
+describe('where the work came from', () => {
+  async function secondSite(s: Setup) {
+    return s.t.run(async (ctx) => {
+      const clientId = await ctx.db.insert('clients', {
+        businessId: s.businessId,
+        kind: 'business',
+        name: 'Harbour Café',
+        // First put on the books inside the range: a new client.
+        createdAt: noon('2026-10-20'),
+        updatedAt: noon('2026-10-20'),
+      })
+      return ctx.db.insert('properties', {
+        businessId: s.businessId,
+        clientId,
+        addressLine: '3 Quay Street',
+        suburb: 'Fremantle',
+        state: 'WA',
+        postcode: '6160',
+        createdAt: noon('2026-10-20'),
+      })
+    })
+  }
+
+  function breakdowns(s: Setup, more: Record<string, unknown> = {}) {
+    return s.owner.as.query(api.analytics.breakdowns, {
+      businessId: s.businessId,
+      ...RANGE,
+      ...more,
+    })
+  }
+
+  test('by service, client, suburb and lead, finished work only', async () => {
+    const s = await setup()
+    const cafe = await secondSite(s)
+    await job(s, '2026-11-01', 'completed', 20000)
+    await job(s, '2026-11-02', 'invoiced', 30000)
+    await job(s, '2026-11-03', 'completed', 60000, {
+      propertyId: cafe,
+      jobType: 'Rodents, General Pest Control',
+    })
+    // Not finished, or not in the range: in none of it.
+    await job(s, '2026-11-04', 'booked', 99000, { propertyId: cafe })
+    await job(s, '2026-10-01', 'completed', 99000)
+
+    const r = await breakdowns(s)
+    expect(r?.completed).toBe(3)
+    expect(r?.revenue).toBe(110000)
+    // The two-service job is one job under each, its price shared.
+    expect(r?.services).toEqual([
+      { name: 'General Pest Control', completed: 3, revenue: 80000 },
+      { name: 'Rodents', completed: 1, revenue: 30000 },
+    ])
+    expect(r?.areas).toEqual([
+      { suburb: 'Fremantle', completed: 1, revenue: 60000 },
+      { suburb: 'Bayswater', completed: 2, revenue: 50000 },
+    ])
+    expect(r?.clients).toMatchObject({
+      served: 2,
+      new: 1,
+      newJobs: 1,
+      person: { completed: 2, revenue: 50000 },
+      business: { completed: 1, revenue: 60000 },
+    })
+    expect(r?.clients.top.map((c) => [c.name, c.revenue])).toEqual([
+      ['Harbour Café', 60000],
+      ['J. Nguyen', 50000],
+    ])
+    expect(r?.team).toMatchObject([
+      { membershipId: s.ownerMembershipId, completed: 3, revenue: 110000 },
+    ])
+    expect(r?.partial).toBe(false)
+    expect(r?.emails).toEqual({ sent: 0, failed: 0, bounced: 0 })
+  })
+
+  test('a service narrows it, as it narrows the overview', async () => {
+    const s = await setup()
+    const cafe = await secondSite(s)
+    await job(s, '2026-11-01', 'completed', 20000)
+    await job(s, '2026-11-03', 'completed', 60000, {
+      propertyId: cafe,
+      jobType: 'Rodents',
+    })
+
+    const r = await breakdowns(s, { service: 'rodents' })
+    expect(r?.completed).toBe(1)
+    expect(r?.areas.map((a) => a.suburb)).toEqual(['Fremantle'])
+  })
+
+  test('what repeats is valued by the year, and its finished visits counted', async () => {
+    const s = await setup()
+    const series = await s.t.run(async (ctx) => {
+      const running = {
+        businessId: s.businessId,
+        propertyId: s.propertyId,
+        assignedMembershipId: s.ownerMembershipId,
+        jobType: 'General Pest Control',
+        anchorDate: noon('2026-01-01'),
+      }
+      // Every three months at $200, and every two weeks at $50.
+      const quarterly = await ctx.db.insert('recurrences', {
+        ...running,
+        price: 20000,
+        intervalCount: 3,
+        intervalUnit: 'month',
+        active: true,
+      })
+      await ctx.db.insert('recurrences', {
+        ...running,
+        price: 5000,
+        intervalCount: 2,
+        intervalUnit: 'week',
+        active: true,
+      })
+      // Stopped: worth nothing a year.
+      await ctx.db.insert('recurrences', {
+        ...running,
+        price: 90000,
+        frequency: 'monthly',
+        active: false,
+      })
+      return quarterly
+    })
+    await job(s, '2026-11-01', 'completed', 20000, { recurrenceId: series })
+    await job(s, '2026-11-02', 'completed', 30000)
+
+    const r = await breakdowns(s)
+    expect(r?.recurring).toEqual({
+      services: 2,
+      more: false,
+      // 4 × $200 + 26 × $50.
+      yearlyValue: 210000,
+      completed: 1,
+      revenue: 20000,
+    })
+  })
+
+  test('a subcontractor gets their own work, no team, and no emails', async () => {
+    const s = await setup()
+    const sam = await createActor(s.t, { email: 'sam@coastal.test' })
+    const samId = await joinBusiness(
+      s.t,
+      s.owner,
+      sam,
+      s.businessId,
+      'subcontractor',
+    )
+    await job(s, '2026-11-01', 'completed', 20000)
+    await job(s, '2026-11-02', 'completed', 30000, {
+      assignedMembershipId: samId,
+    })
+
+    const r = await sam.as.query(api.analytics.breakdowns, {
+      businessId: s.businessId,
+      ...RANGE,
+    })
+    expect(r?.completed).toBe(1)
+    expect(r?.team).toEqual([])
+    expect(r?.emails).toBeNull()
+    if (r?.pricesHidden) {
+      expect(r.revenue).toBeNull()
+      expect(r.services.every((row) => row.revenue === null)).toBe(true)
+      expect(r.recurring.yearlyValue).toBeNull()
+    }
+  })
+})

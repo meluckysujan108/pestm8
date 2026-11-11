@@ -6,9 +6,11 @@ import {
   AnalyticsOverview,
   preloadTrendChart,
 } from '#/components/analytics/AnalyticsOverview'
+import { AnalyticsBreakdowns } from '#/components/analytics/AnalyticsBreakdowns'
 import {
   RANGE_PRESETS,
   analyticsArgs,
+  breakdownArgs,
   analyticsSearchOf,
   resolveRange,
 } from '#/lib/analyticsView'
@@ -43,15 +45,22 @@ export const Route = createFileRoute('/$businessSlug/analytics/')({
   // placeholder with the sheet gone from under the thumb. In the browser it
   // waits only so long (`loaderWaitMs`): the page has its own placeholders.
   loader: ({ context: { queryClient, business }, location }) => {
-    if (typeof window !== 'undefined') preloadTrendChart()
     const search = analyticsSearchOf((key) => searchParam(location, key))
+    const today = todayKey(business.timezone)
+    if (typeof window !== 'undefined') {
+      preloadTrendChart()
+      // Started, never waited on: the cards under the overview have their
+      // own placeholders, and must not hold the figures above them.
+      void warm(
+        queryClient,
+        rq.analyticsBreakdowns(breakdownArgs(business._id, search, today)),
+      )
+    }
     return settleInBrowser(
       loaderWaitMs(),
       warm(
         queryClient,
-        rq.analyticsReport(
-          analyticsArgs(business._id, search, todayKey(business.timezone)),
-        ),
+        rq.analyticsReport(analyticsArgs(business._id, search, today)),
       ),
     )
   },
@@ -72,6 +81,11 @@ function AnalyticsPage() {
   // sheet never empties the page behind it.
   const report = useQuery({
     ...rq.analyticsReport(analyticsArgs(business._id, search, today)),
+    placeholderData: keepPreviousData,
+  })
+
+  const breakdowns = useQuery({
+    ...rq.analyticsBreakdowns(breakdownArgs(business._id, search, today)),
     placeholderData: keepPreviousData,
   })
 
@@ -104,6 +118,15 @@ function AnalyticsPage() {
         ready={hydrated}
         onSearch={onSearch}
       >
+        <AnalyticsBreakdowns
+          data={breakdowns.data ?? undefined}
+          report={report.data ?? undefined}
+          search={search}
+          stale={breakdowns.isPlaceholderData}
+          failed={breakdowns.isError}
+          onRetry={() => void breakdowns.refetch()}
+          onSearch={onSearch}
+        />
         {/* Being explicit beats a subcontractor wondering why the owner's
             numbers differ from theirs. */}
         {report.data?.scope === 'assignee' && (
