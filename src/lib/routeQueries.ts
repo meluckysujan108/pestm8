@@ -1,6 +1,6 @@
 import { convexQuery } from '@convex-dev/react-query'
 import { getFunctionName } from 'convex/server'
-import type { FunctionReturnType } from 'convex/server'
+import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import { api } from '../../convex/_generated/api'
 import type { QueryClient } from '@tanstack/react-query'
 import type { Id } from '../../convex/_generated/dataModel'
@@ -113,8 +113,12 @@ export const rq = {
     convexQuery(api.notes.listMentions, { businessId }),
   summary: (businessId: B) =>
     convexQuery(api.dashboard.summary, { businessId }),
-  analytics: (businessId: B) =>
-    convexQuery(api.analytics.overview, { businessId }),
+  /** The Analytics overview for a range of days (`analyticsArgs`). */
+  analyticsReport: (args: FunctionArgs<typeof api.analytics.report>) =>
+    convexQuery(api.analytics.report, args),
+  /** Finished work not yet invoiced, by age: Analytics → Awaiting invoice. */
+  analyticsUninvoiced: (args: FunctionArgs<typeof api.analytics.uninvoiced>) =>
+    convexQuery(api.analytics.uninvoiced, args),
   currentUser: () => convexQuery(api.auth.getCurrentUser, {}),
   /** A new business's set-up guide — the owner's only (`setupGuide.ts`). */
   setupGuide: (businessId: B) =>

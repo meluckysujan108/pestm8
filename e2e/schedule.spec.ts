@@ -102,9 +102,10 @@ test('an owner can add a property, book a job, and complete it', async ({
 
   // --- and analytics reflects it ------------------------------------------
   await page.goto(`/${slug}/analytics`)
-  await expect(page.getByText('$380')).toBeVisible()
+  // Revenue, the average job and the work awaiting invoice all say it.
+  await expect(page.getByText('$380').first()).toBeVisible()
   await expect(
-    page.getByText('1 job completed and not yet billed'),
+    page.getByText('1 job finished and not yet invoiced.'),
   ).toBeVisible()
 })
 

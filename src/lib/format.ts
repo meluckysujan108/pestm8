@@ -211,3 +211,60 @@ export function formatJobMoney(job: {
 }): string {
   return job.pricesHidden ? '—' : formatMoney(job.price)
 }
+
+/**
+ * "13 Oct" — a day where there is no room for its weekday (a chart's axis, a
+ * range of dates), with the year when it isn't `thisDayKey`'s.
+ */
+export function formatShortDate(dayKey: string, thisDayKey?: string): string {
+  const parts = dateTimeFormat('en-AU', {
+    timeZone: 'UTC',
+    day: 'numeric',
+    month: 'short',
+  }).formatToParts(dayKeyToDate(dayKey))
+  const part = (type: string) => parts.find((p) => p.type === type)?.value
+  const date = `${part('day')} ${part('month')}`
+  const year = dayKey.slice(0, 4)
+  return thisDayKey === undefined || year === thisDayKey.slice(0, 4)
+    ? date
+    : `${date} ${year}`
+}
+
+/** "Oct" — a month on a chart's axis. */
+export function formatShortMonth(dayKey: string): string {
+  return dateTimeFormat('en-AU', { timeZone: 'UTC', month: 'short' }).format(
+    dayKeyToDate(dayKey),
+  )
+}
+
+/**
+ * "13 Oct – 11 Nov", or one day as "11 Nov" — a range of days, with both
+ * years as soon as either isn't `thisDayKey`'s.
+ */
+export function formatDateRange(
+  fromKey: string,
+  toKey: string,
+  thisDayKey: string,
+): string {
+  const thisYear = thisDayKey.slice(0, 4)
+  const sameYear =
+    fromKey.slice(0, 4) === thisYear && toKey.slice(0, 4) === thisYear
+  // A year no day key has, so each end says its own.
+  const against = sameYear ? thisDayKey : '0000-01-01'
+  if (fromKey === toKey) return formatShortDate(fromKey, against)
+  return `${formatShortDate(fromKey, against)} – ${formatShortDate(toKey, against)}`
+}
+
+/**
+ * "$950", "$1.5k", "$21k", "$1.2m" — money where there is room for a few
+ * characters (a chart's axis), never where it must be exact.
+ */
+export function formatMoneyShort(cents: number): string {
+  const dollars = Math.abs(cents) / 100
+  const sign = cents < 0 ? '-' : ''
+  const scaled = (value: number, unit: string) =>
+    `${sign}$${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10}${unit}`
+  if (dollars >= 1_000_000) return scaled(dollars / 1_000_000, 'm')
+  if (dollars >= 1_000) return scaled(dollars / 1_000, 'k')
+  return `${sign}$${Math.round(dollars)}`
+}
