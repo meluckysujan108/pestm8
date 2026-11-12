@@ -4,7 +4,8 @@ import type { LeaveReason } from './leaveGuard'
 
 /**
  * Signing out and switching business ask whatever would be lost first. With
- * nothing registered, which is how it ships, both just go ahead.
+ * nothing registered, both just go ahead. (What the one guard there is asks,
+ * `OutboxLeaveGuard`'s, is lib/outbox/leaveAsk.test.ts.)
  */
 
 const unregister: Array<() => void> = []

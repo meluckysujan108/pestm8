@@ -1,11 +1,13 @@
 /**
  * Asked before the person leaves what this page holds for them: signing out
- * (Settings), or switching to another business (the sidebar's switcher).
+ * (every way there is, `useSignOut`), or switching to another business (the
+ * business switcher).
  *
  * Something kept on this phone that would be lost by leaving registers a
  * guard, which asks the person (a ConfirmDialog) and answers whether to go
- * ahead. None is registered yet. The first will be the jobs booked with no
- * signal and not sent yet: "Sign out and discard 2 jobs not sent yet?".
+ * ahead. The one there is: the jobs booked with no signal and not sent yet
+ * (`OutboxLeaveGuard`, at the root): "Sign out and discard 2 jobs not sent
+ * yet?".
  *
  * The guards are asked one at a time, in the order they were registered,
  * and the first to say stay ends it. A guard that throws counts as stay:

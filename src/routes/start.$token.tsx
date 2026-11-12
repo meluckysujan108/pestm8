@@ -1,15 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useConvexAction } from '@convex-dev/react-query'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Building2, IdCard, Palette, Users } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import { InviteAuthForm } from '#/components/auth/InviteAuthForm'
+import { OutboxOnPhoneLine } from '#/components/auth/OutboxOnPhoneLine'
 import { authClient } from '#/lib/auth-client'
 import { couldBeInvitee } from '#/lib/inviteEmail'
-import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
+import { useOnPhoneLine } from '#/lib/outbox/useOnPhone'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
+import { useSignOut } from '#/lib/useSignOut'
 import type { LucideIcon } from 'lucide-react'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FormAlert } from '#/components/forms/FormAlert'
@@ -32,6 +34,13 @@ function StartPage() {
   const { token } = Route.useParams()
   const router = useRouter()
   const hydrated = useHydrated()
+  // A reload, as the join page's: the next account must not see this one's
+  // cached answers.
+  const leave = useSignOut({ then: 'reload' })
+  // Whose jobs not sent yet are on this phone (`OutboxOnPhoneLine`), with
+  // the form, which its button names for a screen reader while it shows.
+  const onPhoneRead = useOnPhoneLine()
+  const onPhoneId = useId()
 
   const preview = useConvexAction(api.businessInvites.preview)
   const convexClaim = useConvexAction(api.businessInvites.claim)
@@ -50,6 +59,7 @@ function StartPage() {
   // (INVITE_EMAIL_MISMATCH), so the page says so instead of offering it.
   const wrongAccount =
     signedInEmail !== null && !couldBeInvitee(signedInEmail, emailHint)
+  const onPhone = signedInEmail === null ? onPhoneRead : null
 
   const claim = useMutation({
     mutationFn: () => convexClaim({ token }),
@@ -100,24 +110,38 @@ function StartPage() {
 
   return (
     <Shell title="Set up your business on PestM8">
-      <p className="mt-2 text-body text-muted">
-        {taken ? (
-          emailHint ? (
-            <>
-              This link has been used. If it was you, sign in with{' '}
-              <span className="text-ink">{emailHint}</span> to carry on.
-            </>
+      {/* While the form shows, whose jobs not sent yet are on this phone,
+          if any: signing in as anyone else discards them. Under the title,
+          where it is seen on the smallest phone, over the line saying what
+          the link is, which gives way to it, keeping its room, so nothing
+          moves. The address stays in the Email field's hint. */}
+      <div className="relative mt-2">
+        <p
+          className={
+            onPhone === null
+              ? 'text-body text-muted'
+              : 'invisible text-body text-muted'
+          }
+        >
+          {taken ? (
+            emailHint ? (
+              <>
+                This link has been used. If it was you, sign in with{' '}
+                <span className="text-ink">{emailHint}</span> to carry on.
+              </>
+            ) : (
+              'This link has been used. If it was you, sign in to carry on.'
+            )
           ) : (
-            'This link has been used. If it was you, sign in to carry on.'
-          )
-        ) : (
-          <>
-            Scheduling, service reports and certificates for your pest control
-            business. This link works once, and only for{' '}
-            <span className="text-ink">{emailHint}</span>.
-          </>
-        )}
-      </p>
+            <>
+              Scheduling, service reports and certificates for your pest control
+              business. This link works once, and only for{' '}
+              <span className="text-ink">{emailHint}</span>.
+            </>
+          )}
+        </p>
+        <OutboxOnPhoneLine line={onPhone} id={onPhoneId} over />
+      </div>
 
       {claim.isError && !isMfaEnrolmentError(claim.error) && (
         <FormAlert className="mt-4">
@@ -133,13 +157,18 @@ function StartPage() {
             for <span className="text-ink">{emailHint}</span>. Sign out, then{' '}
             {taken ? 'sign in' : 'create your account'} with that address.
           </p>
+          {/* Just above the button, as every failed save's is. */}
+          {leave.problem && (
+            <FormAlert className="mt-4">{leave.problem}</FormAlert>
+          )}
           <button
             type="button"
-            disabled={!hydrated}
-            onClick={signOutAndReload}
+            disabled={!hydrated || leave.signingOut}
+            aria-disabled={leave.checking || undefined}
+            onClick={() => void leave.signOut()}
             className={`${PRIMARY_BUTTON} mt-4 w-full`}
           >
-            Sign out
+            {leave.signingOut || leave.checking ? 'Signing out…' : 'Sign out'}
           </button>
         </div>
       ) : signedInEmail ? (
@@ -155,12 +184,20 @@ function StartPage() {
           >
             {claim.isPending ? 'Setting up…' : 'Set up my business'}
           </button>
+          {/* Just above the button, as every failed save's is. */}
+          {leave.problem && (
+            <FormAlert className="mt-4">{leave.problem}</FormAlert>
+          )}
           <button
             type="button"
-            onClick={signOutAndReload}
+            disabled={leave.signingOut}
+            aria-disabled={leave.checking || undefined}
+            onClick={() => void leave.signOut()}
             className="mt-4 w-full text-body text-blue"
           >
-            Not you? Sign out
+            {leave.signingOut || leave.checking
+              ? 'Signing out…'
+              : 'Not you? Sign out'}
           </button>
         </div>
       ) : (
@@ -171,6 +208,7 @@ function StartPage() {
           disabled={!hydrated}
           initialMode={taken ? 'signIn' : 'signUp'}
           submitLabels={{ signUp: 'Create account', signIn: 'Sign in' }}
+          describedBy={onPhone === null ? undefined : onPhoneId}
         />
       )}
 
@@ -187,16 +225,6 @@ function StartPage() {
       )}
     </Shell>
   )
-}
-
-/** A reload, as the join page's: the next account must not see this one's
- * cached answers. */
-function signOutAndReload() {
-  beginSignOut()
-  void authClient
-    .signOut()
-    .then(forgetCachedPages)
-    .then(() => window.location.reload())
 }
 
 const DEAD_TITLE: Record<string, string> = {

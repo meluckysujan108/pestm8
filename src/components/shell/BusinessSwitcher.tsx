@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
@@ -8,6 +8,8 @@ import { api } from '../../../convex/_generated/api'
 import { useAccess } from '#/lib/access'
 import { confirmLeave } from '#/lib/offline/leaveGuard'
 import { lineDown as lineDownNow, useLineDown } from '#/lib/offline/useLineDown'
+import { unsentInBusinessWords } from '#/lib/outbox/outboxRules'
+import { useUnsentByBusiness } from '#/lib/outbox/useOnPhone'
 import { rq } from '#/lib/routeQueries'
 import type { MouseEvent } from 'react'
 import type { QueryClient } from '@tanstack/react-query'
@@ -63,12 +65,25 @@ export function BusinessSwitcher({
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const lineDown = useLineDown()
+  // The person's bookings on this phone not sent yet, by business: those of
+  // another business wait until they are back in it (lib/outbox/, plan X7),
+  // and its row says how many, those needing a look among them.
+  const unsent = useUnsentByBusiness()
+  const unsentIn = (businessId: string) => {
+    const here = unsent?.get(businessId)
+    return here ? here.count + here.needsLook : 0
+  }
   // A switch just refused for want of signal, said until the line is back
-  // or the list is closed.
+  // or the list is closed or opened again.
   const [refused, setRefused] = useState(false)
   useEffect(() => {
     if (!lineDown) setRefused(false)
   }, [lineDown])
+  // Whether a switch's question is up ("Switch with 2 jobs not sent
+  // yet?"): the list stays open under it, though focus has gone to it, so
+  // Stay leaves the list as it was, and a switch the line refuses once it is
+  // answered says so where the person is looking.
+  const asking = useRef(false)
 
   const trigger = (
     // Collapsed, this reduces to the membership colour dot centred in the
@@ -93,9 +108,12 @@ export function BusinessSwitcher({
 
   /**
    * Another business, in this tab. Refused at once with the line down and
-   * the business not already on this phone. Otherwise whatever would be
-   * lost by leaving asks first (lib/offline/leaveGuard.ts), and the line is
-   * asked about again after, since an answer can take a while.
+   * the business not already on this phone. Otherwise whatever leaving
+   * would leave behind asks first (lib/offline/leaveGuard.ts): this
+   * business's bookings on the phone not sent yet, which stay and go once
+   * the person is back in it ("Switch with 2 jobs not sent yet?",
+   * `OutboxLeaveGuard`). The line is asked about again after, since an
+   * answer can take a while.
    */
   function switchTo(e: MouseEvent, target: (typeof businesses)[number]) {
     if (target.slug === current.slug || !followsHere(e)) return
@@ -106,7 +124,9 @@ export function BusinessSwitcher({
       setRefused(true)
       return
     }
+    asking.current = true
     void confirmLeave('switchBusiness').then((go) => {
+      asking.current = false
       if (!go) return
       if (!ready()) {
         setRefused(true)
@@ -120,11 +140,7 @@ export function BusinessSwitcher({
   }
 
   return (
-    <Popover.Root
-      onOpenChange={(open) => {
-        if (!open) setRefused(false)
-      }}
-    >
+    <Popover.Root onOpenChange={() => setRefused(false)}>
       <Popover.Trigger className="flex w-full items-center rounded-xl transition hover:bg-surface-2">
         {trigger}
         <ChevronsUpDown
@@ -137,6 +153,12 @@ export function BusinessSwitcher({
         <Popover.Content
           align="start"
           sideOffset={6}
+          onFocusOutside={(event) => {
+            if (asking.current) event.preventDefault()
+          }}
+          onInteractOutside={(event) => {
+            if (asking.current) event.preventDefault()
+          }}
           className="z-50 w-60 rounded-2xl border border-hairline bg-surface p-1.5 shadow-elevation"
         >
           {businesses.map((b) => (
@@ -154,6 +176,11 @@ export function BusinessSwitcher({
                 <span className="block text-caption capitalize text-muted">
                   {b.role}
                 </span>
+                {b.slug !== current.slug && unsentIn(b.businessId) > 0 && (
+                  <span className="block text-caption text-ink-2">
+                    {unsentInBusinessWords(unsentIn(b.businessId))}
+                  </span>
+                )}
               </span>
               {b.slug === current.slug && (
                 <Check size={16} strokeWidth={2.2} className="text-red" />

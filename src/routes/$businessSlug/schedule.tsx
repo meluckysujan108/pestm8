@@ -549,8 +549,9 @@ function ScheduleBody({
   // `isDesktop ? [] : ...` dance was working around.
   // The day's bookings on this phone, not sent yet, in a group of their own
   // under its cards, each keeping its slot until the day is drawn afresh
-  // (lib/outbox/latchSlots.ts). The week has none of them yet. A day the
-  // phone keeps no copy of still has those: under "Not on this phone".
+  // (lib/outbox/latchSlots.ts). The Week View draws each day's on that day
+  // (`WeekView`'s `outbox`). A day the phone keeps no copy of still has
+  // those: under "Not on this phone".
   const outboxDayKey = notKept ? requestedKey : selectedKey
   const outboxDay = useOutboxDay({
     businessId: business._id,
@@ -768,6 +769,11 @@ function ScheduleBody({
       staffId={staffId}
       onOpenJob={setOpenJobId}
       onOpenDay={openDay}
+      outbox={{
+        onOpenItem: setOpenOutboxId,
+        redrawKey: `${mode ?? ''}|${acting.membershipId}`,
+        mineOnly: mode === 'mine' ? acting.membershipId : null,
+      }}
     />
   )
   const viewSwitch = (

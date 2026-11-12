@@ -15,6 +15,7 @@ import TanStackQueryDevtools from '../integrations/tanstack-query/devtools'
 import { ConnectionDiagnostics } from '#/components/shell/ConnectionDiagnostics'
 import { ConnectionNotice } from '#/components/shell/ConnectionNotice'
 import { NavProgress } from '#/components/shell/NavProgress'
+import { OutboxLeaveGuard } from '#/components/shell/OutboxLeaveGuard'
 import { ServiceWorker } from '#/components/shell/ServiceWorker'
 import { TwoStepPromptHost } from '#/components/auth/TwoStepPrompt'
 import { useHydrated } from '#/lib/useHydrated'
@@ -25,6 +26,7 @@ import { getInitialState } from '#/lib/initialState'
 import { notAMemberSlug, wipeKeptForBusiness } from '#/lib/offline/keptStore'
 import { keeper } from '#/lib/offline/keeper'
 import { keptInitScript } from '#/lib/offline/useKept'
+import { outbox } from '#/lib/outbox/outbox'
 import { sender } from '#/lib/outbox/sender'
 // For its listener: Chrome offers installing once, early, on whatever page
 // is open, and set-up's Home Screen card is only there to use it later.
@@ -170,6 +172,9 @@ function RootComponent() {
         outbox={sender}
       />
       <ConnectionDiagnostics convexClient={convexQueryClient.convexClient} />
+      {/* Asks before a sign-out or a switch of business leaves the bookings
+          on this phone, not sent yet (lib/offline/leaveGuard.ts). */}
+      <OutboxLeaveGuard outbox={outbox} sender={sender} keeper={keeper} />
     </ConvexBetterAuthProvider>
   )
 }

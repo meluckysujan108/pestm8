@@ -1,6 +1,6 @@
 /**
- * A sign-out request, given `ms` to land: Settings' Sign out, which says so
- * when it can't (settings/index.tsx).
+ * A sign-out request, given `ms` to land: every way to sign out, which says
+ * so when it can't (lib/useSignOut.ts).
  *
  * Better Auth answers a request that reached the server but failed with
  * `error`, and throws when it never got there. `inTime` is whether the

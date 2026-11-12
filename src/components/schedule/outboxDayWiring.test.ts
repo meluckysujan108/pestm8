@@ -44,3 +44,54 @@ test('the job handed over to lands where the booking’s body stood, and no othe
   )
   expect(text).toMatch(/if \(closed\) setLanding\(null\)/)
 })
+
+/**
+ * The Week View's days draw their bookings not sent yet too (plan §9.3): a
+ * day with only those draws no "No jobs", which would be untrue; a job a
+ * slot draws is left out of the day's list, which would draw it twice; and
+ * each day's comes on only at the week's first drawing (`inWeek`), since
+ * every day under it would move. The schedule hands the week the bookings'
+ * sheet to open.
+ */
+test('the Week View’s days decide on what their group draws, and draw each job once', () => {
+  const week = readFileSync(
+    resolve(SRC, 'components/schedule/WeekView.tsx'),
+    'utf8',
+  )
+  expect(week).toMatch(
+    /committed\.length === 0 && dueHere\.length === 0 && !drawsOutbox/,
+  )
+  expect(week).toMatch(
+    /const drawsOutbox = outboxDay !== null && outboxDrawn\(outboxDay\)/,
+  )
+  expect(week).toMatch(/!outboxDay\.hidden\.has\(job\._id\)/)
+  expect(week).toMatch(/inWeek: true/)
+  expect(week).toMatch(/drawsCards: false/)
+  const schedule = readFileSync(
+    resolve(SRC, 'routes/$businessSlug/schedule.tsx'),
+    'utf8',
+  )
+  expect(schedule).toMatch(
+    /<WeekView[\s\S]*?outbox=\{\{\s+onOpenItem: setOpenOutboxId,/,
+  )
+})
+
+/**
+ * The Week View's first scroll to a day waits for the days above to draw
+ * their bookings on this phone (`useOutboxSettled`), which come on only as
+ * the week first draws and would push the day off screen (F5).
+ */
+test('the Week View scrolls to its day only once the bookings above it have come on', () => {
+  const week = readFileSync(
+    resolve(SRC, 'components/schedule/WeekView.tsx'),
+    'utf8',
+  )
+  expect(week).toMatch(
+    /useScrollToDay\(focusKey, weekStart, focusTick, useOutboxSettled\(\)\)/,
+  )
+  // Not settled, nothing is done, and the first scroll is still to come.
+  expect(week).toMatch(
+    /useEffect\(\(\) => \{\s*if \(!settled\) return\s*const isFirst = first\.current\s*first\.current = false/,
+  )
+  expect(week).toMatch(/\}, \[focusKey, weekStart, tick, settled\]\)/)
+})

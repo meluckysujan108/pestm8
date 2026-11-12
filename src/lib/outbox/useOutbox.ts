@@ -16,7 +16,13 @@ import { hasService, isOnJob } from '#/lib/scheduleFilters'
 import { useHydrated } from '#/lib/useHydrated'
 import { outbox } from './outbox'
 import { BookingSession, canKeepNow } from './book'
-import { addRule, answeredView, latchForeign, latchSlots } from './latchSlots'
+import {
+  ADD_AFTER_DRAW_MS,
+  addRule,
+  answeredView,
+  latchForeign,
+  latchSlots,
+} from './latchSlots'
 import { browserLocks } from './outboxLocks'
 import { newRequestId } from './outboxItem'
 import { bookingDay, outboxRow } from './outboxRow'
@@ -24,6 +30,7 @@ import { OUTBOX_ENABLED, isReadable } from './outboxSet'
 import {
   forgetGivenUp,
   giveUpKeep,
+  keptBefore,
   localNotesWork,
   outboxReadable,
 } from './outboxStore'
@@ -260,6 +267,13 @@ export function useOutboxDay(at: {
   service?: string
   /** "Just my jobs": the person's own membership. */
   mineOnly: string | null
+  /**
+   * The Week View's day (plan §9.3): its own bookings only, as every day of
+   * the week is on screen (no other day's needing a look, and none saved by
+   * a newer build), and coming on only at the week's first drawing, since
+   * the days under it would move (`addRule`'s `movesBelow`).
+   */
+  inWeek?: boolean
 }): OutboxDay {
   const access = useAccess()
   const queryClient = useQueryClient()
@@ -298,7 +312,11 @@ export function useOutboxDay(at: {
       const latched =
         latch?.redrawKey === at.redrawKey &&
         latch.slots.some((slot) => slot.localId === item.localId)
-      if (!showsToday || (item.state !== 'needsLook' && !latched)) {
+      if (
+        at.inWeek === true ||
+        !showsToday ||
+        (item.state !== 'needsLook' && !latched)
+      ) {
         return false
       }
     }
@@ -314,7 +332,11 @@ export function useOutboxDay(at: {
   // Not while its sheet is still deciding, nor once it closed on its job
   // (booked with signal, it lands in the list as it always did); then
   // wherever it moves nothing.
-  const mayAdd = addRule(outbox, { drawsCards: at.drawsCards, now })
+  const mayAdd = addRule(outbox, {
+    drawsCards: at.drawsCards,
+    now,
+    movesBelow: at.inWeek === true,
+  })
   const result = latchSlots(latch, {
     items:
       items === null
@@ -350,7 +372,7 @@ export function useOutboxDay(at: {
   // filters, since nothing of it can be read to filter on.
   const foreignDrawn = latchForeign(foreignLatch, {
     items:
-      showsToday && at.allStatuses && everything !== null
+      showsToday && at.allStatuses && at.inWeek !== true && everything !== null
         ? everything.filter(
             (item) => !isReadable(item) && item.state !== 'sent',
           )
@@ -425,6 +447,28 @@ export function useOutboxReadable(): boolean {
   return hydrated && readable
 }
 
+/**
+ * Whether the Week View's days have all they will draw of the bookings on
+ * this phone as the week first draws (`useOutboxDay`'s `inWeek`, which
+ * puts one on only then): the phone has been read, or ADD_AFTER_DRAW_MS
+ * has gone by, after which nothing comes on until the week is drawn
+ * afresh. Its first scroll to a day waits for it, so the groups of the
+ * days above don't push the day off screen as they come. At once where
+ * nothing can be on the phone (keeping switched off, on a phone that never
+ * kept), as before there was any.
+ */
+export function useOutboxSettled(): boolean {
+  const readable = useOutboxReadable()
+  const mayHold = OUTBOX_ENABLED || keptBefore()
+  const [waited, setWaited] = useState(false)
+  useEffect(() => {
+    if (!mayHold) return
+    const timer = setTimeout(() => setWaited(true), ADD_AFTER_DRAW_MS)
+    return () => clearTimeout(timer)
+  }, [mayHold])
+  return !mayHold || readable || waited
+}
+
 /** What a booking's sheet changes it with (lib/outbox/itemActions.ts): the
  * page's own outbox, its sender, the browser's locks. */
 export function pageItemDeps(): ItemDeps {
@@ -441,5 +485,6 @@ export function pageItemDeps(): ItemDeps {
     lineLive: () => keeper.lineLive(),
     sender,
     now: () => Date.now(),
+    bookedHere: (localId) => outbox.bookedHere(localId),
   }
 }

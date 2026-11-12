@@ -1,9 +1,11 @@
 import { expect, test } from '@playwright/test'
+import { ConvexHttpClient } from 'convex/browser'
 import {
   FIXTURE_PASSWORD,
   api,
   chooseJobTypes,
   chooseProperty,
+  clickUntil,
   signInViaUi,
   signUpActor,
   skipNearPerthMidnight,
@@ -16,7 +18,13 @@ import {
   startOfWeekKey,
   todayKeyInZone,
 } from '../convex/lib/dates'
-import type { Locator, Page, WebSocketRoute } from '@playwright/test'
+import type {
+  BrowserContext,
+  Locator,
+  Page,
+  WebSocketRoute,
+} from '@playwright/test'
+import type { Actor } from './fixtures'
 
 /**
  * Book keeps it (plan part 2c, PR 2c-D): a booking made in New Job is written
@@ -95,9 +103,10 @@ async function business(label: string) {
     FIXTURE_PASSWORD,
     'Kevin',
   )
+  const name = `${label} ${Date.now()}`
   const { businessId, slug } = await owner.client.mutation(
     api.businesses.create,
-    { name: `${label} ${Date.now()}`, state: 'WA', timezone: TZ },
+    { name, state: 'WA', timezone: TZ },
   )
   await inviteAndJoin(owner, sub, businessId)
   const propertyId = await owner.client.mutation(api.properties.create, {
@@ -113,6 +122,8 @@ async function business(label: string) {
   })
   return {
     owner,
+    sub,
+    name,
     businessId,
     slug,
     propertyId,
@@ -245,6 +256,8 @@ type StoredBooking = {
   lastAttemptAt: number | null
   result: { id: string } | null
   sentAt: number | null
+  /** When the page heard the session it was saved in had ended. */
+  sessionEndedAt: number | null
 }
 
 /** The bookings on the phone, read from IndexedDB. Never throws. */
@@ -1230,4 +1243,691 @@ test('a Recurring Job of another day needing a look, opened from today’s group
   await expect(page).toHaveURL(/jobId=/)
   await expect(page).not.toHaveURL(/outboxId=/)
   expect(await jobsFor(s, 'Arthur Wellard', perthDay(2))).toHaveLength(1)
+})
+
+// ── Leaving, and where else they are said (plan part 2c, PR 2c-F) ─────────
+//
+// Signing out and switching business ask first about the bookings on the
+// phone not sent yet (`OutboxLeaveGuard`); the sign-in screens say whose are
+// there; the notice, SwitchBanner and the switcher say they wait. The server
+// is moved only through its own functions, or Better Auth's endpoints, as
+// the page or a laptop would move it.
+
+/** The app, as fixtures.ts reaches it. */
+const SITE = process.env.E2E_BASE_URL ?? 'http://localhost:3000'
+
+/** Whose the phone's bookings are (its `owner` row), or null with none. */
+async function ownerOnPhone(
+  page: Page,
+): Promise<{ userId: string; firstName: string } | null> {
+  return page
+    .evaluate(async () => {
+      const names = await indexedDB.databases()
+      if (!names.some((db) => db.name === 'pestm8-outbox')) return null
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const open = indexedDB.open('pestm8-outbox')
+        open.onsuccess = () => resolve(open.result)
+        open.onerror = () => reject(open.error ?? new Error('no db'))
+      })
+      try {
+        if (!db.objectStoreNames.contains('owner')) return null
+        const read = db.transaction('owner').objectStore('owner').get('owner')
+        return await new Promise<{ userId: string; firstName: string } | null>(
+          (resolve) => {
+            read.onsuccess = () =>
+              resolve(
+                (read.result as
+                  { userId: string; firstName: string } | undefined) ?? null,
+              )
+            read.onerror = () => resolve(null)
+          },
+        )
+      } finally {
+        db.close()
+      }
+    })
+    .catch(() => null)
+}
+
+/** The businesses of the bookings on the phone, each with its state. */
+async function businessesOnPhone(
+  page: Page,
+): Promise<Array<{ businessId: string; state: string }>> {
+  const all = (await bookingsOnPhone(page)) as Array<
+    StoredBooking & { businessId: string }
+  >
+  return all.map(({ businessId, state }) => ({ businessId, state }))
+}
+
+/**
+ * Every `jobs:create` the page's Convex sockets send (or the whole
+ * context's), its frame kept, and dropped while `hold` is on: the booking
+ * goes nowhere, and nothing answers it. Each refusal the server sends back
+ * for being in someone else's account is noted too, by when.
+ */
+async function bookingCalls(target: Page | BrowserContext) {
+  const calls = {
+    hold: false,
+    sent: [] as Array<string>,
+    refused: [] as Array<number>,
+  }
+  await target.routeWebSocket(
+    (url) => url.host === convexHost,
+    (ws: WebSocketRoute) => {
+      const server = ws.connectToServer()
+      ws.onMessage((message) => {
+        if (typeof message === 'string' && message.includes('"jobs:create"')) {
+          calls.sent.push(message)
+          if (calls.hold) return
+        }
+        server.send(message)
+      })
+      server.onMessage((message) => {
+        if (
+          typeof message === 'string' &&
+          message.includes('"MutationResponse"') &&
+          /NOT_OWN_ACCOUNT|SWITCH_[A-Z_]+/.test(message)
+        ) {
+          calls.refused.push(Date.now())
+        }
+        ws.send(message)
+      })
+    },
+  )
+  return calls
+}
+
+/** A Convex client for the Better Auth session behind `cookie`, traded at
+ * /api/auth/convex/token as the page and fixtures.ts trade it. */
+async function clientFor(cookie: string): Promise<ConvexHttpClient> {
+  const res = await fetch(`${SITE}/api/auth/convex/token`, {
+    headers: { cookie, origin: SITE },
+  })
+  expect(res.ok).toBe(true)
+  const { token } = (await res.json()) as { token?: string }
+  expect(token).toBeTruthy()
+  const client = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
+  client.setAuth(token!)
+  return client
+}
+
+/** A session of `email`'s own, signed in over HTTP as a laptop would: its
+ * cookie. */
+async function signInOverHttp(email: string): Promise<string> {
+  const res = await fetch(`${SITE}/api/auth/sign-in/email`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: SITE },
+    body: JSON.stringify({ email, password: FIXTURE_PASSWORD }),
+  })
+  expect(res.ok).toBe(true)
+  const cookie = res.headers
+    .getSetCookie()
+    .map((c) => c.split(';')[0])
+    .join('; ')
+  expect(cookie).not.toBe('')
+  return cookie
+}
+
+/** `actor` signed in afresh: the fixture's own session goes when every one
+ * of theirs is revoked, or when they leave their last business. */
+async function signedInAgain(actor: Actor): Promise<Actor> {
+  return {
+    email: actor.email,
+    client: await clientFor(await signInOverHttp(actor.email)),
+  }
+}
+
+/** Every session of `email`'s ended on the server, as a password changed on
+ * a laptop ends them: signed in over HTTP, then all of them revoked (Better
+ * Auth's /revoke-sessions). */
+async function endSessionsOf(email: string) {
+  const cookie = await signInOverHttp(email)
+  const res = await fetch(`${SITE}/api/auth/revoke-sessions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: SITE, cookie },
+    body: '{}',
+  })
+  expect(res.ok).toBe(true)
+}
+
+/**
+ * A Convex client signed in as the page's own session: its cookies traded
+ * for a token, as the page trades them. A switch of account it starts is
+ * the page's session's, since a switch is kept per session.
+ */
+async function asThePage(context: BrowserContext): Promise<ConvexHttpClient> {
+  const cookie = (await context.cookies(SITE))
+    .map((c) => `${c.name}=${c.value}`)
+    .join('; ')
+  return clientFor(cookie)
+}
+
+/** The schedule on `day`, its page kept in the worker and the kept copy
+ * written, for New Job with no signal. */
+async function readyOffline(page: Page, slug: string, day: string) {
+  await openSchedule(page, slug, day)
+  await keepPageInWorker(page)
+  await waitForKeptCopy(page)
+}
+
+/** Settings' Sign out, once the page can act on it. */
+async function pressSignOut(page: Page) {
+  const button = page.getByRole('button', { name: 'Sign out', exact: true })
+  await expect(button).toBeEnabled()
+  await button.click()
+}
+
+/**
+ * The business switcher in the sidebar (a desktop's), opened on `current`.
+ * Its list stays open after a switch (the shell isn't drawn again for the
+ * new business, nor does a row's link close it) and under the switch's
+ * question, and a press on its button closes an open list: so it is pressed
+ * only while the list is shut.
+ */
+async function openSwitcher(page: Page, current: string) {
+  const trigger = page
+    .getByRole('button', { name: new RegExp(current) })
+    .first()
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') {
+    await trigger.click()
+  }
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true')
+}
+
+const DESKTOP = { width: 1280, height: 900 }
+const PHONE = { width: 390, height: 844 }
+
+test('sign out with a booking on the phone: asked first; Stay keeps it; Discard leaves nothing, and nothing comes back on signing in again', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-signout')
+  await signInViaUi(page, s.owner.email)
+  await readyOffline(page, s.slug, day)
+
+  // Kept three days, so it waits for a look and isn't sent once back; read
+  // afresh with no signal, so nothing goes as the page unloads.
+  await context.setOffline(true)
+  try {
+    await bookArthurOffline(page)
+    await rewriteBooking(page, { createdAt: Date.now() - 73 * HOUR })
+    await page.reload()
+    await expect(newJobButton(page)).toBeEnabled()
+  } finally {
+    await context.setOffline(false)
+  }
+  await expect(card(page, 'Arthur Wellard')).toContainText('Needs a look', {
+    timeout: 30_000,
+  })
+
+  await page.goto(`/${s.slug}/settings`)
+  await pressSignOut(page)
+  const asked = page.getByRole('alertdialog')
+  await expect(asked).toContainText('Sign out and discard 1 job not sent yet?')
+  await expect(asked).toContainText('It’s only on this phone.')
+  await asked.getByRole('button', { name: 'Stay signed in' }).click()
+  await expect(asked).toHaveCount(0)
+  await expect(page).toHaveURL(/\/settings/)
+  expect(await bookingsOnPhone(page)).toHaveLength(1)
+
+  await pressSignOut(page)
+  await asked.getByRole('button', { name: 'Discard and sign out' }).click()
+  await expect(page).toHaveURL(/\/login/)
+  await expect.poll(() => bookingsOnPhone(page)).toEqual([])
+  await expect.poll(() => ownerOnPhone(page)).toBeNull()
+  // Nothing for the sign-in screen to say.
+  await expect(page.getByText(/on this phone not sent yet/)).toHaveCount(0)
+
+  await signInViaUi(page, s.owner.email)
+  await openSchedule(page, s.slug, day)
+  await expect(card(page, 'Arthur Wellard')).toHaveCount(0)
+  expect(await bookingsOnPhone(page)).toEqual([])
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(0)
+})
+
+test('a session ended elsewhere: the sign-in screen says whose booking is on the phone; signing in as someone else drops it', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-ended')
+  // Nothing this page sends is let through: the line coming back wakes the
+  // sender before the page has heard the session ended, and what a send
+  // meets then (the server refuses an ended session) isn't what this test is
+  // about. The booking must still be on the phone at the sign-in screen.
+  const calls = await bookingCalls(page)
+  calls.hold = true
+  await signInViaUi(page, s.owner.email)
+  await readyOffline(page, s.slug, day)
+
+  await context.setOffline(true)
+  try {
+    await bookArthurOffline(page)
+    // A password changed on a laptop: every session of Terence's ended.
+    await endSessionsOf(s.owner.email)
+  } finally {
+    await context.setOffline(false)
+  }
+  // The page finds out by itself, as a phone does: Better Auth asks again
+  // when the page comes back on screen (at most every 5 s), and the ended
+  // session sends it to the sign-in screen (SessionWatch).
+  await expect
+    .poll(
+      async () => {
+        await page
+          .evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+          .catch(() => undefined)
+        return new URL(page.url()).pathname
+      },
+      { timeout: 30_000, intervals: [1_000] },
+    )
+    .toBe('/login')
+  // Kept, marked as having outlived its session: it goes only once Terence
+  // has looked at it.
+  await expect
+    .poll(async () => (await bookingsOnPhone(page))[0]?.sessionEndedAt ?? null)
+    .toEqual(expect.any(Number))
+  await expect(
+    page.getByText(
+      'Terence has 1 job on this phone not sent yet. It’s kept until Terence signs in again and sends it. Signing in as anyone else discards it.',
+    ),
+  ).toBeVisible()
+
+  await signInViaUi(page, s.sub.email)
+  await expect.poll(() => bookingsOnPhone(page)).toEqual([])
+  const owner = await signedInAgain(s.owner)
+  expect(await jobsFor({ ...s, owner }, 'Arthur Wellard', day)).toHaveLength(0)
+})
+
+/**
+ * The owner's booking, kept with no signal, and then Kevin's account switched
+ * into from the page's own session while its line was still down: the same
+ * as a switch made in another tab before the sender's next wake, without
+ * racing it (the plan's "an offline item kept while the line is down").
+ */
+async function switchedWithBooking(
+  page: Page,
+  context: BrowserContext,
+  s: Business,
+  day: string,
+) {
+  await signInViaUi(page, s.owner.email)
+  await readyOffline(page, s.slug, day)
+  await context.setOffline(true)
+  try {
+    await bookArthurOffline(page)
+    const asPage = await asThePage(context)
+    await asPage.mutation(api.accountSwitches.start, {
+      businessId: s.businessId,
+      targetMembershipId: s.subMembershipId,
+    })
+  } finally {
+    await context.setOffline(false)
+  }
+  await expect(page.getByText('Working in Kevin’s account')).toBeVisible({
+    timeout: 30_000,
+  })
+}
+
+test('switched into someone else’s account: the booking is held, the banner says so, and once switched back it is booked as the owner’s', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-switched')
+  await switchedWithBooking(page, context, s, day)
+
+  await expect(
+    page.getByText(
+      '1 of your jobs isn’t sent yet. It goes when you switch back.',
+    ),
+  ).toBeVisible()
+  await page.waitForTimeout(5_000)
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(0)
+  expect((await bookingsOnPhone(page)).map((b) => b.state)).toEqual(['waiting'])
+
+  await clickUntil(page.getByRole('button', { name: 'Switch back' }), () =>
+    expect(page.getByText('Working in Kevin’s account')).toHaveCount(0, {
+      timeout: 5_000,
+    }),
+  )
+  await expect
+    .poll(() => jobsFor(s, 'Arthur Wellard', day), { timeout: 30_000 })
+    .toHaveLength(1)
+  const [job] = await jobsFor(s, 'Arthur Wellard', day)
+  // Booked as Terence himself: a job is put in the history only when it
+  // was booked in someone else's account (convex/lib/audit.ts
+  // `recordOnBehalf`), so there is nothing there.
+  const history = await s.owner.client.query(api.auditLog.forEntity, {
+    businessId: s.businessId,
+    entityType: 'jobs',
+    entityId: job._id,
+  })
+  expect(history).toEqual([])
+})
+
+/**
+ * A switch that ends by itself while its row still stands, so it reads as
+ * degraded rather than gone (plan S7, F7). Neither of the owner's can: the
+ * owner may work in anyone's account, so theirs ends only when its twelve
+ * hours do, and taking someone off the team deletes every switch naming them
+ * (convex/team.ts `offboard`), which reads as no switch at all. A
+ * contractor's into their own crew ends the moment the crew member is moved
+ * off it: the row stands, and `access.me` reads it as SWITCH_TEAM_CHANGED
+ * until the banner stops it.
+ *
+ * So Kevin runs a crew of one, Mia. His booking is kept with no signal, and
+ * Mia's account switched into from the page's own session while the line
+ * is still down, as `switchedWithBooking` does for the owner.
+ */
+async function crewSwitchWithBooking(
+  page: Page,
+  context: BrowserContext,
+  s: Business,
+  day: string,
+) {
+  await s.owner.client.mutation(api.memberships.setRole, {
+    businessId: s.businessId,
+    membershipId: s.subMembershipId,
+    role: 'contractor',
+  })
+  const mia = await signUpActor(
+    uniqueEmail('mia-outbox-degraded'),
+    FIXTURE_PASSWORD,
+    'Mia',
+  )
+  await inviteAndJoin(s.owner, mia, s.businessId)
+  const members = await s.owner.client.query(api.memberships.listForBusiness, {
+    businessId: s.businessId,
+  })
+  const miaMembershipId = members.find((m) => m.email === mia.email)!._id
+  await s.owner.client.mutation(api.team.assignTo, {
+    businessId: s.businessId,
+    membershipId: miaMembershipId,
+    parentMembershipId: s.subMembershipId,
+  })
+
+  await signInViaUi(page, s.sub.email)
+  await readyOffline(page, s.slug, day)
+  await context.setOffline(true)
+  try {
+    await bookArthurOffline(page)
+    const asPage = await asThePage(context)
+    await asPage.mutation(api.accountSwitches.start, {
+      businessId: s.businessId,
+      targetMembershipId: miaMembershipId,
+    })
+  } finally {
+    await context.setOffline(false)
+  }
+  await expect(page.getByText('Working in Mia’s account')).toBeVisible({
+    timeout: 30_000,
+  })
+  return miaMembershipId
+}
+
+test('a switch that ends by itself (Mia moved off Kevin’s crew): no send loop, and the booking goes once the banner has ended it', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-degraded')
+  const calls = await bookingCalls(page)
+  const miaMembershipId = await crewSwitchWithBooking(page, context, s, day)
+  await expect(
+    page.getByText(
+      '1 of your jobs isn’t sent yet. It goes when you switch back.',
+    ),
+  ).toBeVisible()
+
+  // Mia back under Terence: Kevin's switch still stands, and reads as
+  // degraded until the banner stops it, and says why.
+  await s.owner.client.mutation(api.team.assignTo, {
+    businessId: s.businessId,
+    membershipId: miaMembershipId,
+    parentMembershipId: null,
+  })
+  await expect(
+    page.getByText(
+      'You have moved teams, so you are back in your own account.',
+    ),
+  ).toBeVisible({ timeout: 30_000 })
+  await expect
+    .poll(() => jobsFor(s, 'Arthur Wellard', day), { timeout: 60_000 })
+    .toHaveLength(1)
+  // Kevin's own, as he booked it: never Mia's.
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toEqual([
+    expect.objectContaining({ assignedMembershipId: s.subMembershipId }),
+  ])
+  // Held while the switch stood, never sent into it over and over: at most
+  // one refusal in any 30 s.
+  for (let i = 1; i < calls.refused.length; i++) {
+    expect(calls.refused[i] - calls.refused[i - 1]).toBeGreaterThanOrEqual(
+      30_000,
+    )
+  }
+  expect(calls.refused.length).toBeLessThanOrEqual(1)
+})
+
+test('two tabs, one booking: both back online, one job, its request sent at most twice', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-two-tabs')
+  const calls = await bookingCalls(context)
+  await signInViaUi(page, s.owner.email)
+  await readyOffline(page, s.slug, day)
+  const other = await context.newPage()
+  await openSchedule(other, s.slug, day)
+
+  await context.setOffline(true)
+  let requestId = ''
+  try {
+    await bookArthurOffline(page)
+    requestId = (await bookingsOnPhone(page))[0].requestId
+  } finally {
+    await context.setOffline(false)
+  }
+  await expect
+    .poll(() => jobsFor(s, 'Arthur Wellard', day), { timeout: 30_000 })
+    .toHaveLength(1)
+  await page.waitForTimeout(10_000)
+  const jobs = await jobsFor(s, 'Arthur Wellard', day)
+  expect(jobs).toHaveLength(1)
+  expect(jobs[0].clientRequestId).toBe(requestId)
+  // One send, and at most one repeat of it, which its key books once.
+  const sends = calls.sent.filter((frame) => frame.includes(requestId))
+  expect(sends.length).toBeGreaterThanOrEqual(1)
+  expect(sends.length).toBeLessThanOrEqual(2)
+})
+
+test('PestM8 not answering with a booking on the phone: the notice says it goes when PestM8 answers, and Reload takes one tap', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-notice')
+  // The page's socket: on, or cut and refusing, as connectionNotice.spec.ts.
+  let cut = false
+  const open: Array<WebSocketRoute> = []
+  await page.routeWebSocket(
+    (url) => url.host === convexHost,
+    (ws) => {
+      if (cut) {
+        void ws.close({ code: 1006 })
+        return
+      }
+      open.push(ws)
+      const server = ws.connectToServer()
+      ws.onMessage((message) => server.send(message))
+      server.onMessage((message) => ws.send(message))
+    },
+  )
+  await signInViaUi(page, s.owner.email)
+  await readyOffline(page, s.slug, day)
+
+  await context.setOffline(true)
+  try {
+    cut = true
+    for (const ws of open.splice(0)) void ws.close({ code: 1006 })
+    await bookArthurOffline(page)
+  } finally {
+    await context.setOffline(false)
+  }
+  // Settings, which has no kept view of its own to say so in its place.
+  await page.goto(`/${s.slug}/settings`)
+  const notice = page.locator('[data-reach-notice="banner"]')
+  await expect(notice).toContainText('Could not reach PestM8', {
+    timeout: 30_000,
+  })
+  await expect(notice).toContainText(
+    '1 job is on this phone, not sent yet. It goes when PestM8 answers.',
+  )
+  // A reload loses none of it, so it isn't a change waiting to save.
+  await expect(notice).not.toContainText('waiting to save')
+  await notice.getByRole('button', { name: 'Try again' }).click()
+  const reload = notice.getByRole('button', { name: 'Reload' })
+  await expect(reload).toBeVisible({ timeout: 15_000 })
+  const loaded = page.waitForEvent('load')
+  await reload.click()
+  await loaded
+
+  cut = false
+  await expect
+    .poll(() => jobsFor(s, 'Arthur Wellard', day), { timeout: 90_000 })
+    .toHaveLength(1)
+})
+
+test('switching business: asked first, the booking held in the other, the switcher says so, and it goes back in its own', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-switch-a')
+  const otherName = `outbox-switch-b ${Date.now()}`
+  const other = await s.owner.client.mutation(api.businesses.create, {
+    name: otherName,
+    state: 'WA',
+    timezone: TZ,
+  })
+  await signInViaUi(page, s.owner.email)
+  await readyOffline(page, s.slug, day)
+
+  // There and back by the switcher (a desktop's, in the sidebar), so the
+  // other business is in memory and a switch to it can go with no signal.
+  await page.setViewportSize(DESKTOP)
+  await openSwitcher(page, s.name)
+  await page.getByRole('link', { name: new RegExp(otherName) }).click()
+  await expect(page).toHaveURL(new RegExp(`/${other.slug}/schedule`))
+  await expect(newJobButton(page)).toBeEnabled()
+  await openSwitcher(page, otherName)
+  await page.getByRole('link', { name: new RegExp(s.name) }).click()
+  await expect(page).toHaveURL(new RegExp(`/${s.slug}/schedule`))
+  await expect(newJobButton(page)).toBeEnabled()
+  await page.setViewportSize(PHONE)
+  await waitForKeptCopy(page)
+
+  await context.setOffline(true)
+  try {
+    await bookArthurOffline(page)
+    await page.setViewportSize(DESKTOP)
+    await openSwitcher(page, s.name)
+    await page.getByRole('link', { name: new RegExp(otherName) }).click()
+    const asked = page.getByRole('alertdialog')
+    await expect(asked).toContainText('Switch with 1 job not sent yet?')
+    await expect(asked).toContainText(
+      `It stays on this phone and goes when you’re back in ${s.name} with signal.`,
+    )
+    await asked.getByRole('button', { name: 'Switch', exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`/${other.slug}/schedule`))
+  } finally {
+    await context.setOffline(false)
+  }
+
+  // Held in the other business: nothing booked, still waiting.
+  await page.waitForTimeout(5_000)
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(0)
+  expect((await bookingsOnPhone(page)).map((b) => b.state)).toEqual(['waiting'])
+  await openSwitcher(page, otherName)
+  const back = page.getByRole('link', { name: new RegExp(s.name) })
+  await expect(back).toContainText('1 job not sent yet')
+
+  // Back in its own: nothing to ask, and it goes.
+  await back.click()
+  await expect(page).toHaveURL(new RegExp(`/${s.slug}/schedule`))
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  await expect
+    .poll(() => jobsFor(s, 'Arthur Wellard', day), { timeout: 30_000 })
+    .toHaveLength(1)
+})
+
+test('offboarded with a booking on the phone: held, never booked, and gone once the business Kevin joins next lists him', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-offboarded')
+  await signInViaUi(page, s.sub.email)
+  await readyOffline(page, s.slug, day)
+
+  await context.setOffline(true)
+  try {
+    await bookArthurOffline(page)
+    // Kevin's only business lets him go, which ends his sessions.
+    await s.owner.client.mutation(api.team.remove, {
+      businessId: s.businessId,
+      membershipId: s.subMembershipId,
+    })
+  } finally {
+    await context.setOffline(false)
+  }
+
+  // He signs in again, and joins another business.
+  await signInViaUi(page, s.sub.email)
+  const kevin = await signedInAgain(s.sub)
+  const dana = await signUpActor(
+    uniqueEmail('owner-outbox-next'),
+    FIXTURE_PASSWORD,
+    'Dana',
+  )
+  const next = await dana.client.mutation(api.businesses.create, {
+    name: `outbox-next ${Date.now()}`,
+    state: 'WA',
+    timezone: TZ,
+  })
+  await dana.client.mutation(api.properties.create, {
+    businessId: next.businessId,
+    clientName: 'Arthur Wellard',
+    addressLine: '12 Wattle Street',
+    suburb: 'Wellard',
+    state: 'WA',
+    postcode: '6170',
+  })
+  await inviteAndJoin(dana, kevin, next.businessId)
+  await page.goto('/')
+  await expect(page).toHaveURL(new RegExp(`/${next.slug}/`))
+  await openSchedule(page, next.slug, day)
+
+  // Held: a list that shows none of the memberships his bookings were saved
+  // under can't yet be told apart from someone else's (sender.ts,
+  // `forgetNotListed`), so it forgets nothing.
+  await page.waitForTimeout(5_000)
+  expect((await businessesOnPhone(page)).map((b) => b.businessId)).toEqual([
+    s.businessId,
+  ])
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(0)
+
+  // His first booking in it: the list is his for certain, and the one for
+  // the business that let him go is forgotten, never sent.
+  await bookArthur(page)
+  await expect(page.getByRole('dialog')).toHaveCount(0, { timeout: 30_000 })
+  await expect
+    .poll(
+      async () => (await businessesOnPhone(page)).map((b) => b.businessId),
+      { timeout: 60_000 },
+    )
+    .toEqual([next.businessId])
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(0)
 })
