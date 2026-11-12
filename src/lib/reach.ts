@@ -176,11 +176,17 @@ export type ReachNoticeModel = {
   waitingToSave: boolean
   /**
    * The person's bookings kept on the phone and not sent yet for the
-   * business on screen, waiting or unanswered (lib/outbox/sender.ts
-   * `notice`), and whether they wait on the person being back in their own
-   * account. Null or absent with none.
+   * business on screen, whatever their day (lib/outbox/sender.ts `notice`):
+   * how many go by themselves (waiting, or unanswered), whether they wait on
+   * the person being back in their own account, and how many need a look
+   * first. Null or absent with none. Said in a line of their own
+   * (`outboxNoticeLine`).
    */
-  outbox?: { count: number; held: 'switched' | null } | null
+  outbox?: {
+    count: number
+    held: 'switched' | null
+    needsLook?: number
+  } | null
   /** When what is on screen was last known right ("9:42am"), when the
    * phone's copy says (`keeper.screenAsOf`); otherwise null, and the notice
    * says it may be out of date. */
@@ -194,18 +200,75 @@ export type ReachNoticeModel = {
 }
 
 /**
+ * The notice's line about the bookings on this phone, not sent yet (plan
+ * part 2c §11.5), or null with none: "1 job is on this phone, not sent yet.
+ * It goes when PestM8 answers." (when you have signal, with none; when
+ * you’re back in your own account, while switched), and those that need a
+ * look first, which go only once someone has looked: "1 job on this phone
+ * needs a look before it goes." While switched, with only those, it says
+ * where they show, as they are on no list until then (plan §8): "It shows
+ * when you’re back in your own account." A reload loses none of them, so
+ * neither Reload's second tap nor "A change you made is waiting to save" is
+ * for them (`savesWaiting`).
+ */
+export function outboxNoticeLine(
+  outbox: ReachNoticeModel['outbox'],
+  online: boolean,
+): string | null {
+  if (!outbox) return null
+  const { count, held } = outbox
+  const needsLook = outbox.needsLook ?? 0
+  const back = 'when you’re back in your own account'
+  const parts: Array<string> = []
+  if (count > 0) {
+    const when =
+      held === 'switched'
+        ? back
+        : online
+          ? 'when PestM8 answers'
+          : 'when you have signal'
+    parts.push(
+      count === 1
+        ? `1 job is on this phone, not sent yet. It goes ${when}.`
+        : `${count} jobs are on this phone, not sent yet. They go ${when}.`,
+    )
+  }
+  if (needsLook > 0) {
+    const shows =
+      held === 'switched'
+        ? ` ${needsLook === 1 ? 'It shows' : 'They show'} ${back}.`
+        : ''
+    parts.push(
+      count > 0
+        ? `${needsLook} more ${needsLook === 1 ? 'needs a look before it goes' : 'need a look before they go'}.`
+        : needsLook === 1
+          ? `1 job on this phone needs a look before it goes.${shows}`
+          : `${needsLook} jobs on this phone need a look before they go.${shows}`,
+    )
+  }
+  return parts.length === 0 ? null : parts.join(' ')
+}
+
+/**
  * The notice as it shows where a line saying the screen is the copy kept on
  * the phone, because the line is down, may be showing too
  * (lib/offline/keptOnScreen.ts): left out while one is (`kept`), which says
  * the same thing just under it. Never while a change is waiting to save,
- * though: only the notice says that, and that a reload loses it. So it
- * gives way only when all it waits on is reads.
+ * though: only the notice says that, and that a reload loses it; nor while
+ * it says what is on this phone not sent yet (`outboxNoticeLine`), which
+ * the note doesn't say either. So it gives way only when all it waits on is
+ * reads.
  */
 export function noticeOverKept(
   notice: ReachNoticeModel | null,
   kept: boolean,
 ): ReachNoticeModel | null {
-  return notice !== null && kept && !notice.waitingToSave ? null : notice
+  return notice !== null &&
+    kept &&
+    !notice.waitingToSave &&
+    outboxNoticeLine(notice.outbox, notice.online) === null
+    ? null
+    : notice
 }
 
 // The notice as ConnectionNotice last decided it, for the places that show

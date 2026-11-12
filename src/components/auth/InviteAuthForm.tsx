@@ -25,6 +25,7 @@ export function InviteAuthForm({
   disabled,
   submitLabels = { signUp: 'Create account & join', signIn: 'Sign in & join' },
   initialMode = 'signUp',
+  describedBy,
 }: {
   emailHint: string
   /** Sent with sign-up: on an invite-only deployment it is what permits the
@@ -36,6 +37,10 @@ export function InviteAuthForm({
   submitLabels?: { signUp: string; signIn: string }
   /** Sign in first, for a link that can only be carried on, not used anew. */
   initialMode?: Mode
+  /** What else the button's press means, for a screen reader: the id of
+   * the line saying whose jobs not sent yet are on this phone
+   * (`OutboxOnPhoneLine`), while it shows. */
+  describedBy?: string
 }) {
   const [mode, setMode] = useState<Mode>(initialMode)
   const [name, setName] = useState('')
@@ -162,6 +167,7 @@ export function InviteAuthForm({
       <button
         type="submit"
         disabled={pending || disabled}
+        aria-describedby={describedBy}
         className={`${PRIMARY_BUTTON} mt-2`}
       >
         {pending

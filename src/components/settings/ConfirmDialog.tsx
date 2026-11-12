@@ -8,6 +8,20 @@ import {
 } from '#/components/primitives/buttons'
 
 /**
+ * With `labelInset`, a button's words are held to the two lines its 44px
+ * fits (15px type on 1.45 is 43.5px), ending in "…": each button is half
+ * the dialog wide, and a way out that names something has no length limit
+ * ("Stay in {business name}"), so a third line would spill out of the
+ * button. The words are all still there for a screen reader, and the body
+ * says them in full. They also sit 12px in from each end (the buttons have
+ * no padding of their own): two lines fill the button top to bottom, and
+ * written edge to edge the first line and the "…" ran into its 18px rounded
+ * corners. Only where asked (the leave guard's): every other dialog's words
+ * are drawn bare, as they always were, across the button's full width.
+ */
+const LABEL_INSET = 'line-clamp-2 [overflow-wrap:anywhere] px-3'
+
+/**
  * "Remove this?" before something is taken away, as the Products sheet asks
  * it: an alert dialog with a way out first and the red action second. Not
  * `window.confirm`, which an installed iPhone app draws as a bare system
@@ -35,6 +49,7 @@ export function ConfirmDialog({
   error,
   closeOnConfirm = true,
   held = false,
+  labelInset = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -65,9 +80,18 @@ export function ConfirmDialog({
    * in (`HELD_BUTTON`), so the second tap of a double tap is no choice.
    */
   held?: boolean
+  /**
+   * Its buttons' words may well take two lines (`OutboxLeaveGuard`'s "Stay
+   * in {business name}", "Discard and sign out"): they sit 12px in from
+   * each end, clear of the rounded corners, held to the two lines that fit
+   * (`LABEL_INSET`).
+   */
+  labelInset?: boolean
 }) {
   const opener = useRef<HTMLElement | null>(null)
   const confirmed = useRef(false)
+  const words = (text: string) =>
+    labelInset ? <span className={LABEL_INSET}>{text}</span> : text
 
   const confirmButton = (
     <button
@@ -85,7 +109,7 @@ export function ConfirmDialog({
       }}
       className={`${PRIMARY_BUTTON_COMPACT} ${HELD_BUTTON} flex-1`}
     >
-      {pending && pendingLabel ? pendingLabel : confirm}
+      {words(pending && pendingLabel ? pendingLabel : confirm)}
     </button>
   )
 
@@ -132,7 +156,7 @@ export function ConfirmDialog({
                 }}
                 className={`${SECONDARY_BUTTON_COMPACT} ${HELD_BUTTON} flex-1`}
               >
-                {cancel}
+                {words(cancel)}
               </button>
             </AlertDialog.Cancel>
             {closeOnConfirm ? (

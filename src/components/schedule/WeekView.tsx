@@ -8,6 +8,11 @@ import { computeStaffLoad, isOnJob } from '#/lib/scheduleFilters'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { rq } from '#/lib/routeQueries'
 import {
+  outboxDrawn,
+  useOutboxDay,
+  useOutboxSettled,
+} from '#/lib/outbox/useOutbox'
+import {
   carriedFromBefore,
   dayPhase,
   splitDayRows,
@@ -16,7 +21,10 @@ import {
 } from '#/lib/weekView'
 import { HORIZON_DAYS } from '../../../convex/lib/recurrence'
 import { SummaryLine } from './DaySummary'
+import { OutboxChip } from './OutboxChip'
 import type { DayPhase } from '#/lib/weekView'
+import type { OutboxDay } from '#/lib/outbox/useOutbox'
+import type { OutboxChip as OutboxChipKind } from '#/lib/outbox/outboxRules'
 import type { DayLoad } from './WeekStrip'
 import type { JobRow } from './JobCard'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -38,6 +46,15 @@ import { everyoneOnJob, namesOf } from '#/lib/jobPeople'
  * visits of theirs that are due or overdue. A day ahead counts its visits on
  * the server, everyone's together (`listWeek`), so that number is left out
  * rather than said for someone it is not about.
+ *
+ * With `outbox`, each day also draws the person's bookings on this phone,
+ * not sent yet (lib/outbox/, plan part 2c §9.3), last in its section, under
+ * the carried visits: each a block like a job's with its chip where the
+ * status pill goes, keeping its slot as it goes and then drawing the job it
+ * made until the week is drawn afresh (`useOutboxDay`, `latchSlots`). Every
+ * day under one moves when it comes, so they come only as the week first
+ * draws, or when booked just now; a day with only those draws no "No jobs".
+ * The counts are the server's throughout.
  */
 export function WeekView({
   businessId,
@@ -52,6 +69,7 @@ export function WeekView({
   staffId = 'all',
   onOpenJob,
   onOpenDay,
+  outbox,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
@@ -71,6 +89,16 @@ export function WeekView({
   staffId?: string
   onOpenJob: (jobId: string) => void
   onOpenDay: (dayKey: string) => void
+  /** The bookings on this phone, not sent yet, drawn on their days. */
+  outbox?: {
+    /** Opens one (`?outboxId=`). */
+    onOpenItem: (localId: string) => void
+    /** What else draws the week afresh: the filters, the mode, the account
+     * worked in. */
+    redrawKey: string
+    /** "Just my jobs": the person's own membership. */
+    mineOnly: string | null
+  }
 }) {
   const split = useWeekDays(businessId, weekStart, timezone)
   const committedAll = split.flatMap((d) => d.committed)
@@ -79,7 +107,7 @@ export function WeekView({
   const theirs = (rows: Array<JobRow>) =>
     everyone ? rows : rows.filter((job) => isOnJob(job, staffId))
 
-  useScrollToDay(focusKey, weekStart, focusTick)
+  useScrollToDay(focusKey, weekStart, focusTick, useOutboxSettled())
 
   const beyondHorizon = weekStart > addDaysToKey(todayKey, HORIZON_DAYS)
 
@@ -113,30 +141,37 @@ export function WeekView({
         </p>
       )}
 
-      {split.map(({ dayKey, committed, dueHere, carried }, i) => {
+      {split.map(({ dayKey, rows, committed, dueHere, carried }, i) => {
         const phase = dayPhase(dayKey, todayKey)
-        return (
-          <WeekDay
+        const day: WeekDayProps = {
+          initials: showTeam && everyone && team.length >= 2,
+          dayKey,
+          phase,
+          businessSlug,
+          timezone,
+          committed: theirs(committed),
+          dueHere: theirs(dueHere),
+          carried: theirs(carriedFromBefore(carried, weekStart, timezone)),
+          recurringCount: everyone
+            ? (week.find((d) => d.offset === i)?.recurringCount ??
+              dueHere.length)
+            : phase === 'future'
+              ? 0
+              : theirs(dueHere).length,
+          onOpenJob,
+          onOpenDay,
+        }
+        return outbox ? (
+          <WeekDayWithOutbox
             key={dayKey}
-            initials={showTeam && everyone && team.length >= 2}
-            dayKey={dayKey}
-            phase={phase}
-            businessSlug={businessSlug}
-            timezone={timezone}
-            committed={theirs(committed)}
-            dueHere={theirs(dueHere)}
-            carried={theirs(carriedFromBefore(carried, weekStart, timezone))}
-            recurringCount={
-              everyone
-                ? (week.find((d) => d.offset === i)?.recurringCount ??
-                  dueHere.length)
-                : phase === 'future'
-                  ? 0
-                  : theirs(dueHere).length
-            }
-            onOpenJob={onOpenJob}
-            onOpenDay={onOpenDay}
+            {...day}
+            businessId={businessId}
+            rows={rows}
+            staffId={staffId}
+            outbox={outbox}
           />
+        ) : (
+          <WeekDay key={dayKey} {...day} />
         )
       })}
     </div>
@@ -157,6 +192,8 @@ export function useWeekDays(
   timezone: string,
 ): Array<{
   dayKey: string
+  /** The day's list as the server has it: what a booking sent became. */
+  rows: Array<JobRow>
   committed: Array<JobRow>
   dueHere: Array<JobRow>
   carried: Array<JobRow>
@@ -167,6 +204,7 @@ export function useWeekDays(
   }).map((result) => result.data as Array<JobRow>)
   return dayKeys.map((dayKey, i) => ({
     dayKey,
+    rows: days[i],
     ...splitDayRows(days[i], dayKey, timezone),
   }))
 }
@@ -218,19 +256,7 @@ export function WeekSummary({
   )
 }
 
-function WeekDay({
-  initials,
-  dayKey,
-  phase,
-  businessSlug,
-  timezone,
-  committed,
-  dueHere,
-  carried,
-  recurringCount,
-  onOpenJob,
-  onOpenDay,
-}: {
+export type WeekDayProps = {
   /** Whose job each block is, as a letter too — not by colour alone. */
   initials: boolean
   dayKey: string
@@ -243,8 +269,77 @@ function WeekDay({
   recurringCount: number
   onOpenJob: (jobId: string) => void
   onOpenDay: (dayKey: string) => void
+}
+
+/** A day of the week with the person's bookings on this phone on it. */
+function WeekDayWithOutbox({
+  businessId,
+  rows,
+  staffId,
+  outbox,
+  ...day
+}: WeekDayProps & {
+  businessId: Id<'businesses'>
+  rows: Array<JobRow>
+  staffId: string
+  outbox: NonNullable<Parameters<typeof WeekView>[0]['outbox']>
+}) {
+  const outboxDay = useOutboxDay({
+    businessId,
+    dayShown: day.dayKey,
+    timezone: day.timezone,
+    rows,
+    drawsCards: false,
+    redrawKey: `${day.dayKey}|week|${staffId}|${outbox.redrawKey}`,
+    // The week draws every status, so every booking.
+    allStatuses: true,
+    staffId,
+    mineOnly: outbox.mineOnly,
+    inWeek: true,
+  })
+  return (
+    <WeekDay {...day} outboxDay={outboxDay} onOpenItem={outbox.onOpenItem} />
+  )
+}
+
+/**
+ * One day of the week as the Week View draws it, given its rows and, with
+ * the outbox, its bookings on this phone as `useOutboxDay` slots them.
+ * Exported for the UI harness, which draws a day's group as it stands after
+ * a send (tools/ui-harness).
+ */
+export function WeekDay({
+  initials,
+  dayKey,
+  phase,
+  businessSlug,
+  timezone,
+  committed,
+  dueHere,
+  carried,
+  recurringCount,
+  onOpenJob,
+  onOpenDay,
+  outboxDay = null,
+  onOpenItem,
+}: WeekDayProps & {
+  /** The day's bookings on this phone, as `useOutboxDay` slots them. */
+  outboxDay?: OutboxDay | null
+  onOpenItem?: (localId: string) => void
 }) {
   const headingId = `week-day-${dayKey}-heading`
+  // A job a booking's slot draws, until the week is drawn afresh, is drawn
+  // there only: in its time order here, it would push every block under it
+  // down (lib/outbox/latchSlots.ts).
+  const listed =
+    outboxDay === null
+      ? committed
+      : committed.filter((job) => !outboxDay.hidden.has(job._id))
+  const drawsOutbox = outboxDay !== null && outboxDrawn(outboxDay)
+  const anythingAbove =
+    listed.length > 0 ||
+    (phase !== 'future' && dueHere.length > 0) ||
+    (phase === 'today' && carried.length > 0)
   return (
     <section
       id={`week-day-${dayKey}`}
@@ -284,11 +379,11 @@ function WeekDay({
         </p>
       </div>
 
-      {committed.length === 0 && dueHere.length === 0 ? (
+      {committed.length === 0 && dueHere.length === 0 && !drawsOutbox ? (
         <p className="mt-1 text-caption text-ink-2">No jobs</p>
-      ) : committed.length === 0 ? null : (
+      ) : listed.length === 0 ? null : (
         <ul className="mt-2 flex flex-col gap-1.5">
-          {committed.map((job) => (
+          {listed.map((job) => (
             <li key={job._id}>
               <JobBlock
                 job={job}
@@ -312,7 +407,7 @@ function WeekDay({
               : 'Recurring visits due'
           }
           className={`mt-2 flex flex-col gap-1.5 ${
-            committed.length > 0
+            listed.length > 0
               ? 'border-t border-dashed border-hairline pt-2'
               : ''
           }`}
@@ -354,6 +449,45 @@ function WeekDay({
             aria-hidden
           />
         </button>
+      )}
+
+      {/* The person's bookings on this phone, not sent yet: last, so they
+          move nothing in the day above them. */}
+      {outboxDay !== null && drawsOutbox && (
+        <section
+          aria-labelledby={`${headingId}-outbox`}
+          className={`mt-2 ${anythingAbove ? 'border-t border-hairline pt-2' : ''}`}
+        >
+          {/* Its counts change in place as the bookings go. */}
+          <h3
+            id={`${headingId}-outbox`}
+            aria-live="polite"
+            className="mb-1.5 truncate text-caption text-ink-2"
+          >
+            {outboxDay.heading}
+          </h3>
+          <ul className="flex flex-col gap-1.5">
+            {outboxDay.slots.map((slot) => (
+              <li key={slot.key}>
+                <JobBlock
+                  job={slot.row}
+                  timezone={timezone}
+                  onOpen={onOpenJob}
+                  initial={initials}
+                  outbox={
+                    slot.chip === null || !onOpenItem
+                      ? undefined
+                      : {
+                          chip: slot.chip,
+                          lineLive: outboxDay.lineLive,
+                          onOpen: () => onOpenItem(slot.localId),
+                        }
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </section>
   )
@@ -412,11 +546,15 @@ function JobBlock({
   onOpen,
   overdue = false,
   initial = false,
+  outbox,
 }: {
   job: JobRow
   timezone: string
   onOpen: (jobId: string) => void
   overdue?: boolean
+  /** A booking on this phone, not sent yet: its chip where the status pill
+   * goes, and its own sheet to open (plan part 2c §9.3). */
+  outbox?: { chip: OutboxChipKind; lineLive: boolean; onOpen: () => void }
   /** The technician's initial beside the time. With two or more people in
    * the week, colour alone is not enough to tell their jobs apart (WCAG
    * 1.4.1) — some pairs merge for colour-blind readers — so the letter says
@@ -433,7 +571,7 @@ function JobBlock({
   return (
     <button
       type="button"
-      onClick={() => onOpen(job._id)}
+      onClick={() => (outbox ? outbox.onOpen() : onOpen(job._id))}
       className={`relative flex w-full items-start gap-2.5 overflow-hidden rounded-xl py-2 pr-2.5 pl-3.5 text-left transition active:scale-[.99] ${
         projected ? 'border border-dashed bg-surface' : ''
       }`}
@@ -496,7 +634,11 @@ function JobBlock({
         {/* A ring of card surface around the pill, so its edge holds against
             the technician's tint the way it does on a white card. */}
         <span className="inline-flex rounded-full bg-surface p-px">
-          <StatusPill status={job.status} />
+          {outbox ? (
+            <OutboxChip chip={outbox.chip} lineLive={outbox.lineLive} />
+          ) : (
+            <StatusPill status={job.status} />
+          )}
         </span>
         {overdue && (
           <span
@@ -516,11 +658,18 @@ function JobBlock({
  * Measured against whatever sticky chrome covers the top of the page — the
  * page header, and the week strip (`data-schedule-chrome`) if it is sticky,
  * which it no longer is — so the day's heading lands just under it rather
- * than behind it.
+ * than behind it. Not before the days above have drawn the bookings on this
+ * phone they will (`settled`, `useOutboxSettled`), which would push it down.
  */
-function useScrollToDay(focusKey: string, weekStart: string, tick: number) {
+function useScrollToDay(
+  focusKey: string,
+  weekStart: string,
+  tick: number,
+  settled: boolean,
+) {
   const first = useRef(true)
   useEffect(() => {
+    if (!settled) return
     const isFirst = first.current
     first.current = false
     // On arrival: nothing to do on the week's own Monday, and nothing when
@@ -542,5 +691,5 @@ function useScrollToDay(focusKey: string, weekStart: string, tick: number) {
       top: section.getBoundingClientRect().top + window.scrollY - offset - 8,
       behavior: isFirst || reduce ? 'auto' : 'smooth',
     })
-  }, [focusKey, weekStart, tick])
+  }, [focusKey, weekStart, tick, settled])
 }

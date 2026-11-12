@@ -4,6 +4,7 @@ import {
   beginSendChange,
   checkOutboxOwner,
   discardChange,
+  keptBefore,
   markSessionEnded,
   setOutboxBackendForTests,
   wipeOutbox,
@@ -113,6 +114,17 @@ describe('the bookings in memory', () => {
     expect(model.all().map((i) => i.localId)).toEqual([mine.localId])
     // Other tabs are told.
     expect(broadcast.current.postMessage).toHaveBeenCalled()
+  })
+
+  test('a phone that has held a booking is noted as having kept, which a wipe leaves (D14)', async () => {
+    const { model: empty } = await tab(await outboxOf('u1', []))
+    expect(empty.readable()).toBe(true)
+    expect(keptBefore()).toBe(false)
+    for (const stop of stops.splice(0)) stop()
+    await tab(await outboxOf('u1', [itemFor('u1')]))
+    expect(keptBefore()).toBe(true)
+    await wipeOutbox('sign-out')
+    expect(keptBefore()).toBe(true)
   })
 
   test('a wipe empties it at once', async () => {
@@ -238,6 +250,19 @@ describe('reading again', () => {
     backend.unavailable = true
     await model.refresh()
     expect(model.all().map((i) => i.localId)).toEqual([item.localId])
+  })
+
+  test('says whether a read was taken (`refreshed`): a sign-out counts only on one that was (F9)', async () => {
+    const item = itemFor('u1')
+    const backend = await outboxOf('u1', [item])
+    const { model } = await tab(backend)
+    // Read once, as the page loaded; the storage has since stopped
+    // answering, so what this tab holds may be out of date.
+    backend.unavailable = true
+    expect(model.readable()).toBe(true)
+    expect(await model.refreshed()).toBe(false)
+    backend.unavailable = false
+    expect(await model.refreshed()).toBe(true)
   })
 })
 

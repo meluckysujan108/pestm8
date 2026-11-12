@@ -1885,8 +1885,86 @@ describe('for ConnectionNotice', () => {
   test('counts the person’s bookings waiting or out for the business on screen, and says when they wait on their own account', async () => {
     const p = await phone([waiting(), waiting({ businessId: B2 })])
     expect(p.sender.inflight()).toBe(1)
-    expect(p.sender.notice()).toEqual({ count: 1, held: null })
-    pushAccess(p, { ...own, degraded: 'SWITCH_EXPIRED' })
-    expect(p.sender.notice()).toEqual({ count: 1, held: 'switched' })
+    expect(p.sender.notice()).toEqual({ count: 1, held: null, needsLook: 0 })
+    pushAccess(p, {
+      ...own,
+      actingAs: { membershipId: 'm-u2' as Id<'memberships'>, name: 'Jo' },
+    })
+    expect(p.sender.notice()).toEqual({
+      count: 1,
+      held: 'switched',
+      needsLook: 0,
+    })
+    pushAccess(p, { ...own, view: { mode: 'account' } })
+    expect(p.sender.notice()).toEqual({
+      count: 1,
+      held: 'switched',
+      needsLook: 0,
+    })
+  })
+
+  test('a switch that ended by itself holds them until its close lands, but never says they wait on being back: SwitchBanner says they are', async () => {
+    const item = waiting()
+    const p = await phone([item], {
+      access: { ...own, degraded: 'SWITCH_EXPIRED' },
+    })
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    // Held (G5)…
+    expect(p.convex.calls).toEqual([])
+    // …but said as going when PestM8 answers, in the notice and the sheet.
+    expect(p.sender.notice()).toEqual({ count: 1, held: null, needsLook: 0 })
+    expect(p.sender.heldReason(item.localId)).toBeNull()
+    // Working in someone else's account, it is "back in your own account".
+    pushAccess(p, {
+      ...own,
+      actingAs: { membershipId: 'm-u2' as Id<'memberships'>, name: 'Jo' },
+    })
+    await flush()
+    expect(p.convex.calls).toEqual([])
+    expect(p.sender.notice()?.held).toBe('switched')
+    expect(p.sender.heldReason(item.localId)).toBe('switched')
+    // The close landed: it goes.
+    pushAccess(p, own)
+    await flush()
+    expect(p.convex.calls).toHaveLength(1)
+  })
+
+  test('counts those that need a look apart, whatever their day: no day’s list may have drawn one yet (2c-E’s note)', async () => {
+    const lastWeek = waiting({
+      state: 'needsLook',
+      problem: { code: 'STALE' },
+      booking: bookingFor({ scheduledAt: NOW - 7 * 24 * 60 * 60_000 }),
+    })
+    const p = await phone([lastWeek, waiting({ businessId: B2 })])
+    expect(p.sender.notice()).toEqual({ count: 0, held: null, needsLook: 1 })
+  })
+
+  test('counts one still waiting with the line down, but kept too long to go by itself, as needing a look: it isn’t sent once there’s signal', async () => {
+    // Booked offline on Monday at nine; no signal since, so the line gate
+    // stops the sender before it can say it needs a look (D23).
+    const monday = waiting()
+    const p = await phone()
+    p.keeper.live = false
+    p.backend.items.set(monday.localId, structuredClone(monday))
+    p.broadcast.fromAnotherTab()
+    await flush()
+    expect(p.sender.notice()).toEqual({ count: 1, held: null, needsLook: 0 })
+    // Thursday, a minute past three days: still waiting on the phone…
+    vi.setSystemTime(Date.now() + STALE_AFTER_MS)
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    await flush()
+    expect(stored(p, monday)?.state).toBe('waiting')
+    // …and said as needing a look, not as going when there's signal.
+    expect(p.sender.notice()).toEqual({ count: 0, held: null, needsLook: 1 })
+    // Signal back: the sender says the same, and sends nothing.
+    p.keeper.live = true
+    p.keeper.notify()
+    await flush()
+    expect(stored(p, monday)).toMatchObject({
+      state: 'needsLook',
+      problem: { code: 'STALE' },
+    })
+    expect(p.convex.calls).toEqual([])
+    expect(p.sender.notice()).toEqual({ count: 0, held: null, needsLook: 1 })
   })
 })

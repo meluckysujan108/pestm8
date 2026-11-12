@@ -11,6 +11,8 @@ import {
   countsOf,
   firstVisitMeant,
   firstVisitPast,
+  goesOnlyAfterALook,
+  heldWhileSwitchedWords,
   holdUntil,
   isStale,
   jobsWord,
@@ -21,6 +23,7 @@ import {
   retryAt,
   sendable,
   skipReason,
+  unsentInBusinessWords,
 } from './outboxRules'
 import { bookingFor, itemFor } from './outboxStore.fixtures'
 import type { AnswerContext, Classified } from './outboxRules'
@@ -306,6 +309,34 @@ describe('waited too long', () => {
       preSendProblem({ ...item, sessionEndedAt: null }, NOW + HOUR),
     ).toBeNull()
   })
+
+  test('one still waiting that the phone will stop before it goes goes only after a look, as one needing a look does (`goesOnlyAfterALook`)', () => {
+    // Waiting, with the line down: the sender hasn't been able to say so.
+    const waiting = itemFor('u1', {}, NOW)
+    expect(goesOnlyAfterALook(waiting, NOW + 3 * DAY - MIN)).toBe(false)
+    expect(goesOnlyAfterALook(waiting, NOW + 3 * DAY + MIN)).toBe(true)
+    expect(
+      goesOnlyAfterALook(
+        itemFor('u1', { sessionEndedAt: NOW + HOUR }, NOW),
+        NOW + 2 * HOUR,
+      ),
+    ).toBe(true)
+    // A Recurring Job whose first visit went by while it waited.
+    expect(goesOnlyAfterALook(series(NOW, NOW - HOUR), NOW + DAY)).toBe(true)
+    expect(goesOnlyAfterALook(series(NOW, NOW - HOUR), NOW + HOUR)).toBe(false)
+    // Needing a look already, whatever the time.
+    expect(goesOnlyAfterALook({ ...waiting, state: 'needsLook' }, NOW)).toBe(
+      true,
+    )
+    // Sent with no answer: settled by asking the server, not looked at.
+    expect(
+      goesOnlyAfterALook({ ...waiting, state: 'sending' }, NOW + 4 * DAY),
+    ).toBe(false)
+    // A newer build's: nothing of it but its envelope is read.
+    expect(
+      goesOnlyAfterALook({ ...waiting, v: OUTBOX_V + 1 }, NOW + 4 * DAY),
+    ).toBe(false)
+  })
 })
 
 describe('which goes next', () => {
@@ -402,18 +433,55 @@ describe('on screen', () => {
     expect(outboxHeading(items([]))).toBeNull()
   })
 
-  test('the sign-in screens say whose jobs are on the phone', () => {
+  test('the sign-in screens say whose jobs are on the phone, kept for them to send (D8, D23)', () => {
     expect(onPhoneWords('Kevin', 2)).toBe(
-      'Kevin has 2 jobs on this phone not sent yet. They go when Kevin signs in again. Signing in as anyone else discards them.',
+      'Kevin has 2 jobs on this phone not sent yet. They’re kept until Kevin signs in again and sends them. Signing in as anyone else discards them.',
     )
     expect(onPhoneWords('Kevin', 1)).toBe(
-      'Kevin has 1 job on this phone not sent yet. It goes when Kevin signs in again. Signing in as anyone else discards it.',
+      'Kevin has 1 job on this phone not sent yet. It’s kept until Kevin signs in again and sends it. Signing in as anyone else discards it.',
     )
     expect(onPhoneWords('', 2)).toBe(
-      'Jobs not sent yet are on this phone. They go when the person who booked them signs in again. Signing in as anyone else discards them.',
+      'Jobs not sent yet are on this phone. They’re kept until the person who booked them signs in again and sends them. Signing in as anyone else discards them.',
     )
     expect(onPhoneWords(' ', 1)).toBe(
-      'A job not sent yet is on this phone. It goes when the person who booked it signs in again. Signing in as anyone else discards it.',
+      'A job not sent yet is on this phone. It’s kept until the person who booked it signs in again and sends it. Signing in as anyone else discards it.',
+    )
+    // Never that they go by themselves: a sign-in's new session leaves them
+    // needing a look and a Send.
+    for (const [name, n] of [
+      ['Kevin', 1],
+      ['Kevin', 2],
+      ['', 1],
+      ['', 2],
+    ] as const) {
+      expect(onPhoneWords(name, n)).not.toMatch(/\bgo(es)? when/)
+    }
+  })
+
+  test('SwitchBanner and the switcher say the person’s wait for them (§11.5, X7)', () => {
+    expect(heldWhileSwitchedWords(1)).toBe(
+      '1 of your jobs isn’t sent yet. It goes when you switch back.',
+    )
+    expect(heldWhileSwitchedWords(2)).toBe(
+      '2 of your jobs aren’t sent yet. They go when you switch back.',
+    )
+    expect(unsentInBusinessWords(1)).toBe('1 job not sent yet')
+    expect(unsentInBusinessWords(3)).toBe('3 jobs not sent yet')
+  })
+
+  test('…and never that one needing a look goes by itself once they switch back', () => {
+    expect(heldWhileSwitchedWords(1, 1)).toBe(
+      '1 of your jobs isn’t sent yet. It goes when you switch back. 1 more needs a look before it goes.',
+    )
+    expect(heldWhileSwitchedWords(2, 3)).toBe(
+      '2 of your jobs aren’t sent yet. They go when you switch back. 3 more need a look before they go.',
+    )
+    // Alone, it says where they show: on no list while switched (§8).
+    expect(heldWhileSwitchedWords(0, 1)).toBe(
+      '1 of your jobs needs a look before it goes. It shows when you switch back.',
+    )
+    expect(heldWhileSwitchedWords(0, 2)).toBe(
+      '2 of your jobs need a look before they go. They show when you switch back.',
     )
   })
 })

@@ -11,6 +11,8 @@ import {
 } from './outboxLocks'
 import {
   duringSwitchStart,
+  holdSends,
+  holdSendsHere,
   onSwitchGate,
   resetSwitchGateForTests,
   switchStarting,
@@ -124,14 +126,12 @@ describe('an account switch starting', () => {
     const phone = new FakeLockManager()
     const told = vi.fn()
     const stop = onSwitchGate(told)
+    // Answered whenever the start is made: it waits on the lock first.
     let finish: (value: string) => void = () => {}
-    const started = duringSwitchStart(
-      () =>
-        new Promise<string>((resolve) => {
-          finish = resolve
-        }),
-      phone.forTab('a'),
-    )
+    const answer = new Promise<string>((resolve) => {
+      finish = resolve
+    })
+    const started = duringSwitchStart(() => answer, phone.forTab('a'))
     expect(switchStarting()).toBe(true)
     expect(told).toHaveBeenCalledTimes(1)
     await Promise.resolve()
@@ -185,6 +185,29 @@ describe('an account switch starting', () => {
     expect(switchStarting()).toBe(false)
   })
 
+  test('started past its wait, it still keeps every other tab’s new sends out until the start is done', async () => {
+    vi.useFakeTimers()
+    const phone = new FakeLockManager()
+    await takeLock(phone.forTab('frozen'), SEND_LOCK, { mode: 'shared' })
+    let finish: (value: string) => void = () => {}
+    const answer = new Promise<string>((resolve) => {
+      finish = resolve
+    })
+    const start = vi.fn(() => answer)
+    const started = duringSwitchStart(start, phone.forTab('a'))
+    await vi.advanceTimersByTimeAsync(SWITCH_WAIT_MS)
+    expect(start).toHaveBeenCalledTimes(1)
+    expect(
+      await takeLock(phone.forTab('b'), SEND_LOCK, {
+        mode: 'shared',
+        ifAvailable: true,
+      }),
+    ).toBeNull()
+    finish('switched')
+    expect(await started).toBe('switched')
+    expect(phone.waiting).toEqual([])
+  })
+
   test('without Web Locks, says so in this tab alone', async () => {
     let during = false
     await duringSwitchStart(async () => {
@@ -203,5 +226,103 @@ describe('an account switch starting', () => {
     ).rejects.toThrow('SWITCH_NOT_PERMITTED')
     expect(switchStarting()).toBe(false)
     expect(phone.held).toEqual([])
+  })
+})
+
+describe('a sign-out’s question holding sends (`holdSends`)', () => {
+  test('holds every send, here and in every tab, until let go, once however often', async () => {
+    const phone = new FakeLockManager()
+    const release = await holdSends(4_000, phone.forTab('a'))
+    expect(switchStarting()).toBe(true)
+    expect(
+      await takeLock(phone.forTab('b'), SEND_LOCK, {
+        mode: 'shared',
+        ifAvailable: true,
+      }),
+    ).toBeNull()
+    release()
+    release()
+    await Promise.resolve()
+    expect(switchStarting()).toBe(false)
+    expect(phone.held).toEqual([])
+  })
+
+  test('waits for a send already out up to its wait, then holds this tab’s anyway', async () => {
+    vi.useFakeTimers()
+    const phone = new FakeLockManager()
+    await takeLock(phone.forTab('frozen'), SEND_LOCK, { mode: 'shared' })
+    const holding = holdSends(4_000, phone.forTab('a'))
+    let held = false
+    void holding.then(() => {
+      held = true
+    })
+    await vi.advanceTimersByTimeAsync(3_999)
+    expect(held).toBe(false)
+    expect(switchStarting()).toBe(true)
+    await vi.advanceTimersByTimeAsync(1)
+    const release = await holding
+    expect(switchStarting()).toBe(true)
+    release()
+    expect(switchStarting()).toBe(false)
+  })
+
+  test('past its wait, it still keeps every other tab’s new sends out, until it is let go', async () => {
+    vi.useFakeTimers()
+    const phone = new FakeLockManager()
+    const frozen = await takeLock(phone.forTab('frozen'), SEND_LOCK, {
+      mode: 'shared',
+    })
+    const holding = holdSends(4_000, phone.forTab('a'))
+    await vi.advanceTimersByTimeAsync(4_000)
+    const release = await holding
+    const sendFrom = (tab: string) =>
+      takeLock(phone.forTab(tab), SEND_LOCK, {
+        mode: 'shared',
+        ifAvailable: true,
+      })
+    // Still asked for: no other tab starts a send behind the frozen one.
+    expect(await sendFrom('b')).toBeNull()
+    // The frozen tab's send done at last: the hold has the lock now.
+    frozen?.release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(phone.isHeld(SEND_LOCK, 'a')).toBe(true)
+    expect(await sendFrom('b')).toBeNull()
+    release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(phone.held).toEqual([])
+    const after = await sendFrom('b')
+    expect(after).not.toBeNull()
+    after?.release()
+  })
+
+  test('let go before it had the lock: asked for no longer, and never held', async () => {
+    vi.useFakeTimers()
+    const phone = new FakeLockManager()
+    const frozen = await takeLock(phone.forTab('frozen'), SEND_LOCK, {
+      mode: 'shared',
+    })
+    const holding = holdSends(4_000, phone.forTab('a'))
+    await vi.advanceTimersByTimeAsync(4_000)
+    ;(await holding)()
+    expect(switchStarting()).toBe(false)
+    expect(phone.waiting).toEqual([])
+    frozen?.release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(phone.held).toEqual([])
+  })
+
+  test('this tab’s alone (`holdSendsHere`): every other tab sends on', async () => {
+    const phone = new FakeLockManager()
+    const release = holdSendsHere()
+    expect(switchStarting()).toBe(true)
+    const other = await takeLock(phone.forTab('b'), SEND_LOCK, {
+      mode: 'shared',
+      ifAvailable: true,
+    })
+    expect(other).not.toBeNull()
+    other?.release()
+    release()
+    release()
+    expect(switchStarting()).toBe(false)
   })
 })

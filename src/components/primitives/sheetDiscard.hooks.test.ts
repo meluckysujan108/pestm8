@@ -175,10 +175,15 @@ function questionButtons(guard: Element) {
   // DiscardGuard, then the Back it guards, then its dialog, then the
   // ConfirmDialog it is, then what that draws.
   const confirm = draw(draw(draw(draw(guard))))
+  // Each button's words are in a span of their own, held to two lines.
+  const label = (children: unknown) =>
+    typeof children === 'object' && children !== null && 'props' in children
+      ? (children as Element).props.children
+      : children
   const button = (words: string) =>
     find(
       confirm,
-      (props) => props.type === 'button' && props.children === words,
+      (props) => props.type === 'button' && label(props.children) === words,
     ).props as {
       onClick: (event: { preventDefault: () => void }) => void
       'aria-disabled'?: boolean

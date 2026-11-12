@@ -59,6 +59,9 @@ export type ItemDeps = {
   lineLive: () => boolean
   sender: Pick<Sender, 'kick' | 'sendHeld' | 'sendingHere'>
   now: () => number
+  /** `OutboxModel.bookedHere`: an Edit's Book landed, the person's own
+   * doing just now, so a day already drawn may put it on its new day. */
+  bookedHere?: (localId: string) => void
 }
 
 function refusal(code: string): ActionRefusal {
@@ -297,8 +300,10 @@ export async function replaceItem(
         )
         return { outcome: 'kept' }
       }
-      // Booked: this tab may send it now, and the form may close.
+      // Booked: this tab may send it now, and the form may close. A Week
+      // View has its new day up already, and draws it there (`bookedHere`).
       deps.editingHere.delete(localId)
+      deps.bookedHere?.(localId)
       replaced?.()
       closing?.()
       if (!lock || !deps.lineLive()) return { outcome: 'kept' }

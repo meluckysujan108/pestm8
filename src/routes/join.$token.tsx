@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useConvexAction } from '@convex-dev/react-query'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
 import { InviteAuthForm } from '#/components/auth/InviteAuthForm'
+import { OutboxOnPhoneLine } from '#/components/auth/OutboxOnPhoneLine'
 import { authClient } from '#/lib/auth-client'
 import { couldBeInvitee } from '#/lib/inviteEmail'
-import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
+import { useOnPhoneLine } from '#/lib/outbox/useOnPhone'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
+import { useSignOut } from '#/lib/useSignOut'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FormAlert } from '#/components/forms/FormAlert'
 
@@ -32,6 +34,16 @@ function JoinPage() {
   const router = useRouter()
   const hydrated = useHydrated()
 
+  // A reload, as Settings' sign-out is a full load, rather than
+  // invalidating: the query cache is keyed by business, not by person, so
+  // the account signing in next would otherwise be shown the previous one's
+  // cached answers until Convex re-pushed them.
+  const leave = useSignOut({ then: 'reload' })
+  // Whose jobs not sent yet are on this phone (`OutboxOnPhoneLine`), with
+  // the form, which its button names for a screen reader while it shows.
+  const onPhoneRead = useOnPhoneLine()
+  const onPhoneId = useId()
+
   const preview = useConvexAction(api.invitations.preview)
   const convexRedeem = useConvexAction(api.invitations.redeem)
 
@@ -48,6 +60,7 @@ function JoinPage() {
   // only be refused (INVITE_EMAIL_MISMATCH), so the page says so instead.
   const wrongAccount =
     signedInEmail !== null && !couldBeInvitee(signedInEmail, emailHint)
+  const onPhone = signedInEmail === null ? onPhoneRead : null
 
   const redeem = useMutation({
     mutationFn: () => convexRedeem({ token }),
@@ -106,10 +119,24 @@ function JoinPage() {
 
   return (
     <Shell title={`Join ${businessName}`}>
-      <p className="mt-2 text-body text-muted">
-        You’ve been invited as a {roleLabel}. This link works once, and only for{' '}
-        <span className="text-ink">{emailHint}</span>.
-      </p>
+      {/* While the form shows, whose jobs not sent yet are on this phone,
+          if any: signing in as anyone else discards them. Under the title,
+          where it is seen on the smallest phone, over the line saying what
+          the invitation is, which gives way to it, keeping its room, so
+          nothing moves. The address stays in the Email field's hint. */}
+      <div className="relative mt-2">
+        <p
+          className={
+            onPhone === null
+              ? 'text-body text-muted'
+              : 'invisible text-body text-muted'
+          }
+        >
+          You’ve been invited as a {roleLabel}. This link works once, and only
+          for <span className="text-ink">{emailHint}</span>.
+        </p>
+        <OutboxOnPhoneLine line={onPhone} id={onPhoneId} over />
+      </div>
 
       {redeem.isError && !isMfaEnrolmentError(redeem.error) && (
         <FormAlert>{redeemMessage(redeem.error, emailHint)}</FormAlert>
@@ -123,13 +150,18 @@ function JoinPage() {
             invitation is for <span className="text-ink">{emailHint}</span>.
             Sign out, then carry on with that address.
           </p>
+          {/* Just above the button, as every failed save's is. */}
+          {leave.problem && (
+            <FormAlert className="mt-4">{leave.problem}</FormAlert>
+          )}
           <button
             type="button"
-            disabled={!hydrated}
-            onClick={signOutAndReload}
+            disabled={!hydrated || leave.signingOut}
+            aria-disabled={leave.checking || undefined}
+            onClick={() => void leave.signOut()}
             className={`${PRIMARY_BUTTON} mt-4 w-full`}
           >
-            Sign out
+            {leave.signingOut || leave.checking ? 'Signing out…' : 'Sign out'}
           </button>
         </div>
       ) : signedInEmail ? (
@@ -145,12 +177,20 @@ function JoinPage() {
           >
             {redeem.isPending ? 'Joining…' : `Join ${businessName}`}
           </button>
+          {/* Just above the button, as every failed save's is. */}
+          {leave.problem && (
+            <FormAlert className="mt-4">{leave.problem}</FormAlert>
+          )}
           <button
             type="button"
-            onClick={signOutAndReload}
+            disabled={leave.signingOut}
+            aria-disabled={leave.checking || undefined}
+            onClick={() => void leave.signOut()}
             className="mt-4 w-full text-body text-blue"
           >
-            Not you? Sign out
+            {leave.signingOut || leave.checking
+              ? 'Signing out…'
+              : 'Not you? Sign out'}
           </button>
         </div>
       ) : (
@@ -159,6 +199,7 @@ function JoinPage() {
           token={token}
           onAuthed={() => setJustAuthed(true)}
           disabled={!hydrated}
+          describedBy={onPhone === null ? undefined : onPhoneId}
         />
       )}
 
@@ -169,21 +210,6 @@ function JoinPage() {
       </p>
     </Shell>
   )
-}
-
-/**
- * A reload, as Settings' sign-out does, rather than invalidating: the query
- * cache is keyed by business, not by person, so the account signing in next
- * would otherwise be shown the previous one's cached answers until Convex
- * re-pushed them.
- */
-function signOutAndReload() {
-  // Before the request (rootState.ts has why).
-  beginSignOut()
-  void authClient
-    .signOut()
-    .then(forgetCachedPages)
-    .then(() => window.location.reload())
 }
 
 const DEAD_TITLE: Record<string, string> = {

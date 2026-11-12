@@ -1,4 +1,4 @@
-import { Profiler, useEffect, useState } from 'react'
+import { Profiler, useEffect, useId, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
 import { ErrorComponent, useRouteContext } from '@tanstack/react-router'
 import { ErrorScreen as AppErrorScreen } from '#/components/shell/ErrorScreen'
@@ -41,7 +41,7 @@ import { clientCountLabel, directoryCount } from '#/lib/offline/keptClients'
 import { ScheduleNotKept } from '#/components/schedule/ScheduleNotKept'
 import { RecurringDueNote } from '#/components/schedule/RecurringDueNote'
 import { WeekStrip } from '#/components/schedule/WeekStrip'
-import { WeekSummary, WeekView } from '#/components/schedule/WeekView'
+import { WeekDay, WeekSummary, WeekView } from '#/components/schedule/WeekView'
 import { SidebarProvider } from '#/components/ui/sidebar'
 import {
   formatDayLabel,
@@ -85,6 +85,18 @@ import { keepOutboxItem, peekOutbox } from '#/lib/outbox/outboxStore'
 import type { OutboxItem } from '#/lib/outbox/outboxItem'
 import type { OutboxDay } from '#/lib/outbox/useOutbox'
 import { countsOf, outboxHeading } from '#/lib/outbox/outboxRules'
+import { useOnPhoneLine } from '#/lib/outbox/useOnPhone'
+import {
+  UNREADABLE_QUESTION,
+  signOutFailedWords,
+  signOutQuestion,
+  switchQuestion,
+} from '#/lib/outbox/leaveAsk'
+import type { LeaveQuestion } from '#/lib/outbox/leaveAsk'
+import { NoBusiness } from '#/components/onboarding/NoBusiness'
+import { OutboxOnPhoneLine } from '#/components/auth/OutboxOnPhoneLine'
+import { FIELD } from '#/components/forms/FormField'
+import { dayKeyOf } from '../../convex/lib/dates'
 import {
   HARNESS_TOKEN,
   MADE,
@@ -1701,7 +1713,7 @@ function reach(
     Parameters<typeof ReachNotice>[0],
     'online' | 'waitingToSave' | 'action'
   > &
-    Partial<Pick<Parameters<typeof ReachNotice>[0], 'updated'>>,
+    Partial<Pick<Parameters<typeof ReachNotice>[0], 'updated' | 'outbox'>>,
 ) {
   return function Reach() {
     return (
@@ -2188,6 +2200,328 @@ function AgendaOutbox() {
         </WithBookings>
       </AccessProvider>
     </div>
+  )
+}
+
+/**
+ * A booking of the phone's on a clear day of this week (the harness's are
+ * two, three, five and six days from today either way, `scheduleDay`), the
+ * nearest ahead where the week has one.
+ */
+const ON_CLEAR_DAY: OutboxItem = (() => {
+  const today = perthTodayKey()
+  const weekStart = startOfWeekKey(today)
+  const weekEnd = addDays(weekStart, 6)
+  const days =
+    [2, 3, 5, 6, -2, -3, -5, -6].find((n) => {
+      const key = dayKeyOf(laterAt(n, 10), TZ)
+      return key >= weekStart && key <= weekEnd
+    }) ?? 2
+  return {
+    ...WAITING,
+    localId: 'harness-week',
+    requestId: '00000000-0000-4000-8000-0000000000a1',
+    booking: { ...WAITING.booking, scheduledAt: laterAt(days, 10) },
+    display: {
+      ...WAITING.display,
+      clientName: 'Priya Raman',
+      addressLine: '17 Alma Rd',
+      suburb: 'Mount Lawley',
+      postcode: '6050',
+    },
+  }
+})()
+
+const WEEK_BOOKINGS = [WAITING, SENDING, ON_CLEAR_DAY]
+
+/**
+ * The Week View with bookings on the phone and no signal (plan §9.3):
+ * today's two under its jobs, each a block with its chip where the status
+ * goes, and a clear day with one, which draws no "No jobs". Drawn by the
+ * view itself, from the outbox.
+ */
+function WeekOutbox() {
+  const today = perthTodayKey()
+  const weekStart = startOfWeekKey(today)
+  return (
+    <AccessProvider businessId={bizId}>
+      <KeptSchedule
+        note={{
+          phase: 'shown',
+          tone: 'no-signal',
+          asOf: perthAt(today, '07:42'),
+        }}
+        view="week"
+        heading={formatWeekRange(weekStart)}
+      >
+        <WithBookings items={WEEK_BOOKINGS}>
+          <WeekView
+            businessId={bizId}
+            businessSlug="demo"
+            timezone={TZ}
+            weekStart={weekStart}
+            todayKey={today}
+            focusKey={today}
+            week={scheduleWeek(weekStart)}
+            showTeam
+            onOpenJob={() => {}}
+            onOpenDay={() => {}}
+            outbox={{
+              onOpenItem: () => {},
+              redrawKey: 'harness',
+              mineOnly: null,
+            }}
+          />
+        </WithBookings>
+      </KeptSchedule>
+    </AccessProvider>
+  )
+}
+
+/**
+ * Today in the week, back with signal: one booking sent, its slot now the
+ * real job, #1046, Pending, kept under the day's jobs until the week is
+ * drawn afresh (and not in their time order, where it would push every
+ * block under it down); the other still not sent yet.
+ */
+function WeekOutboxLatched() {
+  const today = perthTodayKey()
+  const weekStart = startOfWeekKey(today)
+  return (
+    <KeptSchedule
+      note={{ phase: 'hidden', tone: 'live', asOf: null }}
+      view="week"
+      heading={formatWeekRange(weekStart)}
+    >
+      <div className="flex flex-col gap-3">
+        <WeekDay
+          initials
+          dayKey={today}
+          phase="today"
+          businessSlug="demo"
+          timezone={TZ}
+          committed={
+            [...JOBS.filter((job) => job.status !== 'recurring'), MADE] as never
+          }
+          dueHere={[]}
+          carried={[]}
+          recurringCount={0}
+          onOpenJob={() => {}}
+          onOpenDay={() => {}}
+          outboxDay={outboxDayOf(
+            [
+              { items: [TO_SEND, WAITING] },
+              { items: [SENT, WAITING], rows: [MADE], dayLive: true },
+            ],
+            today,
+            true,
+          )}
+          onOpenItem={() => {}}
+        />
+      </div>
+    </KeptSchedule>
+  )
+}
+
+/** A booking of the person's for their other business (the switcher's
+ * second row). */
+const FOR_HILLS: OutboxItem = {
+  ...WAITING,
+  localId: 'harness-hills',
+  requestId: '00000000-0000-4000-8000-0000000000a2',
+  businessId: 'biz_hills' as never,
+  businessName: 'Hills Pest & Termite',
+}
+
+/**
+ * What leaving asks of the bookings on this phone (plan §11.1–§11.2), as
+ * `OutboxLeaveGuard`'s one ConfirmDialog asks it, over Settings' Sign out.
+ */
+function LeaveConfirm({ question }: { question: LeaveQuestion | null }) {
+  return (
+    <Phone>
+      <Header title="Settings" />
+      <SettingsBody>
+        <DangerGroup>
+          <button type="button" className={DANGER_ROW_CLASS}>
+            Sign out
+          </button>
+        </DangerGroup>
+      </SettingsBody>
+      {question && (
+        <ConfirmDialog
+          open
+          onOpenChange={() => {}}
+          {...question}
+          onConfirm={() => {}}
+          labelInset
+        />
+      )}
+    </Phone>
+  )
+}
+
+const LEAVE_CONFIRMS: Record<string, () => ReactNode> = {
+  // Two of Swan River's, one sent with no answer yet.
+  'leave-confirm-signout': () => (
+    <LeaveConfirm question={signOutQuestion([WAITING, SENDING], BIZ)} />
+  ),
+  // One of them another business's.
+  'leave-confirm-signout-other-business': () => (
+    <LeaveConfirm question={signOutQuestion([WAITING, FOR_HILLS], BIZ)} />
+  ),
+  // Switching business with two of this one's (X7).
+  'leave-confirm-switch': () => (
+    <LeaveConfirm question={switchQuestion([WAITING, SENDING], Date.now())} />
+  ),
+  // …of a business whose name runs "Stay in …" past two lines at 375px:
+  // held to two, ending "…", the body naming it in full.
+  'leave-confirm-switch-long-name': () => (
+    <LeaveConfirm
+      question={switchQuestion(
+        [
+          {
+            ...WAITING,
+            businessName: 'Allpest Pest Control & Termite Management',
+          },
+          {
+            ...SENDING,
+            businessName: 'Allpest Pest Control & Termite Management',
+          },
+        ],
+        Date.now(),
+      )}
+    />
+  ),
+  // The phone's storage not read in 3 s: never a plain yes (S2, F4).
+  'leave-confirm-unreadable': () => (
+    <LeaveConfirm question={UNREADABLE_QUESTION} />
+  ),
+}
+
+/** Settings' Sign out after its request failed, two bookings already
+ * discarded by its confirm, which stand (plan D27). */
+function SignOutFailedDiscarded() {
+  return (
+    <Phone>
+      <Header title="Settings" />
+      <SettingsBody>
+        <DangerGroup>
+          <div className="px-3.5 py-3">
+            <FormAlert>{signOutFailedWords(2)}</FormAlert>
+          </div>
+          <button type="button" className={DANGER_ROW_CLASS}>
+            Sign out
+          </button>
+        </DangerGroup>
+      </SettingsBody>
+    </Phone>
+  )
+}
+
+/** The no-business screen with no signal; `signout-offline-nobusiness`
+ * taps its Sign out, which says so and does nothing else (S20). */
+function SignOutOfflineNoBusiness() {
+  return (
+    <NoSignal>
+      <NoBusiness email="kevin@swanriverpest.example" />
+    </NoSignal>
+  )
+}
+
+/**
+ * The sign-in screen with two bookings of Terence's on the phone, not sent
+ * yet (plan §11.4): the line under the title says whose they are, and that
+ * signing in as anyone else discards them, over the line saying what
+ * PestM8 is, which gives way to it. The form is the page's markup, Add to
+ * Home Screen included (as an iPhone in Safari has it); the line is
+ * `OutboxOnPhoneLine` itself, reading the phone (`useOnPhoneLine`).
+ */
+function LoginOutboxLine() {
+  return (
+    <WithBookings items={AGENDA_BOOKINGS}>
+      <LoginOutboxLinePage />
+    </WithBookings>
+  )
+}
+
+function LoginOutboxLinePage() {
+  const line = useOnPhoneLine()
+  const id = useId()
+  return (
+    <main className="mx-auto flex min-h-dvh w-full max-w-[460px] flex-col justify-center px-6">
+      <div className="mb-8">
+        <p className="section-label mb-2">PestM8</p>
+        <h1 className="text-page-title text-ink">Sign in</h1>
+        <div className="relative mt-2">
+          <p
+            className={
+              line === null
+                ? 'text-body text-muted'
+                : 'invisible text-body text-muted'
+            }
+          >
+            Scheduling and compliance reporting for Australian pest control.
+          </p>
+          <OutboxOnPhoneLine line={line} id={id} over />
+        </div>
+      </div>
+      <form className="flex flex-col gap-3">
+        {['Email', 'Password'].map((label) => (
+          <label key={label} className="flex flex-col gap-1.5">
+            <span className="section-label">{label}</span>
+            <input
+              type={label === 'Email' ? 'email' : 'password'}
+              className={FIELD}
+            />
+          </label>
+        ))}
+        <button
+          type="button"
+          aria-describedby={line === null ? undefined : id}
+          className={`${PRIMARY_BUTTON} mt-2`}
+        >
+          Sign in
+        </button>
+        <span className="flex min-h-11 items-center justify-center text-body text-blue">
+          Forgot password?
+        </span>
+        <InstallLink method="ios-safari" />
+      </form>
+    </main>
+  )
+}
+
+/** Working in Kevin's account with two of Terence's own bookings held on
+ * the phone: the banner is where they show (plan §11.5). */
+function SwitchBannerOutbox() {
+  state.actingAs = true
+  return (
+    <WithBookings items={AGENDA_BOOKINGS}>
+      <Warnings />
+    </WithBookings>
+  )
+}
+
+const SWITCHER_BOOKINGS = [FOR_HILLS]
+
+/** The business switcher, opened (`switcher-outbox-row`), with one of the
+ * person's bookings for Hills Pest & Termite on the phone: its row says
+ * so, as they go once the person is back in it (X7). */
+function SwitcherOutboxRow() {
+  return (
+    <Phone>
+      <AccessProvider businessId={bizId}>
+        <WithBookings items={SWITCHER_BOOKINGS}>
+          <div className="w-64 p-2">
+            <BusinessSwitcher
+              current={{ _id: bizId, name: 'Swan River Pest Co', slug: 'demo' }}
+              membership={{ role: 'owner', colour: '#0A84FF' }}
+            />
+          </div>
+        </WithBookings>
+      </AccessProvider>
+    </Phone>
   )
 }
 
@@ -3874,6 +4208,14 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'schedule-outbox-latched': ScheduleOutboxLatched,
   'schedule-outbox-only': ScheduleOutboxOnly,
   'schedule-outbox-today-foreign': ScheduleOutboxTodayForeign,
+  'week-outbox': WeekOutbox,
+  'week-outbox-latched': WeekOutboxLatched,
+  ...LEAVE_CONFIRMS,
+  'signout-offline-nobusiness': SignOutOfflineNoBusiness,
+  'signout-failed-discarded': SignOutFailedDiscarded,
+  'login-outbox-line': LoginOutboxLine,
+  'switch-banner-outbox': SwitchBannerOutbox,
+  'switcher-outbox-row': SwitcherOutboxRow,
   'agenda-outbox': AgendaOutbox,
   ...OUTBOX_SHEETS,
   'newjob-edit-item': NewJobEditItem,
@@ -3974,6 +4316,20 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
     waitingToSave: false,
     action: 'try',
     updated: '9:42am',
+  }),
+  // A booking on the phone, not sent yet: when it goes (plan §11.5).
+  'connection-notice-outbox': reach({
+    online: true,
+    waitingToSave: false,
+    action: 'reload',
+    outbox: { count: 1, held: null },
+  }),
+  // …with no signal, and another that needs a look first, whatever its day.
+  'connection-notice-outbox-offline': reach({
+    online: false,
+    waitingToSave: false,
+    action: 'try',
+    outbox: { count: 2, held: null, needsLook: 1 },
   }),
   'schedule-kept-day': ScheduleKeptDay,
   'schedule-kept-week': ScheduleKeptWeek,

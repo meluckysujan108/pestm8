@@ -2,6 +2,7 @@ import { logConnection } from '#/lib/connectionLog'
 import {
   changeOutboxItem,
   keepOutboxItem,
+  noteKeptBefore,
   onOutboxChanged,
   onOutboxWiped,
   peekOutbox,
@@ -97,7 +98,7 @@ export class OutboxModel {
   // Bumped by every change this tab hands in, so a read that was out while
   // one landed is read again rather than taken over it.
   private version = 0
-  private refreshing: Promise<void> | null = null
+  private refreshing: Promise<boolean> | null = null
   private refreshAgain = false
   // Bumped whenever what `all` hands out may have changed (`revision`).
   private seen = 0
@@ -295,6 +296,19 @@ export class OutboxModel {
     this.notify()
     this.post()
     askToPersist()
+    noteKeptBefore()
+  }
+
+  /**
+   * A booking an Edit of this tab's has just booked in its own place
+   * (itemActions.ts `replaceItem`): the person's own doing, just now, as a
+   * keep is, so a day already drawn may put it on screen on its new day
+   * (`keptHere`), as the Week View, which has that day up already, must.
+   */
+  bookedHere(localId: string): void {
+    if (this.keptHere.has(localId)) return
+    this.keptHere.add(localId)
+    this.notify()
   }
 
   /**
@@ -304,6 +318,15 @@ export class OutboxModel {
    * was there before.
    */
   refresh(): Promise<void> {
+    return this.refreshed().then(() => undefined)
+  }
+
+  /**
+   * `refresh`, saying whether a read was taken: false where the phone's
+   * storage didn't answer, when what this tab holds may be out of date. A
+   * sign-out's question counts only on a read that was (leaveAsk.ts).
+   */
+  refreshed(): Promise<boolean> {
     if (this.refreshing) {
       this.refreshAgain = true
       return this.refreshing
@@ -315,21 +338,25 @@ export class OutboxModel {
     return run
   }
 
-  private async reread(): Promise<void> {
+  private async reread(): Promise<boolean> {
+    let landed = false
     for (let round = 0; round < REREADS; round++) {
       this.refreshAgain = false
       const version = this.version
       const found = this.read ? await readOutboxNow() : await peekOutbox()
       // Storage not answering: what this tab has stands. The store tries
       // again by itself, and says so when it can (`onOutboxChanged`).
-      if (found === 'error') return
+      if (found === 'error') return false
+      landed = true
       if (this.version !== version) this.refreshAgain = true
       else this.take(found.items)
-      if (!this.refreshAgain) return
+      if (!this.refreshAgain) return true
     }
+    return landed
   }
 
   private take(items: ReadonlyArray<OutboxItem>): void {
+    if (items.length > 0) noteKeptBefore()
     const next = new Map(items.map((item) => [item.localId, item]))
     const changed =
       !this.read ||
