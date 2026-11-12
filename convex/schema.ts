@@ -94,6 +94,16 @@ export const settableJobStatus = v.union(
 )
 
 /**
+ * Every status a job somebody booked can be in: what a person can set, and
+ * `paid`, which only its payments can set (convex/lib/jobStatus.ts). What the
+ * Job tab lists and filters by, so a paid job is not lost from it.
+ */
+export const bookedJobStatus = v.union(
+  ...settableJobStatus.members,
+  v.literal('paid'),
+)
+
+/**
  * `recurring` marks a visit the recurrence engine projected onto the calendar
  * and nobody has acted on yet — the job-shaped equivalent of a draft order.
  * Only the engine writes it, and only when it inserts the visit; once a job
@@ -101,7 +111,20 @@ export const settableJobStatus = v.union(
  */
 export const jobStatus = v.union(
   v.literal('recurring'),
-  ...settableJobStatus.members,
+  ...bookedJobStatus.members,
+)
+
+/**
+ * How a customer paid. `noCharge` is the one that moves no money: it is a
+ * decision not to charge, recorded at $0 so that it says who made it.
+ */
+export const paymentMethod = v.union(
+  v.literal('cash'),
+  v.literal('card'),
+  v.literal('bankTransfer'),
+  v.literal('cheque'),
+  v.literal('other'),
+  v.literal('noCharge'),
 )
 
 export const reportTemplate = v.union(
@@ -517,6 +540,20 @@ export default defineSchema({
      * later ask about.
      */
     nextReportNumber: v.optional(v.number()),
+    /**
+     * The first instant of the day the Payments page counts from, in the
+     * business's zone. Work booked for that day or later is To bill or Owing
+     * until it is paid. Earlier work keeps its status and is left out:
+     * nobody could record a payment before payments existed, so every job
+     * done since the business began would otherwise read as unpaid.
+     *
+     * Set to the day payments shipped (migrations/paymentsFromV1.ts) and
+     * moved by the owner, either way (`payments.setCountsFrom`). 0 is the
+     * owner's "count every job". Absent counts everything too, which is
+     * right for a business made since: it has nothing older. The two are
+     * kept apart so the migration never takes back the owner's choice.
+     */
+    paymentsFrom: v.optional(v.number()),
     /**
      * How far the owner has got through set-up (src/routes/onboarding.tsx),
      * so a home-screen app that reloads half-way — iOS does, after a trip to
@@ -1033,6 +1070,15 @@ export default defineSchema({
      */
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
+    /**
+     * When somebody billed this job. Kept while it is Paid, so that removing
+     * the payment takes it back to Invoiced and not to To bill; cleared when
+     * it is moved out of Invoiced by hand. A job invoiced before this field
+     * existed has none until a payment is recorded against it. A part payment
+     * alone makes a job Invoiced without setting this: nobody billed it, so
+     * removing that payment puts it back (`statusFromMoney`).
+     */
+    invoicedAt: v.optional(v.number()),
     createdAt: v.number(),
     // A short, human-sayable number ("Job #142") — the Convex `_id` is
     // opaque and useless over the phone or on a paper docket. Assigned once
@@ -1096,6 +1142,63 @@ export default defineSchema({
     // this occurrence already exist" on every cron run.
     .index('by_recurrence', ['recurrenceId'])
     .index('by_binEntryId', ['binEntryId']),
+
+  /**
+   * Money taken for a job, one row a payment: what a job's Paid status and
+   * every money figure are worked out from (lib/jobStatus.ts `moneyOf`), so
+   * part payments, deposits and taking one back all come from the same rows.
+   *
+   * The client is reached through the job, not copied here, so a merged
+   * client or a job corrected to another property has nothing to go stale.
+   * Taking a payment back keeps the row (`removedAt`): the job's history says
+   * it was taken, and who took it back.
+   */
+  payments: defineTable({
+    businessId: v.id('businesses'),
+    jobId: v.id('jobs'),
+    method: paymentMethod,
+    amount: v.number(), // cents; 0 for `noCharge`
+    receivedAt: v.number(),
+    // The account it was recorded in: whose cash it is, when it is cash.
+    recordedBy: v.id('memberships'),
+    recordedAt: v.number(),
+    reference: v.optional(v.string()),
+    // Taken before the work was done, so it does not make the job Invoiced.
+    deposit: v.optional(v.boolean()),
+    // Put on a day rather than at a moment ("Paid on"), for money that came
+    // in apart from the visit: its time is the middle of that day and means
+    // nothing, so nothing shows it.
+    dayOnly: v.optional(v.boolean()),
+    /**
+     * Money someone is holding for someone else, marked by whoever knows.
+     *
+     * Absent is the usual case. A subcontractor is self-employed: they find
+     * most of their own work, keep what it earns, and settle their commission
+     * with the business however they like. It matters when a job crosses over,
+     * the owner's work given to a subcontractor or the other way round, and
+     * nothing records who found a job, so the app cannot tell. Someone marks
+     * it instead, in either direction, with a note for whatever they agreed.
+     */
+    handOver: v.optional(
+      v.object({
+        from: v.id('memberships'),
+        to: v.id('memberships'),
+        note: v.optional(v.string()),
+        markedBy: v.id('memberships'),
+        markedAt: v.number(),
+        doneAt: v.optional(v.number()),
+        doneBy: v.optional(v.id('memberships')),
+      }),
+    ),
+    removedAt: v.optional(v.number()),
+    removedBy: v.optional(v.id('memberships')),
+    // So a save the phone sends twice is one payment (lib/clientRequest.ts).
+    clientRequestId: v.optional(v.string()),
+  })
+    .index('by_jobId', ['jobId'])
+    .index('by_businessId_and_receivedAt', ['businessId', 'receivedAt'])
+    // The jobs given away, which nothing else can find without reading them all.
+    .index('by_businessId_and_method', ['businessId', 'method']),
 
   /**
    * The people "also going" on a job, beside its lead (`jobs.assignedMembershipId`):

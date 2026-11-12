@@ -188,6 +188,7 @@ describe('which status takes which hue', () => {
       booked: 'yellow',
       completed: 'green',
       invoiced: 'blue',
+      paid: 'purple',
       cancelled: 'grey',
     })
   })

@@ -7,6 +7,8 @@
  * street-level geocoding, which Open-Meteo's suburb-level geocoder cannot do.
  */
 
+import { sinksOnDay } from '../../convex/lib/jobStatus'
+
 export type Coords = { lat?: number; lng?: number }
 
 const EARTH_RADIUS_KM = 6371
@@ -79,10 +81,10 @@ export function travelHint(
  * whatever sits above it — a trip nobody is going to make. The work is done;
  * those cards get no hint, and the chain runs over what is still ahead.
  */
-export function jobsAhead<T extends { status: string }>(
+export function jobsAhead<T extends { status: string; completedAt?: number }>(
   jobs: Array<T>,
 ): Array<T> {
-  return jobs.filter((job) => job.status !== 'completed')
+  return jobs.filter((job) => !sinksOnDay(job))
 }
 
 /**

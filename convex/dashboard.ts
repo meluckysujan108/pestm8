@@ -1,9 +1,15 @@
 import { v } from 'convex/values'
 import { query } from './_generated/server'
-import { endOfDayInZone, startOfDayInZone, todayKeyInZone } from './lib/dates'
+import {
+  endOfDayInZone,
+  monthBoundsInZone,
+  startOfDayInZone,
+  todayKeyInZone,
+} from './lib/dates'
 import { requireActor } from './lib/actor'
 import { jobsInScope, wireScope } from './lib/jobScope'
 import { NOT_STARTED_STATUSES } from './lib/jobStatus'
+import { countsFromOf, earnedOnWaivedJobs, moneyFigures } from './lib/payments'
 import { hidePrices, redactTotal } from './lib/prices'
 
 /**
@@ -25,20 +31,10 @@ export const summary = query({
     // way, so on a daylight-saving Sunday the two cannot disagree about
     // which jobs are today's.
     const dayEnd = endOfDayInZone(todayKey, business.timezone)
-    const monthStart = startOfDayInZone(
-      `${todayKey.slice(0, 7)}-01`,
-      business.timezone,
-    )
     // Bounded both ends: a job can be marked invoiced ahead of its visit, and
     // without an end it would count toward this month and every month until
     // the one it is booked in.
-    const [year, month] = todayKey.slice(0, 7).split('-').map(Number)
-    const nextMonthStart = startOfDayInZone(
-      month === 12
-        ? `${year + 1}-01-01`
-        : `${year}-${String(month + 1).padStart(2, '0')}-01`,
-      business.timezone,
-    )
+    const month = monthBoundsInZone(todayKey, business.timezone)
 
     // The same rule the calendar reads by (`jobsInRange` in jobs.ts): neither
     // a cancellation nor a projected visit is work on the books. Every number
@@ -47,6 +43,20 @@ export const summary = query({
     const live = all.filter(
       (j) => j.status !== 'cancelled' && j.status !== 'recurring',
     )
+
+    // Read from what was actually paid, for the screens that say To bill,
+    // Owing and Paid this month. The older figures beside them stay until no
+    // app in the field reads them.
+    const money = await moneyFigures(
+      ctx,
+      env.caps,
+      businessId,
+      all,
+      month,
+      env.actor.acting._id,
+      countsFromOf(business),
+    )
+    const waived = await earnedOnWaivedJobs(ctx, businessId)
 
     return {
       todayCount: live.filter(
@@ -80,12 +90,19 @@ export const summary = query({
         live
           .filter(
             (j) =>
-              j.status === 'invoiced' &&
-              j.scheduledAt >= monthStart &&
-              j.scheduledAt < nextMonthStart,
+              // Paid as well, or taking the money for a job would make the
+              // month's billing shrink.
+              (j.status === 'invoiced' || j.status === 'paid') &&
+              j.scheduledAt >= month.start &&
+              j.scheduledAt < month.end,
           )
-          .reduce((sum, j) => sum + j.price, 0),
+          .reduce((sum, j) => sum + (waived.get(j._id) ?? j.price), 0),
       ),
+      toBill: money.toBill,
+      toBillValue: money.toBillValue,
+      owing: money.owing,
+      owingValue: money.owingValue,
+      paidThisMonth: money.paidThisMonth,
       pricesHidden: hidePrices(env.caps),
       scope: wireScope(env.listScope),
     }

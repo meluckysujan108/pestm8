@@ -203,11 +203,6 @@ const PLAN = {
   'analytics-quiet': { full: true, before: async (p) => p.waitForTimeout(600) },
   'analytics-loading': { before: async (p) => p.waitForTimeout(300) },
   'analytics-failed': { before: async (p) => p.waitForTimeout(300) },
-  'analytics-waiting': {
-    full: true,
-    before: async (p) => p.waitForTimeout(400),
-  },
-  'analytics-waiting-none': { before: async (p) => p.waitForTimeout(400) },
   // Settings → Xero and My Xero (Release 1: connect), one state each.
   xero: { full: true, before: async (p) => p.waitForTimeout(500) },
   'xero-connected': { before: async (p) => p.waitForTimeout(500) },

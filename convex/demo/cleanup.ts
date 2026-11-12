@@ -472,6 +472,14 @@ const clearJobs: Step = (run) =>
             .take(n),
         )
         if (!people || run.left <= 0) return false
+        // Its payments, likewise.
+        const payments = await sweep(run, 'payments', (n) =>
+          run.ctx.db
+            .query('payments')
+            .withIndex('by_jobId', (q) => q.eq('jobId', job._id))
+            .take(n),
+        )
+        if (!payments || run.left <= 0) return false
         return dropRow(run, 'jobs', job._id)
       },
     },
@@ -1077,6 +1085,7 @@ export const status = internalQuery({
       'reportPdfAnnotations',
       'customReportTemplateVersions',
       'jobPhotos',
+      'payments',
       'clientContacts',
       'noteMentions',
       'noteAttachments',
@@ -1139,6 +1148,15 @@ export const status = internalQuery({
           ctx.db
             .query('jobPhotos')
             .withIndex('by_job', (q) => q.eq('jobId', job._id))
+            .take(STATUS_CAP),
+        ),
+      )
+      add(
+        'payments',
+        await countOf(
+          ctx.db
+            .query('payments')
+            .withIndex('by_jobId', (q) => q.eq('jobId', job._id))
             .take(STATUS_CAP),
         ),
       )

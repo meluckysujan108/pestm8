@@ -15,6 +15,12 @@ import type { RowScope } from './lib/capabilities'
 import { requireActor } from './lib/actor'
 import { jobsInScope, wireScope } from './lib/jobScope'
 import { DONE_STATUSES, isCountedJob } from './lib/jobStatus'
+import {
+  counts,
+  countsFromOf,
+  earnedOnWaivedJobs,
+  leftToBill,
+} from './lib/payments'
 import { intervalOf } from './lib/recurrence'
 import { loadJobTypes } from './lib/jobTypeList'
 import { suggestTemplates } from '../src/lib/reportTemplates/suggest'
@@ -88,6 +94,8 @@ export const overview = query({
     // workload (lib/jobPeople.ts), and in the totals once.
     const people = await alsoGoingInWindow(ctx, businessId, from, to)
 
+    const waived = await earnedOnWaivedJobs(ctx, businessId)
+
     const revenueByMonth = new Map(monthKeys.map((k) => [k, 0]))
     const volumeByMonth = new Map(monthKeys.map((k) => [k, 0]))
     const statusCounts = new Map<string, number>()
@@ -100,10 +108,11 @@ export const overview = query({
       // Only earned money — a booked job hasn't happened yet, matching
       // `dashboard.summary`'s own awaitingInvoiceValue/invoicedThisMonth
       // semantics rather than inventing a third revenue definition.
-      if (job.status === 'completed' || job.status === 'invoiced') {
+      if (DONE_STATUSES.has(job.status)) {
+        const earned = waived.get(job._id) ?? job.price
         revenueByMonth.set(
           monthKey,
-          (revenueByMonth.get(monthKey) ?? 0) + job.price,
+          (revenueByMonth.get(monthKey) ?? 0) + earned,
         )
       }
       statusCounts.set(job.status, (statusCounts.get(job.status) ?? 0) + 1)
@@ -417,8 +426,16 @@ export const report = query({
       }
     }
 
-    const current = now.jobs.filter(keep(nowPeople))
-    const earlier = then ? then.jobs.filter(keep(thenPeople)) : null
+    // A job done for nothing earned what came in before it was waived, not
+    // its price (lib/payments.ts), as the dashboard counts it.
+    const waived = await earnedOnWaivedJobs(ctx, businessId)
+    const earned = (jobs: ReadonlyArray<Doc<'jobs'>>) =>
+      jobs.map((job) => {
+        const kept = waived.get(job._id)
+        return kept === undefined ? job : { ...job, price: kept }
+      })
+    const current = earned(now.jobs.filter(keep(nowPeople)))
+    const earlier = then ? earned(then.jobs.filter(keep(thenPeople))) : null
     const totals = totalsOf(current)
     const beforeTotals = earlier ? totalsOf(earlier) : null
 
@@ -461,12 +478,20 @@ export const report = query({
     const booked = coming.jobs
       .filter(keep(comingPeople))
       .filter((job) => job.status === 'pending' || job.status === 'booked')
-    const unbilled = waiting.jobs.filter(keep(waitingPeople))
+    // To bill, as Payments counts it: work from the day the business counts
+    // from, less any deposit, so the card and the list it opens agree.
+    const countsFrom = countsFromOf(business)
+    const unbilled = waiting.jobs
+      .filter(keep(waitingPeople))
+      .filter((job) => counts(job, countsFrom))
+    const left = await leftToBill(ctx, businessId, unbilled)
     const old = unbilled.filter(
       (job) => waitedDays(job, today, timezone) > OLD_AFTER_DAYS,
     )
     const sum = (jobs: ReadonlyArray<Doc<'jobs'>>) =>
       jobs.reduce((total, job) => total + job.price, 0)
+    const toBill = (jobs: ReadonlyArray<Doc<'jobs'>>) =>
+      jobs.reduce((total, job) => total + (left.get(job._id) ?? job.price), 0)
 
     const people =
       scope.kind === 'business'
@@ -523,9 +548,9 @@ export const report = query({
       // waiting beside a hidden total would say its price.
       uninvoiced: {
         count: money(unbilled.length),
-        value: money(sum(unbilled)),
+        value: money(toBill(unbilled)),
         oldCount: money(old.length),
-        oldValue: money(sum(old)),
+        oldValue: money(toBill(old)),
         oldAfterDays: OLD_AFTER_DAYS,
         more: waiting.more,
       },
@@ -542,6 +567,11 @@ export const report = query({
  * the overview's "Awaiting invoice". Every such job in scope, whatever range
  * the overview is on — work is owed until it is billed — in four bands, with
  * the oldest listed so they can be opened and invoiced.
+ *
+ * RETIRED with job payments: the overview's card is To bill now and opens
+ * Payments' list, which is the one list. Kept only so a phone still on the
+ * frontend from before answers until it updates; delete it, its tests and
+ * `uninvoicedInScope`'s second caller once that frontend is gone.
  */
 export const uninvoiced = query({
   args: {
@@ -659,7 +689,7 @@ function visitsPerYear(recurrence: Doc<'recurrences'>): number {
  * report emails went. The cards under the Analytics overview.
  *
  * A query of its own, so the overview's figures never wait for the property
- * and client of every job. Finished jobs only (completed or invoiced), dated
+ * and client of every job. Finished jobs only (completed, invoiced or paid), dated
  * as `report` dates them, and narrowed by the same service and person.
  */
 export const breakdowns = query({
@@ -686,12 +716,20 @@ export const breakdowns = query({
       staff !== undefined
         ? await alsoGoingInWindow(ctx, businessId, now.from, now.to)
         : new Map()
-    const done = now.jobs.filter(
-      (job) =>
-        DONE_STATUSES.has(job.status) &&
-        isForService(job, service) &&
-        isForPerson(job, staff, people),
-    )
+    const waived = await earnedOnWaivedJobs(ctx, businessId)
+    const done = now.jobs
+      .filter(
+        (job) =>
+          DONE_STATUSES.has(job.status) &&
+          isForService(job, service) &&
+          isForPerson(job, staff, people),
+      )
+      // Earned, as `report` counts it: a job done for nothing earned what
+      // came in before it was waived.
+      .map((job) => {
+        const kept = waived.get(job._id)
+        return kept === undefined ? job : { ...job, price: kept }
+      })
 
     const byService = new Map<string, Tally & { name: string }>()
     const byLead = new Map<Id<'memberships'>, Tally>()

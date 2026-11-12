@@ -167,6 +167,23 @@ export function todayKeyInZone(timezone: string): string {
   return dayKeyOf(Date.now(), timezone)
 }
 
+/** The calendar month a day falls in, in a zone: its first instant, and the next month's. */
+export function monthBoundsInZone(
+  dayKey: string,
+  timezone: string,
+): { start: number; end: number } {
+  const [year, month] = dayKey.slice(0, 7).split('-').map(Number)
+  return {
+    start: startOfDayInZone(`${dayKey.slice(0, 7)}-01`, timezone),
+    end: startOfDayInZone(
+      month === 12
+        ? `${year + 1}-01-01`
+        : `${year}-${String(month + 1).padStart(2, '0')}-01`,
+      timezone,
+    ),
+  }
+}
+
 export function addDaysToKey(dayKey: string, days: number): string {
   const [year, month, day] = dayKey.split('-').map(Number)
   const d = new Date(Date.UTC(year, month - 1, day))

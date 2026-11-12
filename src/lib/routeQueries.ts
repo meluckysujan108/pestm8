@@ -113,6 +113,17 @@ export const rq = {
     convexQuery(api.notes.listMentions, { businessId }),
   summary: (businessId: B) =>
     convexQuery(api.dashboard.summary, { businessId }),
+  /** The Payments page's totals, per person, and money to hand over, with
+   * Paid this month for `month` ("2026-11"), the page's own this month. */
+  paymentsSummary: (businessId: B, month: string) =>
+    convexQuery(api.payments.summary, { businessId, month }),
+  /** The jobs behind Owing or To bill, oldest first. */
+  paymentsOutstanding: (businessId: B, list: 'owing' | 'toBill') =>
+    convexQuery(api.payments.outstanding, { businessId, list }),
+  /** Money in during one month ("2026-11"), always named: a query that
+   * read the clock would go on answering for last month. */
+  paymentsPaidIn: (businessId: B, month: string) =>
+    convexQuery(api.payments.paidIn, { businessId, month }),
   /** The Analytics overview for a range of days (`analyticsArgs`). */
   analyticsReport: (args: FunctionArgs<typeof api.analytics.report>) =>
     convexQuery(api.analytics.report, args),
@@ -122,9 +133,6 @@ export const rq = {
   /** Finished jobs in a range with no finalised report: Analytics' Paperwork. */
   analyticsPaperwork: (args: FunctionArgs<typeof api.analytics.paperwork>) =>
     convexQuery(api.analytics.paperwork, args),
-  /** Finished work not yet invoiced, by age: Analytics → Awaiting invoice. */
-  analyticsUninvoiced: (args: FunctionArgs<typeof api.analytics.uninvoiced>) =>
-    convexQuery(api.analytics.uninvoiced, args),
   currentUser: () => convexQuery(api.auth.getCurrentUser, {}),
   /** A new business's set-up guide — the owner's only (`setupGuide.ts`). */
   setupGuide: (businessId: B) =>
@@ -309,9 +317,9 @@ export const notesFirstPage = (businessId: B, filter: NotesPageFilter) =>
     paginationOpts: { numItems: NOTES_PAGE, cursor: null },
   })
 
-/** The statuses the Job tab filters by (`settableJobStatus`). */
+/** The statuses the Job tab filters by (`bookedJobStatus`). */
 export type JobListStatus =
-  'pending' | 'booked' | 'completed' | 'invoiced' | 'cancelled'
+  'pending' | 'booked' | 'completed' | 'invoiced' | 'paid' | 'cancelled'
 
 /**
  * The paged Job tab's arguments, built once so the paginator and the warmed
