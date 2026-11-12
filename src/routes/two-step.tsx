@@ -8,7 +8,7 @@ import { api } from '../../convex/_generated/api'
 import { QrCode } from '#/components/auth/QrCode'
 import { RecoveryCodes } from '#/components/auth/RecoveryCodes'
 import { authClient } from '#/lib/auth-client'
-import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
+import { forgetCachedPages } from '#/lib/rootState'
 import {
   RECOVERY_CODES_NOT_MADE,
   SETUP_CLEARED,
@@ -36,6 +36,7 @@ import {
   recoveryCodesUnsaved,
 } from '#/lib/twoStepReminders'
 import { useHydrated } from '#/lib/useHydrated'
+import { useSignOut } from '#/lib/useSignOut'
 import type { SetupFlow, SetupStatus } from '#/lib/twoStep'
 import {
   PRIMARY_BUTTON,
@@ -125,6 +126,9 @@ function codeOf(error: object): string | undefined {
 function TwoStepPage() {
   const { next } = Route.useSearch()
   const router = useRouter()
+  // A full load, as Settings' sign-out does: whoever signs in next must not
+  // be shown this person's cached answers.
+  const leave = useSignOut({ then: 'login' })
   // Already in the cache from beforeLoad, and live from here on. Compulsory
   // changes the words and the way out: nothing to go back to, so Sign out
   // rather than Not now. `setup` decides what the password step does.
@@ -316,21 +320,18 @@ function TwoStepPage() {
 
       {after === null && required && (
         <div className="mt-8 flex flex-col items-center gap-1">
+          {/* Just above the button, as every failed save's is. */}
+          {leave.problem && (
+            <FormAlert className="mb-2 w-full">{leave.problem}</FormAlert>
+          )}
           <button
             type="button"
-            // A reload, as Settings' sign-out does: whoever signs in next
-            // must not be shown this person's cached answers.
-            onClick={() => {
-              // Before the request (rootState.ts has why).
-              beginSignOut()
-              void authClient
-                .signOut()
-                .then(forgetCachedPages)
-                .then(() => window.location.replace('/login'))
-            }}
+            disabled={leave.signingOut}
+            aria-disabled={leave.checking || undefined}
+            onClick={() => void leave.signOut()}
             className="min-h-11 text-body text-blue"
           >
-            Sign out
+            {leave.signingOut || leave.checking ? 'Signing out…' : 'Sign out'}
           </button>
           {/* A set-up belongs to the session that started it
               (convex/lib/twoFactorSetup.ts), and signing out ends that

@@ -1715,6 +1715,9 @@ const PLAN = {
   'reach-confirm': {},
   'reach-sheet': {},
   'connection-notice-updated': {},
+  // With a booking on the phone: its own line, and Reload's one tap.
+  'connection-notice-outbox': {},
+  'connection-notice-outbox-offline': {},
   // The copy kept on the phone (lib/offline): the note under the strip, a
   // day and a week drawn from it, a day it doesn't keep, and none at all.
   'schedule-kept-day': { full: true },
@@ -1754,6 +1757,42 @@ const PLAN = {
   'outbox-sheet-stale': {},
   'outbox-sheet-foreign': {},
   'outbox-discard-confirm': {},
+  // Part 2c-F. The Week View with bookings on the phone: today's under its
+  // jobs, and a clear day with one and no "No jobs" (drawn from the
+  // outbox); then today after a send, its slot the real job. Check the
+  // chip fits the pill's place and the group's heading doesn't wrap.
+  'week-outbox': { full: true, before: async (p) => p.waitForTimeout(900) },
+  'week-outbox-latched': { full: true },
+  // What leaving asks: a sign-out with one maybe gone, one of another
+  // business's, a switch of business, and the phone not read in time.
+  'leave-confirm-signout': {},
+  'leave-confirm-signout-other-business': {},
+  'leave-confirm-switch': {},
+  // A long business name: its way out two lines inside its 44px, "…".
+  'leave-confirm-switch-long-name': {},
+  'leave-confirm-unreadable': {},
+  // A sign-out with no signal (it says so and does nothing else), and one
+  // whose request failed after its confirm discarded two.
+  'signout-offline-nobusiness': {
+    before: async (p) => {
+      await p.waitForTimeout(400)
+      await p.getByRole('button', { name: 'Sign out' }).click()
+      await p.waitForTimeout(300)
+    },
+  },
+  'signout-failed-discarded': {},
+  // The sign-in screen's line under the title, whose they are; Kevin's
+  // banner with Terence's own held; the switcher's row for the other
+  // business with one waiting.
+  'login-outbox-line': { before: async (p) => p.waitForTimeout(900) },
+  'switch-banner-outbox': { before: async (p) => p.waitForTimeout(900) },
+  'switcher-outbox-row': {
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: /Swan River Pest Co/ }).click()
+      await p.waitForTimeout(300)
+    },
+  },
   // Edit of one: New Job opened on it, its date a field.
   'newjob-edit-item': { before: async (p) => p.waitForTimeout(500) },
   'schedule-not-kept-page': { before: async (p) => p.waitForTimeout(300) },

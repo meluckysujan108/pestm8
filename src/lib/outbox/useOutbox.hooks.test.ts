@@ -10,7 +10,9 @@ import { FakeLockManager } from './fakeLocks.fixtures'
 import { ADD_AFTER_DRAW_MS } from './latchSlots'
 import { outbox } from './outbox'
 import { KEEP_WAIT_MS, STORE_OP_MS } from './outboxSet'
+import { replaceItem } from './itemActions'
 import {
+  beginEditChange,
   checkOutboxOwner,
   confirmStaleChange,
   setOutboxBackendForTests,
@@ -28,10 +30,12 @@ import { sender } from './sender'
 import { resetSwitchGateForTests } from './switchGate'
 import {
   outboxDrawn,
+  pageItemDeps,
   useBooking,
   useCanKeep,
   useDraftRequestId,
   useOutboxDay,
+  useOutboxSettled,
 } from './useOutbox'
 import type * as React from 'react'
 import type * as ReactQuery from '@tanstack/react-query'
@@ -1075,5 +1079,159 @@ describe('today’s group also lists what needs a look on other days, and what a
     await flush()
     hook.rerender()
     expect(now().slots).toEqual([])
+  })
+})
+
+describe('the Week View’s day (`inWeek`, §9.3)', () => {
+  /** One day of the week, as the Week View draws it. */
+  function weekDay(dayShown: string, list = { redrawKey: 'week' }) {
+    const draws: Array<ReturnType<typeof useOutboxDay>> = []
+    const hook = hookHarness.mount(() => {
+      const day = useOutboxDay({
+        businessId: B1,
+        dayShown,
+        timezone: TZ,
+        rows: [],
+        drawsCards: false,
+        redrawKey: list.redrawKey,
+        allStatuses: true,
+        staffId: 'all',
+        mineOnly: null,
+        inWeek: true,
+      })
+      draws.push(day)
+      return day
+    })
+    return { now: () => draws[draws.length - 1], hook }
+  }
+
+  /** Kept on the phone already as the page loads, the line down. */
+  async function phoneWith(items: Array<ReturnType<typeof itemFor>>) {
+    const made = await phone()
+    page.keeper.live = false
+    for (const item of items) made.backend.items.set(item.localId, item)
+    await outbox.refresh()
+    await flush()
+    return made
+  }
+
+  test('today in the week: its own bookings only — another day’s needing a look is on its own day, and a newer build’s isn’t in the week', async () => {
+    const today = itemFor('u1')
+    const lastWeek = itemFor(
+      'u1',
+      {
+        booking: bookingFor({ scheduledAt: Date.UTC(2026, 9, 20, 1) }),
+        state: 'needsLook',
+        problem: { code: 'STALE' },
+      },
+      Date.UTC(2026, 9, 20, 0),
+    )
+    const newer = itemFor('u1', { v: 2 })
+    await phoneWith([today, lastWeek, newer])
+    const { now } = weekDay(DAY)
+    expect(now().slots.map((slot) => slot.localId)).toEqual([today.localId])
+    expect(now().foreign).toEqual([])
+    expect(now().heading).not.toBeNull()
+    // Its own day draws it.
+    const { now: then } = weekDay('2026-10-20')
+    expect(then().slots.map((slot) => slot.localId)).toEqual([lastWeek.localId])
+  })
+
+  test('one coming after the week first drew waits for the next drawing, a group already there or not: every day under it would move', async () => {
+    const first = itemFor('u1')
+    const { backend } = await phoneWith([first])
+    const list = { redrawKey: 'week' }
+    const { now, hook } = weekDay(DAY, list)
+    expect(now().slots.map((slot) => slot.localId)).toEqual([first.localId])
+    await vi.advanceTimersByTimeAsync(ADD_AFTER_DRAW_MS + 500)
+    const second = itemFor('u1')
+    backend.items.set(second.localId, second)
+    await outbox.refresh()
+    await flush()
+    hook.rerender()
+    expect(now().slots.map((slot) => slot.localId)).toEqual([first.localId])
+    list.redrawKey = 'week again'
+    hook.rerender()
+    expect(
+      now()
+        .slots.map((slot) => slot.localId)
+        .sort(),
+    ).toEqual([first.localId, second.localId].sort())
+  })
+
+  test('an Edit booked onto another day of the week shown is drawn there at once: the person’s own doing (F4)', async () => {
+    // Monday 26 Oct, kept by an earlier page load.
+    const monday = itemFor('u1', {
+      booking: bookingFor({ scheduledAt: Date.UTC(2026, 9, 26, 1) }),
+    })
+    await phoneWith([monday])
+    // Monday and Wednesday, as the week draws them, side by side.
+    const draws: Array<Array<ReturnType<typeof useOutboxDay>>> = []
+    const hook = hookHarness.mount(() => {
+      const days = ['2026-10-26', '2026-10-28'].map((dayShown) =>
+        useOutboxDay({
+          businessId: B1,
+          dayShown,
+          timezone: TZ,
+          rows: [],
+          drawsCards: false,
+          redrawKey: 'week',
+          allStatuses: true,
+          staffId: 'all',
+          mineOnly: null,
+          inWeek: true,
+        }),
+      )
+      draws.push(days)
+      return days
+    })
+    const ids = () =>
+      draws[draws.length - 1].map((day) => day.slots.map((s) => s.localId))
+    expect(ids()).toEqual([[monday.localId], []])
+    await vi.advanceTimersByTimeAsync(ADD_AFTER_DRAW_MS + 500)
+
+    // Its sheet's Edit, then Book with Wednesday picked.
+    outbox.editingHere.add(monday.localId)
+    await outbox.change(
+      'begin-edit',
+      monday.localId,
+      beginEditChange(outbox.tab, Date.now()),
+    )
+    const booked = replaceItem(
+      monday.localId,
+      {
+        booking: bookingFor({ scheduledAt: Date.UTC(2026, 9, 28, 1) }),
+        display: DISPLAY,
+      },
+      pageItemDeps(),
+    )
+    await flush()
+    expect(await booked).toEqual({ outcome: 'kept' })
+    hook.rerender()
+    expect(ids()).toEqual([[], [monday.localId]])
+  })
+})
+
+describe('the Week View’s first scroll waits for its bookings to come on (`useOutboxSettled`, F5)', () => {
+  test('until the phone has been read, or the week’s first drawing has had ADD_AFTER_DRAW_MS', async () => {
+    const readable = vi.spyOn(outbox, 'readable').mockReturnValue(false)
+    try {
+      const read = hookHarness.mount(() => useOutboxSettled())
+      expect(read.current()).toBe(false)
+      readable.mockReturnValue(true)
+      read.rerender()
+      expect(read.current()).toBe(true)
+
+      // Never read: nothing comes on after ADD_AFTER_DRAW_MS anyway.
+      readable.mockReturnValue(false)
+      const unread = hookHarness.mount(() => useOutboxSettled())
+      expect(unread.current()).toBe(false)
+      await vi.advanceTimersByTimeAsync(ADD_AFTER_DRAW_MS - 1)
+      expect(unread.current()).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(unread.current()).toBe(true)
+    } finally {
+      readable.mockRestore()
+    }
   })
 })

@@ -228,6 +228,25 @@ export function preSendProblem(
   return null
 }
 
+/**
+ * Whether a booking not sent yet goes only once someone has looked at it:
+ * it needs a look, or it is waiting but the phone itself will stop it before
+ * it goes (`preSendProblem`: three days unsent, its session ended, or a
+ * Recurring Job's first visit gone by). The sender says so of a waiting one
+ * only once it could send it: with the line down, G4 stops it first, so it
+ * stays waiting all that time. What says how many go by themselves
+ * (ConnectionNotice's line, SwitchBanner's, the switch question) counts
+ * these with the ones needing a look, never as going once there's signal.
+ */
+export function goesOnlyAfterALook(item: OutboxItem, now: number): boolean {
+  if (item.state === 'needsLook') return true
+  return (
+    item.state === 'waiting' &&
+    isReadable(item) &&
+    preSendProblem(item, now) !== null
+  )
+}
+
 // ── Which goes next ────────────────────────────────────────────────────────
 
 export type SendContext = {
@@ -355,17 +374,57 @@ export function outboxHeading(counts: OutboxCounts): string | null {
 
 /**
  * The sign-in screens' line, when the phone holds someone's jobs not sent
- * yet: whose they are, and that signing in as anyone else discards them.
- * `firstName` is the owner row's ('' when their sign-in didn't say).
+ * yet: whose they are, that they are kept for that person to send, and that
+ * signing in as anyone else discards them. Kept, not "they go": a sign-in
+ * starts a new session, and what the last one left waits for the person to
+ * look at it and Send (plan D8, D23). `firstName` is the owner row's (''
+ * when their sign-in didn't say).
  */
 export function onPhoneWords(firstName: string, count: number): string {
   const name = firstName.trim()
   if (name === '') {
     return count === 1
-      ? 'A job not sent yet is on this phone. It goes when the person who booked it signs in again. Signing in as anyone else discards it.'
-      : 'Jobs not sent yet are on this phone. They go when the person who booked them signs in again. Signing in as anyone else discards them.'
+      ? 'A job not sent yet is on this phone. It’s kept until the person who booked it signs in again and sends it. Signing in as anyone else discards it.'
+      : 'Jobs not sent yet are on this phone. They’re kept until the person who booked them signs in again and sends them. Signing in as anyone else discards them.'
   }
   return count === 1
-    ? `${name} has 1 job on this phone not sent yet. It goes when ${name} signs in again. Signing in as anyone else discards it.`
-    : `${name} has ${count} jobs on this phone not sent yet. They go when ${name} signs in again. Signing in as anyone else discards them.`
+    ? `${name} has 1 job on this phone not sent yet. It’s kept until ${name} signs in again and sends it. Signing in as anyone else discards it.`
+    : `${name} has ${count} jobs on this phone not sent yet. They’re kept until ${name} signs in again and sends them. Signing in as anyone else discards them.`
+}
+
+/**
+ * SwitchBanner's line while the person works in someone else's account and
+ * their own bookings not sent yet wait (plan §11.5): the only place they
+ * show then. `count` go by themselves once they switch back (waiting, or
+ * sending); `needsLook` go only once someone has looked, and are said apart,
+ * as ConnectionNotice's line says them (lib/reach.ts `outboxNoticeLine`).
+ * With only those, it says where they show: on no list while switched
+ * (plan §8), so the person isn't left looking for them in the account
+ * they are working in.
+ */
+export function heldWhileSwitchedWords(count: number, needsLook = 0): string {
+  const parts: Array<string> = []
+  if (count > 0) {
+    parts.push(
+      count === 1
+        ? '1 of your jobs isn’t sent yet. It goes when you switch back.'
+        : `${count} of your jobs aren’t sent yet. They go when you switch back.`,
+    )
+  }
+  if (needsLook > 0) {
+    parts.push(
+      count > 0
+        ? `${needsLook} more ${needsLook === 1 ? 'needs a look before it goes' : 'need a look before they go'}.`
+        : needsLook === 1
+          ? '1 of your jobs needs a look before it goes. It shows when you switch back.'
+          : `${needsLook} of your jobs need a look before they go. They show when you switch back.`,
+    )
+  }
+  return parts.join(' ')
+}
+
+/** The business switcher's note under another business with bookings not
+ * sent yet, which go once the person is back in it (plan X7). */
+export function unsentInBusinessWords(count: number): string {
+  return `${jobsWord(count)} not sent yet`
 }

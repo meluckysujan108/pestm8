@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
-import { authClient } from '#/lib/auth-client'
-import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import { useHydrated } from '#/lib/useHydrated'
+import { useSignOut } from '#/lib/useSignOut'
 import { SECONDARY_BUTTON } from '#/components/primitives/buttons'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * A signed-in account that belongs to no business and may not start one —
@@ -14,6 +14,11 @@ import { SECONDARY_BUTTON } from '#/components/primitives/buttons'
  */
 export function NoBusiness({ email }: { email: string | null }) {
   const hydrated = useHydrated()
+  // As Settings' sign-out: a document load, so the next person to sign in
+  // on this phone starts clean (rootState.ts has why).
+  const { signOut, signingOut, checking, problem } = useSignOut({
+    then: 'login',
+  })
   // A team invitation already waiting for this address, so "open your link"
   // is pointed, not a guess.
   const { data: waiting } = useQuery(
@@ -37,21 +42,16 @@ export function NoBusiness({ email }: { email: string | null }) {
           Signed in as <span className="text-ink">{email}</span>
         </p>
       )}
+      {/* Just above the button, as every failed save's is. */}
+      {problem && <FormAlert className="mt-3">{problem}</FormAlert>}
       <button
         type="button"
-        disabled={!hydrated}
-        onClick={() => {
-          // As Settings' sign-out: a document load, so the next person to
-          // sign in on this phone starts clean (rootState.ts has why).
-          beginSignOut()
-          void authClient
-            .signOut()
-            .then(forgetCachedPages)
-            .then(() => window.location.replace('/login'))
-        }}
+        disabled={!hydrated || signingOut}
+        aria-disabled={checking || undefined}
+        onClick={() => void signOut()}
         className={`${SECONDARY_BUTTON} mt-3 w-full`}
       >
-        Sign out
+        {signingOut || checking ? 'Signing out…' : 'Sign out'}
       </button>
     </main>
   )

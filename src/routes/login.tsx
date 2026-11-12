@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
+import { OutboxOnPhoneLine } from '#/components/auth/OutboxOnPhoneLine'
 import { SecondStepForm } from '#/components/auth/SecondStepForm'
 import { InstallLink } from '#/components/install/InstallLink'
 import { authClient, needsSecondStep } from '#/lib/auth-client'
+import { useOnPhoneLine } from '#/lib/outbox/useOnPhone'
 import { forgetCachedPages } from '#/lib/rootState'
 import { safeNext } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
@@ -44,6 +46,10 @@ function LoginPage() {
   // step replaces the form in place (see src/lib/auth-client.ts for why this
   // is not a redirect).
   const [secondStep, setSecondStep] = useState(false)
+  // Whose jobs not sent yet are on this phone (`OutboxOnPhoneLine`), which
+  // the button names for a screen reader while it shows.
+  const onPhone = useOnPhoneLine()
+  const onPhoneId = useId()
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -100,9 +106,22 @@ function LoginPage() {
         <h1 className="text-page-title text-ink">
           {secondStep ? 'Two-step sign-in' : 'Sign in'}
         </h1>
-        <p className="mt-2 text-body text-muted">
-          Scheduling and compliance reporting for Australian pest control.
-        </p>
+        {/* Whose jobs not sent yet are on this phone, if any: signing in as
+            anyone else discards them. Under the title, where it is seen
+            on the smallest phone, over the line saying what PestM8 is,
+            which gives way to it, keeping its room, so nothing moves. */}
+        <div className="relative mt-2">
+          <p
+            className={
+              onPhone === null
+                ? 'text-body text-muted'
+                : 'invisible text-body text-muted'
+            }
+          >
+            Scheduling and compliance reporting for Australian pest control.
+          </p>
+          <OutboxOnPhoneLine line={onPhone} id={onPhoneId} over />
+        </div>
       </div>
 
       {secondStep ? (
@@ -136,6 +155,7 @@ function LoginPage() {
           <button
             type="submit"
             disabled={pending || !hydrated}
+            aria-describedby={onPhone === null ? undefined : onPhoneId}
             className={`${PRIMARY_BUTTON} mt-2`}
           >
             {pending ? 'Signing in…' : 'Sign in'}

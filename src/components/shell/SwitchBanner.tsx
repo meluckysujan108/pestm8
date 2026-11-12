@@ -3,6 +3,8 @@ import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
 import { useAccess } from '#/lib/access'
+import { heldWhileSwitchedWords } from '#/lib/outbox/outboxRules'
+import { useUnsentByBusiness } from '#/lib/outbox/useOnPhone'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
@@ -19,6 +21,17 @@ import type { Id } from '../../../convex/_generated/dataModel'
  */
 export function SwitchBanner({ businessId }: { businessId: Id<'businesses'> }) {
   const access = useAccess()
+  // The person's own bookings on this phone, not sent yet, held while they
+  // work in someone else's account (lib/outbox/): this banner is the only
+  // place they show then. Those needing a look are said apart: they don't
+  // go by themselves once the person switches back. Read once hydrated, so
+  // on a page opened cold while switched the banner grows by this line (up
+  // to two caption lines) a moment after it draws, moving the page down
+  // once; the banner has nowhere else to say it.
+  const unsent = useUnsentByBusiness()?.get(businessId) ?? {
+    count: 0,
+    needsLook: 0,
+  }
 
   const convexStop = useConvexMutation(api.accountSwitches.stop)
   const stop = useMutation({
@@ -91,12 +104,22 @@ export function SwitchBanner({ businessId }: { businessId: Id<'businesses'> }) {
   if (access.actingAs) {
     return (
       <div className="flex items-center justify-between gap-2 border-b border-amber-line bg-amber-bg px-4 py-2">
-        <p className="min-w-0 text-caption font-semibold text-amber-ink">
-          <span className="truncate">
-            Working in {access.actingAs.name}’s account
-          </span>
-          <span className="font-normal"> — everything you do is recorded.</span>
-        </p>
+        <div className="min-w-0">
+          <p className="min-w-0 text-caption font-semibold text-amber-ink">
+            <span className="truncate">
+              Working in {access.actingAs.name}’s account
+            </span>
+            <span className="font-normal">
+              {' '}
+              — everything you do is recorded.
+            </span>
+          </p>
+          {unsent.count + unsent.needsLook > 0 && (
+            <p className="text-caption text-amber-ink">
+              {heldWhileSwitchedWords(unsent.count, unsent.needsLook)}
+            </p>
+          )}
+        </div>
         <button
           type="button"
           disabled={stop.isPending}

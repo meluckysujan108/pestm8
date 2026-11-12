@@ -755,6 +755,34 @@ export function givenUpNoted(localId: string): boolean {
   return readGivenUp().includes(localId)
 }
 
+// ── Whether this phone has ever kept a booking ─────────────────────────────
+
+/**
+ * Noted in localStorage the first time this phone keeps a booking, or reads
+ * one kept (outbox.ts), and never taken away: a sign-out's wipe leaves it.
+ * A build with keeping switched off reads it (lib/outbox/leaveAsk.ts) to
+ * tell a phone that may still hold bookings, which are still shown and sent
+ * (plan D14), from one that never kept any, as every phone is until keeping
+ * is switched on. Without localStorage nothing is kept (`localNotesWork`),
+ * so nothing needs noting.
+ */
+const KEPT_BEFORE_KEY = 'pestm8-outbox-kept'
+
+/** This phone keeps, or holds, a booking: noted, if it isn't already. */
+export function noteKeptBefore(): void {
+  if (keptBefore()) return
+  try {
+    storage()?.setItem(KEPT_BEFORE_KEY, '1')
+  } catch {
+    // See the tombstone's.
+  }
+}
+
+/** Whether this phone has ever kept a booking (`noteKeptBefore`). */
+export function keptBefore(): boolean {
+  return noteOf(KEPT_BEFORE_KEY) !== null
+}
+
 // ── What other tabs did ────────────────────────────────────────────────────
 
 /**

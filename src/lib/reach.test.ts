@@ -9,6 +9,7 @@ import {
   noticeDrawn,
   noticeOverKept,
   oldestPending,
+  outboxNoticeLine,
   reloadClockSince,
   sampleReach,
   savesWaiting,
@@ -258,6 +259,18 @@ describe('noticeOverKept', () => {
     expect(noticeOverKept(confirm, true)).toBe(confirm)
   })
 
+  it('never while it says what is on this phone not sent yet: the line doesn’t say that (F1)', () => {
+    const kept = notice({ outbox: { count: 2, held: null } })
+    expect(noticeOverKept(kept, true)).toBe(kept)
+    const look = notice({ outbox: { count: 0, held: null, needsLook: 1 } })
+    expect(noticeOverKept(look, true)).toBe(look)
+    // None to say: it gives way as before.
+    expect(
+      noticeOverKept(notice({ outbox: { count: 0, held: null } }), true),
+    ).toBeNull()
+    expect(noticeOverKept(notice({ outbox: null }), true)).toBeNull()
+  })
+
   it('is the notice as decided where no such line shows', () => {
     const up = notice()
     expect(noticeOverKept(up, false)).toBe(up)
@@ -305,5 +318,63 @@ describe('where the notice is drawn (`drawNotice`)', () => {
     stop()
     drawNotice()()
     expect(heard).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('what the notice says of the bookings on this phone (`outboxNoticeLine`, §11.5)', () => {
+  it('says nothing with none', () => {
+    expect(outboxNoticeLine(null, true)).toBeNull()
+    expect(outboxNoticeLine(undefined, false)).toBeNull()
+    expect(
+      outboxNoticeLine({ count: 0, held: null, needsLook: 0 }, true),
+    ).toBeNull()
+  })
+
+  it('says when they go: PestM8 answering, signal, or the person back in their own account', () => {
+    expect(outboxNoticeLine({ count: 1, held: null }, true)).toBe(
+      '1 job is on this phone, not sent yet. It goes when PestM8 answers.',
+    )
+    expect(outboxNoticeLine({ count: 2, held: null }, false)).toBe(
+      '2 jobs are on this phone, not sent yet. They go when you have signal.',
+    )
+    expect(outboxNoticeLine({ count: 1, held: 'switched' }, true)).toBe(
+      '1 job is on this phone, not sent yet. It goes when you’re back in your own account.',
+    )
+  })
+
+  it('counts those that need a look first, whatever their day, apart', () => {
+    expect(outboxNoticeLine({ count: 0, held: null, needsLook: 1 }, true)).toBe(
+      '1 job on this phone needs a look before it goes.',
+    )
+    expect(
+      outboxNoticeLine({ count: 0, held: null, needsLook: 3 }, false),
+    ).toBe('3 jobs on this phone need a look before they go.')
+    expect(outboxNoticeLine({ count: 2, held: null, needsLook: 1 }, true)).toBe(
+      '2 jobs are on this phone, not sent yet. They go when PestM8 answers. 1 more needs a look before it goes.',
+    )
+    expect(
+      outboxNoticeLine({ count: 1, held: null, needsLook: 2 }, false),
+    ).toBe(
+      '1 job is on this phone, not sent yet. It goes when you have signal. 2 more need a look before they go.',
+    )
+  })
+
+  it('while switched, says where those needing a look show: on no list until then (§8)', () => {
+    expect(
+      outboxNoticeLine({ count: 0, held: 'switched', needsLook: 1 }, true),
+    ).toBe(
+      '1 job on this phone needs a look before it goes. It shows when you’re back in your own account.',
+    )
+    expect(
+      outboxNoticeLine({ count: 0, held: 'switched', needsLook: 2 }, false),
+    ).toBe(
+      '2 jobs on this phone need a look before they go. They show when you’re back in your own account.',
+    )
+    // With some that go by themselves, the first sentence has said when.
+    expect(
+      outboxNoticeLine({ count: 1, held: 'switched', needsLook: 1 }, true),
+    ).toBe(
+      '1 job is on this phone, not sent yet. It goes when you’re back in your own account. 1 more needs a look before it goes.',
+    )
   })
 })

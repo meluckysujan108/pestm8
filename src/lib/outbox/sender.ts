@@ -12,6 +12,7 @@ import {
   classify,
   codeOf,
   firstVisitMeant,
+  goesOnlyAfterALook,
   holdUntil,
   preSendProblem,
   retryAt,
@@ -78,7 +79,9 @@ import type { OutboxKind } from './outboxSet'
  *   someone else's account, no switch that ended for some other reason than
  *   time (`degraded`), and saved since they were last removed from the
  *   business (below);
- * - G6 no account switch is starting, in this tab or another (switchGate.ts);
+ * - G6 no account switch is starting, in this tab or another, nor a
+ *   sign-out counting or going, nor its question up in this tab
+ *   (switchGate.ts `holdSends`, `holdSendsHere`);
  * - G7 this build can read it (not a newer build's);
  * - G8 it is waiting or unanswered, not being edited, not held or backing
  *   off, and not waiting on the booking that makes its site;
@@ -263,6 +266,17 @@ export function fromEarlierStint(item: OutboxItem, access: Access): boolean {
   )
 }
 
+/**
+ * Whether the person is working in someone else's account, or the owner's
+ * account view: what their bookings wait on being back from, in the words
+ * the screens use ("when you’re back in your own account"). A switch that
+ * ended by itself (`degraded`) isn't: SwitchBanner says they're back, and
+ * the sender (G5) holds them only until its close lands.
+ */
+function inOthersAccount(access: Access): boolean {
+  return access.actingAs !== null || access.view?.mode === 'account'
+}
+
 export class Sender {
   private deps: Ready | null = null
   private detachNow: (() => void) | null = null
@@ -387,31 +401,37 @@ export class Sender {
   }
 
   /**
-   * The person's bookings not sent yet for the business on screen, waiting
-   * or unanswered, for ConnectionNotice: and whether they wait on the person
-   * being back in their own account. Null with none.
+   * The person's bookings not sent yet for the business on screen, whatever
+   * their day, for ConnectionNotice: those that go by themselves (waiting,
+   * or unanswered), those that need a look first (one still waiting that
+   * has waited too long among them), and whether they wait on
+   * the person being back in their own account. Null with none. A booking of
+   * another day that needs a look is counted here even where no day's list
+   * has drawn it yet (plan part 2c, 2c-E's note for 2c-F).
    */
-  notice(): { count: number; held: 'switched' | null } | null {
+  notice(): {
+    count: number
+    held: 'switched' | null
+    needsLook: number
+  } | null {
     const deps = this.deps
     const userId = signedInUserId()
     const b = deps?.keeper.enteredBusiness()
     if (!deps || userId === null || !b) return null
-    const count = deps.outbox
-      .all()
-      .filter(
-        (item) =>
-          item.userId === userId &&
-          item.businessId === b._id &&
-          (item.state === 'waiting' || item.state === 'sending'),
-      ).length
-    if (count === 0) return null
+    let count = 0
+    let needsLook = 0
+    const now = Date.now()
+    for (const item of deps.outbox.all()) {
+      if (item.userId !== userId || item.businessId !== b._id) continue
+      // One waiting that has waited too long goes only once looked at, as
+      // the sender will say once the line lets it (`goesOnlyAfterALook`).
+      if (goesOnlyAfterALook(item, now)) needsLook++
+      else if (item.state === 'waiting' || item.state === 'sending') count++
+    }
+    if (count === 0 && needsLook === 0) return null
     const access = deps.qc.getQueryData<Access>(rq.access(b._id).queryKey)
-    const switched =
-      access !== undefined &&
-      (access.actingAs !== null ||
-        access.degraded !== null ||
-        access.view?.mode === 'account')
-    return { count, held: switched ? 'switched' : null }
+    const switched = access !== undefined && inOthersAccount(access)
+    return { count, held: switched ? 'switched' : null, needsLook }
   }
 
   /** Why `localId` can't go now, if it can't: for its sheet's words. */
@@ -419,7 +439,15 @@ export class Sender {
     const item = this.deps?.outbox.get(localId)
     if (!item) return null
     const why = this.gate(item)
-    return why === 'gone' || why === 'earlier-stint' ? null : why
+    if (why === 'gone' || why === 'earlier-stint') return null
+    // A switch that ended by itself (`degraded`) holds it (G5) only until
+    // its close lands, and SwitchBanner says they're back in their own
+    // account meanwhile: the sheet never says it waits on that.
+    if (why === 'switched') {
+      const now = this.accessNow(item)
+      if (now.kind === 'live' && !inOthersAccount(now.access)) return null
+    }
+    return why
   }
 
   /** Whether another tab or window had `localId`'s lock when this looked:

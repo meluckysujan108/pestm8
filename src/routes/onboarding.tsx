@@ -15,10 +15,11 @@ import { NoBusiness } from '#/components/onboarding/NoBusiness'
 import { ReadyStep } from '#/components/onboarding/ReadyStep'
 import { TeamStep } from '#/components/onboarding/TeamStep'
 import { authClient } from '#/lib/auth-client'
-import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import { rq } from '#/lib/routeQueries'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
+import { useSignOut } from '#/lib/useSignOut'
+import { FormAlert } from '#/components/forms/FormAlert'
 import { FinishLaterContext } from '#/components/onboarding/SetupFrame'
 import type { SetupStep } from '#/components/onboarding/SetupFrame'
 import type { TeamShape } from '#/components/onboarding/TeamStep'
@@ -270,24 +271,28 @@ function SetupFor({ slug, step }: { slug: string; step: SetupStep }) {
  * for a shared phone. */
 function SignedInAs({ email }: { email: string | null }) {
   const hydrated = useHydrated()
+  const { signOut, signingOut, checking, problem } = useSignOut({
+    then: 'login',
+  })
   if (!email) return null
   return (
-    <p className="mt-6 text-center text-caption text-muted">
-      Signed in as {email} ·{' '}
-      <button
-        type="button"
-        disabled={!hydrated}
-        onClick={() => {
-          beginSignOut()
-          void authClient
-            .signOut()
-            .then(forgetCachedPages)
-            .then(() => window.location.replace('/login'))
-        }}
-        className="text-blue"
+    <>
+      {/* Just above the way out, as every failed save's is. */}
+      {problem && <FormAlert className="mt-6">{problem}</FormAlert>}
+      <p
+        className={`${problem ? 'mt-3' : 'mt-6'} text-center text-caption text-muted`}
       >
-        Sign out
-      </button>
-    </p>
+        Signed in as {email} ·{' '}
+        <button
+          type="button"
+          disabled={!hydrated || signingOut}
+          aria-disabled={checking || undefined}
+          onClick={() => void signOut()}
+          className="text-blue"
+        >
+          {signingOut || checking ? 'Signing out…' : 'Sign out'}
+        </button>
+      </p>
+    </>
   )
 }

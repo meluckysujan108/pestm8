@@ -517,6 +517,30 @@ describe('what may come onto the screen (`addRule`)', () => {
       ),
     ).toBe(false)
   })
+
+  test('the week’s day, with days under it (`movesBelow`): only at its first drawing or booked here just now, a group already there or not (§9.3)', () => {
+    const a = booking(NINE)
+    const group = { ...latch, slots: [{ localId: 'x', item: a }] }
+    const rule = (now: number, held: SlotLatch, over?: Partial<DrawSource>) =>
+      addRule(source(over), { drawsCards: false, now, movesBelow: true })(
+        a,
+        held,
+      )
+    expect(rule(NOW + ADD_AFTER_DRAW_MS, latch)).toBe(true)
+    expect(rule(NOW + ADD_AFTER_DRAW_MS, group)).toBe(true)
+    expect(rule(NOW + ADD_AFTER_DRAW_MS + 1, latch)).toBe(false)
+    expect(rule(NOW + 60_000, group)).toBe(false)
+    expect(rule(NOW + 60_000, group, { keptHere: new Set([a.localId]) })).toBe(
+      true,
+    )
+    expect(
+      addRule(source(), {
+        drawsCards: true,
+        now: NOW + 60_000,
+        movesBelow: true,
+      })(a, latch),
+    ).toBe(false)
+  })
 })
 
 describe('as the server answered it (`answeredView`)', () => {

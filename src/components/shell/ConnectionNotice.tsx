@@ -10,6 +10,7 @@ import {
   REACH_START,
   noticeOverKept,
   oldestPending,
+  outboxNoticeLine,
   publishReachNotice,
   reloadClockSince,
   sampleReach,
@@ -73,8 +74,10 @@ const RELOAD_AFTER_TRY_MS = 8_000
  * waiting to save: the outbox's own calls are left out of that
  * (`savesWaiting`), since a reload loses none of them. The root hands the
  * sender in (`outbox`), as it does the keeper; with none, nothing is left
- * out. The model carries how many such bookings there are for the business
- * on screen, for the line that will say so.
+ * out. The notice says how many such bookings there are for the business
+ * on screen, whatever their day, in a line of their own (`outboxNoticeLine`):
+ * "1 job is on this phone, not sent yet. It goes when PestM8 answers.", and
+ * those that need a look first, which no day's list may have drawn yet.
  *
  * Screen readers hear it through a live region that is always there, with one
  * short line when it appears and when Reload is offered. The notice itself
@@ -100,6 +103,7 @@ export function ConnectionNotice({
   const [updated, setUpdated] = useState<string | null>(null)
   const [unsent, setUnsent] = useState(0)
   const [unsentHeld, setUnsentHeld] = useState<'switched' | null>(null)
+  const [unsentLook, setUnsentLook] = useState(0)
   const [now, setNow] = useState(0)
   const firstSeen = useRef(new Map<string, number>())
 
@@ -163,6 +167,7 @@ export function ConnectionNotice({
       const unsentNow = outbox?.notice() ?? null
       setUnsent(unsentNow?.count ?? 0)
       setUnsentHeld(unsentNow?.held ?? null)
+      setUnsentLook(unsentNow?.needsLook ?? 0)
       // How old the oldest answer on screen is, once any is not live, in
       // the business's time.
       const asOf = kept?.screenAsOf() ?? null
@@ -235,7 +240,10 @@ export function ConnectionNotice({
         ? {
             online,
             waitingToSave,
-            outbox: unsent > 0 ? { count: unsent, held: unsentHeld } : null,
+            outbox:
+              unsent > 0 || unsentLook > 0
+                ? { count: unsent, held: unsentHeld, needsLook: unsentLook }
+                : null,
             updated,
             action,
             onTry,
@@ -249,6 +257,7 @@ export function ConnectionNotice({
       waitingToSave,
       unsent,
       unsentHeld,
+      unsentLook,
       updated,
       action,
       onTry,
@@ -319,6 +328,7 @@ export function PageReachNotice({
 export function ReachNotice({
   online,
   waitingToSave,
+  outbox,
   updated,
   action,
   onTry,
@@ -327,6 +337,7 @@ export function ReachNotice({
   placement = 'banner',
 }: ReachNoticeModel & { placement?: 'banner' | 'sheet' }) {
   const banner = placement === 'banner'
+  const unsent = outboxNoticeLine(outbox, online)
   const onScreen =
     updated === null
       ? 'What’s on screen may be out of date.'
@@ -362,6 +373,7 @@ export function ReachNotice({
               : 'A change you made is waiting to save.'}
           </p>
         )}
+        {unsent !== null && <p>{unsent}</p>}
         {online &&
           (action === 'reload' || action === 'reload-confirm' ? (
             <button

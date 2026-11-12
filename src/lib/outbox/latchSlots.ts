@@ -152,15 +152,20 @@ export type DrawSource = {
  * there; in place of "This day is clear." or "No matches" only within
  * ADD_AFTER_DRAW_MS of the list first drawing, or when the person booked it
  * just now.
+ *
+ * `movesBelow`: something under the group would move, as the Week View's
+ * later days do under each day's bookings (plan §9.3). There a booking
+ * comes on only at the week's first drawing (within ADD_AFTER_DRAW_MS of
+ * it), or booked just now, and otherwise waits for the next redraw, as a
+ * day's "No jobs" does.
  */
 export function addRule(
   source: DrawSource,
-  at: { drawsCards: boolean; now: number },
+  at: { drawsCards: boolean; now: number; movesBelow?: boolean },
 ): LatchInput['mayAdd'] {
   return (item, held) =>
     source.mayDraw(item.localId) &&
-    (at.drawsCards ||
-      held.slots.length > 0 ||
+    ((at.movesBelow !== true && (at.drawsCards || held.slots.length > 0)) ||
       at.now - held.since <= ADD_AFTER_DRAW_MS ||
       source.keptHere.has(item.localId))
 }
