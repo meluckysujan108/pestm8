@@ -193,6 +193,8 @@ describe('the guide names every shared utility and component', () => {
     'forms/VerifiedAddressFields.tsx',
     'auth/OutboxOnPhoneLine.tsx',
     'shell/ErrorScreen.tsx',
+    'analytics/BreakdownCard.tsx',
+    'analytics/StatTile.tsx',
     'shell/KeptCopyNote.tsx',
     'shell/Pending.tsx',
     'schedule/KeptJobView.tsx',

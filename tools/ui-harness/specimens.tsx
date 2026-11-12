@@ -234,6 +234,7 @@ import {
   state,
 } from './fixtures'
 import { EVERY_XERO_LINE, TWO_XERO_LINES, XERO_BIZ } from './xeroFixtures'
+import { ANALYTICS_SPECIMENS } from './analyticsSpecimens'
 import {
   BUSY_CLIENT_ID,
   BUSY_JOB_ID,
@@ -4396,4 +4397,5 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   loadmore: LoadMoreStates,
   'loadmore-live': LoadMoreLive,
   clients: ClientsList,
+  ...ANALYTICS_SPECIMENS,
 }

@@ -19,7 +19,6 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TwoStepRouteImport } from './routes/two-step'
 import { Route as WelcomeRouteImport } from './routes/welcome'
-import { Route as BusinessSlugAnalyticsRouteImport } from './routes/$businessSlug/analytics'
 import { Route as BusinessSlugJobRouteRouteImport } from './routes/$businessSlug/job/route'
 import { Route as BusinessSlugLeadsRouteImport } from './routes/$businessSlug/leads'
 import { Route as BusinessSlugNotesRouteImport } from './routes/$businessSlug/notes'
@@ -27,6 +26,8 @@ import { Route as BusinessSlugProductsRouteImport } from './routes/$businessSlug
 import { Route as BusinessSlugScheduleRouteImport } from './routes/$businessSlug/schedule'
 import { Route as JoinTokenRouteImport } from './routes/join.$token'
 import { Route as StartTokenRouteImport } from './routes/start.$token'
+import { Route as BusinessSlugAnalyticsIndexRouteImport } from './routes/$businessSlug/analytics/index'
+import { Route as BusinessSlugAnalyticsUninvoicedRouteImport } from './routes/$businessSlug/analytics/uninvoiced'
 import { Route as BusinessSlugClientsIndexRouteImport } from './routes/$businessSlug/clients/index'
 import { Route as BusinessSlugClientsImportRouteImport } from './routes/$businessSlug/clients/import'
 import { Route as BusinessSlugJobIndexRouteImport } from './routes/$businessSlug/job/index'
@@ -109,11 +110,6 @@ const WelcomeRoute = WelcomeRouteImport.update({
   path: '/welcome',
   getParentRoute: () => rootRouteImport,
 } as any)
-const BusinessSlugAnalyticsRoute = BusinessSlugAnalyticsRouteImport.update({
-  id: '/analytics',
-  path: '/analytics',
-  getParentRoute: () => BusinessSlugRouteRoute,
-} as any)
 const BusinessSlugJobRouteRoute = BusinessSlugJobRouteRouteImport.update({
   id: '/job',
   path: '/job',
@@ -149,6 +145,18 @@ const StartTokenRoute = StartTokenRouteImport.update({
   path: '/start/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BusinessSlugAnalyticsIndexRoute =
+  BusinessSlugAnalyticsIndexRouteImport.update({
+    id: '/analytics/',
+    path: '/analytics/',
+    getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
+const BusinessSlugAnalyticsUninvoicedRoute =
+  BusinessSlugAnalyticsUninvoicedRouteImport.update({
+    id: '/analytics/uninvoiced',
+    path: '/analytics/uninvoiced',
+    getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
 const BusinessSlugClientsIndexRoute =
   BusinessSlugClientsIndexRouteImport.update({
     id: '/clients/',
@@ -344,13 +352,13 @@ export interface FileRoutesByFullPath {
   '/two-step': typeof TwoStepRoute
   '/welcome': typeof WelcomeRoute
   '/$businessSlug/job': typeof BusinessSlugJobRouteRouteWithChildren
-  '/$businessSlug/analytics': typeof BusinessSlugAnalyticsRoute
   '/$businessSlug/leads': typeof BusinessSlugLeadsRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
   '/$businessSlug/products': typeof BusinessSlugProductsRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/join/$token': typeof JoinTokenRoute
   '/start/$token': typeof StartTokenRoute
+  '/$businessSlug/analytics/uninvoiced': typeof BusinessSlugAnalyticsUninvoicedRoute
   '/$businessSlug/clients/import': typeof BusinessSlugClientsImportRoute
   '/$businessSlug/job/recurring': typeof BusinessSlugJobRecurringRoute
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
@@ -365,6 +373,7 @@ export interface FileRoutesByFullPath {
   '/$businessSlug/settings/sign-in': typeof BusinessSlugSettingsSignInRoute
   '/$businessSlug/settings/signature': typeof BusinessSlugSettingsSignatureRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/$businessSlug/analytics/': typeof BusinessSlugAnalyticsIndexRoute
   '/$businessSlug/clients/': typeof BusinessSlugClientsIndexRoute
   '/$businessSlug/job/': typeof BusinessSlugJobIndexRoute
   '/$businessSlug/reports/': typeof BusinessSlugReportsIndexRoute
@@ -394,13 +403,13 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/two-step': typeof TwoStepRoute
   '/welcome': typeof WelcomeRoute
-  '/$businessSlug/analytics': typeof BusinessSlugAnalyticsRoute
   '/$businessSlug/leads': typeof BusinessSlugLeadsRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
   '/$businessSlug/products': typeof BusinessSlugProductsRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/join/$token': typeof JoinTokenRoute
   '/start/$token': typeof StartTokenRoute
+  '/$businessSlug/analytics/uninvoiced': typeof BusinessSlugAnalyticsUninvoicedRoute
   '/$businessSlug/clients/import': typeof BusinessSlugClientsImportRoute
   '/$businessSlug/job/recurring': typeof BusinessSlugJobRecurringRoute
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
@@ -415,6 +424,7 @@ export interface FileRoutesByTo {
   '/$businessSlug/settings/sign-in': typeof BusinessSlugSettingsSignInRoute
   '/$businessSlug/settings/signature': typeof BusinessSlugSettingsSignatureRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/$businessSlug/analytics': typeof BusinessSlugAnalyticsIndexRoute
   '/$businessSlug/clients': typeof BusinessSlugClientsIndexRoute
   '/$businessSlug/job': typeof BusinessSlugJobIndexRoute
   '/$businessSlug/reports': typeof BusinessSlugReportsIndexRoute
@@ -446,13 +456,13 @@ export interface FileRoutesById {
   '/two-step': typeof TwoStepRoute
   '/welcome': typeof WelcomeRoute
   '/$businessSlug/job': typeof BusinessSlugJobRouteRouteWithChildren
-  '/$businessSlug/analytics': typeof BusinessSlugAnalyticsRoute
   '/$businessSlug/leads': typeof BusinessSlugLeadsRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
   '/$businessSlug/products': typeof BusinessSlugProductsRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/join/$token': typeof JoinTokenRoute
   '/start/$token': typeof StartTokenRoute
+  '/$businessSlug/analytics/uninvoiced': typeof BusinessSlugAnalyticsUninvoicedRoute
   '/$businessSlug/clients/import': typeof BusinessSlugClientsImportRoute
   '/$businessSlug/job/recurring': typeof BusinessSlugJobRecurringRoute
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
@@ -467,6 +477,7 @@ export interface FileRoutesById {
   '/$businessSlug/settings/sign-in': typeof BusinessSlugSettingsSignInRoute
   '/$businessSlug/settings/signature': typeof BusinessSlugSettingsSignatureRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/$businessSlug/analytics/': typeof BusinessSlugAnalyticsIndexRoute
   '/$businessSlug/clients/': typeof BusinessSlugClientsIndexRoute
   '/$businessSlug/job/': typeof BusinessSlugJobIndexRoute
   '/$businessSlug/reports/': typeof BusinessSlugReportsIndexRoute
@@ -499,13 +510,13 @@ export interface FileRouteTypes {
     | '/two-step'
     | '/welcome'
     | '/$businessSlug/job'
-    | '/$businessSlug/analytics'
     | '/$businessSlug/leads'
     | '/$businessSlug/notes'
     | '/$businessSlug/products'
     | '/$businessSlug/schedule'
     | '/join/$token'
     | '/start/$token'
+    | '/$businessSlug/analytics/uninvoiced'
     | '/$businessSlug/clients/import'
     | '/$businessSlug/job/recurring'
     | '/$businessSlug/reports/$reportId'
@@ -520,6 +531,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/settings/sign-in'
     | '/$businessSlug/settings/signature'
     | '/api/auth/$'
+    | '/$businessSlug/analytics/'
     | '/$businessSlug/clients/'
     | '/$businessSlug/job/'
     | '/$businessSlug/reports/'
@@ -549,13 +561,13 @@ export interface FileRouteTypes {
     | '/terms'
     | '/two-step'
     | '/welcome'
-    | '/$businessSlug/analytics'
     | '/$businessSlug/leads'
     | '/$businessSlug/notes'
     | '/$businessSlug/products'
     | '/$businessSlug/schedule'
     | '/join/$token'
     | '/start/$token'
+    | '/$businessSlug/analytics/uninvoiced'
     | '/$businessSlug/clients/import'
     | '/$businessSlug/job/recurring'
     | '/$businessSlug/reports/$reportId'
@@ -570,6 +582,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/settings/sign-in'
     | '/$businessSlug/settings/signature'
     | '/api/auth/$'
+    | '/$businessSlug/analytics'
     | '/$businessSlug/clients'
     | '/$businessSlug/job'
     | '/$businessSlug/reports'
@@ -600,13 +613,13 @@ export interface FileRouteTypes {
     | '/two-step'
     | '/welcome'
     | '/$businessSlug/job'
-    | '/$businessSlug/analytics'
     | '/$businessSlug/leads'
     | '/$businessSlug/notes'
     | '/$businessSlug/products'
     | '/$businessSlug/schedule'
     | '/join/$token'
     | '/start/$token'
+    | '/$businessSlug/analytics/uninvoiced'
     | '/$businessSlug/clients/import'
     | '/$businessSlug/job/recurring'
     | '/$businessSlug/reports/$reportId'
@@ -621,6 +634,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/settings/sign-in'
     | '/$businessSlug/settings/signature'
     | '/api/auth/$'
+    | '/$businessSlug/analytics/'
     | '/$businessSlug/clients/'
     | '/$businessSlug/job/'
     | '/$businessSlug/reports/'
@@ -728,13 +742,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WelcomeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$businessSlug/analytics': {
-      id: '/$businessSlug/analytics'
-      path: '/analytics'
-      fullPath: '/$businessSlug/analytics'
-      preLoaderRoute: typeof BusinessSlugAnalyticsRouteImport
-      parentRoute: typeof BusinessSlugRouteRoute
-    }
     '/$businessSlug/job': {
       id: '/$businessSlug/job'
       path: '/job'
@@ -783,6 +790,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/start/$token'
       preLoaderRoute: typeof StartTokenRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/$businessSlug/analytics/': {
+      id: '/$businessSlug/analytics/'
+      path: '/analytics'
+      fullPath: '/$businessSlug/analytics/'
+      preLoaderRoute: typeof BusinessSlugAnalyticsIndexRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
+    '/$businessSlug/analytics/uninvoiced': {
+      id: '/$businessSlug/analytics/uninvoiced'
+      path: '/analytics/uninvoiced'
+      fullPath: '/$businessSlug/analytics/uninvoiced'
+      preLoaderRoute: typeof BusinessSlugAnalyticsUninvoicedRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
     }
     '/$businessSlug/clients/': {
       id: '/$businessSlug/clients/'
@@ -1019,11 +1040,11 @@ const BusinessSlugJobRouteRouteWithChildren =
 
 interface BusinessSlugRouteRouteChildren {
   BusinessSlugJobRouteRoute: typeof BusinessSlugJobRouteRouteWithChildren
-  BusinessSlugAnalyticsRoute: typeof BusinessSlugAnalyticsRoute
   BusinessSlugLeadsRoute: typeof BusinessSlugLeadsRoute
   BusinessSlugNotesRoute: typeof BusinessSlugNotesRoute
   BusinessSlugProductsRoute: typeof BusinessSlugProductsRoute
   BusinessSlugScheduleRoute: typeof BusinessSlugScheduleRoute
+  BusinessSlugAnalyticsUninvoicedRoute: typeof BusinessSlugAnalyticsUninvoicedRoute
   BusinessSlugClientsImportRoute: typeof BusinessSlugClientsImportRoute
   BusinessSlugReportsReportIdRoute: typeof BusinessSlugReportsReportIdRoute
   BusinessSlugReportsNewRoute: typeof BusinessSlugReportsNewRoute
@@ -1036,6 +1057,7 @@ interface BusinessSlugRouteRouteChildren {
   BusinessSlugSettingsJobTypesRoute: typeof BusinessSlugSettingsJobTypesRoute
   BusinessSlugSettingsSignInRoute: typeof BusinessSlugSettingsSignInRoute
   BusinessSlugSettingsSignatureRoute: typeof BusinessSlugSettingsSignatureRoute
+  BusinessSlugAnalyticsIndexRoute: typeof BusinessSlugAnalyticsIndexRoute
   BusinessSlugClientsIndexRoute: typeof BusinessSlugClientsIndexRoute
   BusinessSlugReportsIndexRoute: typeof BusinessSlugReportsIndexRoute
   BusinessSlugSettingsIndexRoute: typeof BusinessSlugSettingsIndexRoute
@@ -1056,11 +1078,11 @@ interface BusinessSlugRouteRouteChildren {
 
 const BusinessSlugRouteRouteChildren: BusinessSlugRouteRouteChildren = {
   BusinessSlugJobRouteRoute: BusinessSlugJobRouteRouteWithChildren,
-  BusinessSlugAnalyticsRoute: BusinessSlugAnalyticsRoute,
   BusinessSlugLeadsRoute: BusinessSlugLeadsRoute,
   BusinessSlugNotesRoute: BusinessSlugNotesRoute,
   BusinessSlugProductsRoute: BusinessSlugProductsRoute,
   BusinessSlugScheduleRoute: BusinessSlugScheduleRoute,
+  BusinessSlugAnalyticsUninvoicedRoute: BusinessSlugAnalyticsUninvoicedRoute,
   BusinessSlugClientsImportRoute: BusinessSlugClientsImportRoute,
   BusinessSlugReportsReportIdRoute: BusinessSlugReportsReportIdRoute,
   BusinessSlugReportsNewRoute: BusinessSlugReportsNewRoute,
@@ -1073,6 +1095,7 @@ const BusinessSlugRouteRouteChildren: BusinessSlugRouteRouteChildren = {
   BusinessSlugSettingsJobTypesRoute: BusinessSlugSettingsJobTypesRoute,
   BusinessSlugSettingsSignInRoute: BusinessSlugSettingsSignInRoute,
   BusinessSlugSettingsSignatureRoute: BusinessSlugSettingsSignatureRoute,
+  BusinessSlugAnalyticsIndexRoute: BusinessSlugAnalyticsIndexRoute,
   BusinessSlugClientsIndexRoute: BusinessSlugClientsIndexRoute,
   BusinessSlugReportsIndexRoute: BusinessSlugReportsIndexRoute,
   BusinessSlugSettingsIndexRoute: BusinessSlugSettingsIndexRoute,
@@ -1116,12 +1139,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
