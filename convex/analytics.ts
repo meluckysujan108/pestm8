@@ -961,9 +961,12 @@ export const paperwork = query({
   },
 })
 
-/** Most payments in a range that are counted, newest first. Past it the
- * answer says so (`more`). */
-const PAYMENTS_READ = 2000
+/** Most payments in a range that are counted, newest first: as many as
+ * Payments' own Paid in reads (`PAID_ROWS`). For someone whose list is their
+ * own jobs, a payment on another's job costs its job and who else is on it,
+ * so twice this in reads, against a query's 4,096. Past it the answer says
+ * so (`more`). */
+const PAYMENTS_READ = 1000
 
 /**
  * How the money that came in during a range was paid: a count and a total
@@ -1031,7 +1034,10 @@ export const payments = query({
       if (row.removedAt !== undefined || row.amount === 0) continue
       const job = await visibleJob(row.jobId)
       if (!job || !isForService(job, service)) continue
-      // Whose money it is: whoever it was handed to, else the job's lead.
+      // Whose money it is: whoever it was handed to, else the job's lead,
+      // as Paid in counts it. Narrower than the rest of the page, which
+      // counts a job for everyone going on it: money is one person's, and a
+      // shared job's payment under each of them would be counted twice.
       if (
         staff !== undefined &&
         (row.handOver?.to ?? job.assignedMembershipId) !== staff
