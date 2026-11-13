@@ -179,20 +179,6 @@ export function breakdownArgs(
   }
 }
 
-/** What `analytics.uninvoiced` is asked, the same way. */
-export function uninvoicedArgs(
-  businessId: Id<'businesses'>,
-  search: Pick<AnalyticsSearch, 'staff' | 'service'>,
-  today: string,
-) {
-  return {
-    businessId,
-    today,
-    ...(search.staff ? { staff: search.staff as Id<'memberships'> } : {}),
-    ...(search.service ? { service: search.service } : {}),
-  }
-}
-
 /** The address's search, read where there is no validated copy of it yet
  * (a loader): each key through the same rules as the route's own. */
 export function analyticsSearchOf(

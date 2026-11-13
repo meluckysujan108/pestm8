@@ -542,25 +542,6 @@ describe('invoiced', () => {
     })
     expect(await statusOf(s, jobId)).toBe('invoiced')
   })
-
-  test('counts toward this month only when it is booked this month', async () => {
-    const s = await setup()
-    // Now is always this month; forty days on never is.
-    const thisMonth = await book(s, Date.now())
-    const later = await book(s, Date.now() + 40 * DAY)
-    for (const jobId of [thisMonth, later]) {
-      await s.owner.as.mutation(api.jobs.update, {
-        businessId: s.businessId,
-        jobId,
-        status: 'invoiced',
-      })
-    }
-
-    const summary = await s.owner.as.query(api.dashboard.summary, {
-      businessId: s.businessId,
-    })
-    expect(summary?.invoicedThisMonth).toBe(20000)
-  })
 })
 
 describe('retiring In Progress', () => {

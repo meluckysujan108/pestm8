@@ -74,7 +74,7 @@ describe('the Analytics spreadsheet', () => {
     } as unknown as AnalyticsReport
     const out = analyticsCsv(hidden, undefined).split('\r\n')
     expect(out[1]).toBe('Summary,This range (2026-11-01 to 2026-11-02),2,')
-    expect(out).toContain('Summary,Awaiting invoice,,')
+    expect(out).toContain('Summary,To bill,,')
     expect(out.some((line) => line.startsWith('Services'))).toBe(false)
   })
 

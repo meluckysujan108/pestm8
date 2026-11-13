@@ -15,13 +15,17 @@ import type { RowScope } from './lib/capabilities'
 import { requireActor } from './lib/actor'
 import { jobsInScope, wireScope } from './lib/jobScope'
 import { DONE_STATUSES, isCountedJob } from './lib/jobStatus'
+import {
+  counts,
+  countsFromOf,
+  earnedOnWaivedJobs,
+  leftToBill,
+} from './lib/payments'
 import { intervalOf } from './lib/recurrence'
 import { loadJobTypes } from './lib/jobTypeList'
 import { suggestTemplates } from '../src/lib/reportTemplates/suggest'
 import {
-  AGE_BANDS,
   OLD_AFTER_DAYS,
-  ageBandOf,
   bucketIndex,
   bucketStarts,
   comparisonRange,
@@ -88,6 +92,8 @@ export const overview = query({
     // workload (lib/jobPeople.ts), and in the totals once.
     const people = await alsoGoingInWindow(ctx, businessId, from, to)
 
+    const waived = await earnedOnWaivedJobs(ctx, businessId)
+
     const revenueByMonth = new Map(monthKeys.map((k) => [k, 0]))
     const volumeByMonth = new Map(monthKeys.map((k) => [k, 0]))
     const statusCounts = new Map<string, number>()
@@ -97,13 +103,14 @@ export const overview = query({
     for (const job of jobs) {
       const monthKey = dayKeyOf(job.scheduledAt, business.timezone).slice(0, 7)
       volumeByMonth.set(monthKey, (volumeByMonth.get(monthKey) ?? 0) + 1)
-      // Only earned money — a booked job hasn't happened yet, matching
-      // `dashboard.summary`'s own awaitingInvoiceValue/invoicedThisMonth
-      // semantics rather than inventing a third revenue definition.
-      if (job.status === 'completed' || job.status === 'invoiced') {
+      // Only earned money — a booked job hasn't happened yet, as
+      // `analytics.report` counts it, rather than inventing another revenue
+      // definition.
+      if (DONE_STATUSES.has(job.status)) {
+        const earned = waived.get(job._id) ?? job.price
         revenueByMonth.set(
           monthKey,
-          (revenueByMonth.get(monthKey) ?? 0) + job.price,
+          (revenueByMonth.get(monthKey) ?? 0) + earned,
         )
       }
       statusCounts.set(job.status, (statusCounts.get(job.status) ?? 0) + 1)
@@ -186,9 +193,6 @@ const AHEAD_DAYS = 28
 /** Most finished, uninvoiced jobs one question reads, oldest first. Past it
  * the answer says it stopped (`more`), so a total is never quietly short. */
 const UNINVOICED_READ = 2000
-
-/** Most uninvoiced jobs the detail page lists, oldest first. */
-const UNINVOICED_LISTED = 100
 
 /** Most services the filter offers, most jobs first. */
 const SERVICES_OFFERED = 12
@@ -417,8 +421,16 @@ export const report = query({
       }
     }
 
-    const current = now.jobs.filter(keep(nowPeople))
-    const earlier = then ? then.jobs.filter(keep(thenPeople)) : null
+    // A job done for nothing earned what came in before it was waived, not
+    // its price (lib/payments.ts), as the dashboard counts it.
+    const waived = await earnedOnWaivedJobs(ctx, businessId)
+    const earned = (jobs: ReadonlyArray<Doc<'jobs'>>) =>
+      jobs.map((job) => {
+        const kept = waived.get(job._id)
+        return kept === undefined ? job : { ...job, price: kept }
+      })
+    const current = earned(now.jobs.filter(keep(nowPeople)))
+    const earlier = then ? earned(then.jobs.filter(keep(thenPeople))) : null
     const totals = totalsOf(current)
     const beforeTotals = earlier ? totalsOf(earlier) : null
 
@@ -461,12 +473,20 @@ export const report = query({
     const booked = coming.jobs
       .filter(keep(comingPeople))
       .filter((job) => job.status === 'pending' || job.status === 'booked')
-    const unbilled = waiting.jobs.filter(keep(waitingPeople))
+    // To bill, as Payments counts it: work from the day the business counts
+    // from, less any deposit, so the card and the list it opens agree.
+    const countsFrom = countsFromOf(business)
+    const unbilled = waiting.jobs
+      .filter(keep(waitingPeople))
+      .filter((job) => counts(job, countsFrom))
+    const left = await leftToBill(ctx, businessId, unbilled)
     const old = unbilled.filter(
       (job) => waitedDays(job, today, timezone) > OLD_AFTER_DAYS,
     )
     const sum = (jobs: ReadonlyArray<Doc<'jobs'>>) =>
       jobs.reduce((total, job) => total + job.price, 0)
+    const toBill = (jobs: ReadonlyArray<Doc<'jobs'>>) =>
+      jobs.reduce((total, job) => total + (left.get(job._id) ?? job.price), 0)
 
     const people =
       scope.kind === 'business'
@@ -523,9 +543,9 @@ export const report = query({
       // waiting beside a hidden total would say its price.
       uninvoiced: {
         count: money(unbilled.length),
-        value: money(sum(unbilled)),
+        value: money(toBill(unbilled)),
         oldCount: money(old.length),
-        oldValue: money(sum(old)),
+        oldValue: money(toBill(old)),
         oldAfterDays: OLD_AFTER_DAYS,
         more: waiting.more,
       },
@@ -537,89 +557,11 @@ export const report = query({
   },
 })
 
-/**
- * Finished work not yet invoiced, by how long it has waited: the page behind
- * the overview's "Awaiting invoice". Every such job in scope, whatever range
- * the overview is on — work is owed until it is billed — in four bands, with
- * the oldest listed so they can be opened and invoiced.
- */
-export const uninvoiced = query({
-  args: {
-    businessId: v.id('businesses'),
-    today: v.string(),
-    staff: v.optional(v.id('memberships')),
-    service: v.optional(v.string()),
-  },
-  handler: async (ctx, { businessId, today, service, ...args }) => {
-    if (!isRealDayKey(today)) throw new ConvexError('INVALID_RANGE')
-    const env = await requireActor(ctx, businessId)
-    const business = await ctx.db.get(businessId)
-    if (!business) return null
-    const scope = env.listScope
-    const staff = scope.kind === 'business' ? args.staff : undefined
-
-    const waiting = await uninvoicedInScope(ctx, scope, businessId)
-    const people = await peopleOn(ctx, businessId, waiting.jobs, staff)
-    const jobs = waiting.jobs
-      .filter(
-        (job) => isForService(job, service) && isForPerson(job, staff, people),
-      )
-      .map((job) => ({ job, days: waitedDays(job, today, business.timezone) }))
-      .sort((a, b) => b.days - a.days || a.job.scheduledAt - b.job.scheduledAt)
-
-    const hidden = hidePrices(env.caps)
-    const bands = AGE_BANDS.map((band) => {
-      const inBand = jobs.filter(({ days }) => ageBandOf(days) === band.key)
-      return {
-        key: band.key,
-        count: inBand.length,
-        value: redactTotal(
-          env.caps,
-          inBand.reduce((total, { job }) => total + job.price, 0),
-        ),
-      }
-    })
-
-    const listed = await Promise.all(
-      jobs.slice(0, UNINVOICED_LISTED).map(async ({ job, days }) => {
-        const property = await ctx.db.get(job.propertyId)
-        const client = property ? await ctx.db.get(property.clientId) : null
-        return {
-          jobId: job._id,
-          jobNumber: job.jobNumber ?? null,
-          client: client?.name ?? 'Client removed',
-          suburb: property?.suburb ?? '',
-          jobType: job.jobType,
-          price: hidden ? null : job.price,
-          dayKey: dayKeyOf(
-            job.completedAt ?? job.scheduledAt,
-            business.timezone,
-          ),
-          days,
-        }
-      }),
-    )
-
-    return {
-      scope: wireScope(scope),
-      pricesHidden: hidden,
-      count: jobs.length,
-      value: redactTotal(
-        env.caps,
-        jobs.reduce((total, { job }) => total + job.price, 0),
-      ),
-      bands,
-      jobs: listed,
-      // More waiting than is listed, or than was read at all.
-      more: jobs.length > listed.length || waiting.more,
-    }
-  },
-})
-
-/** Most properties one breakdown looks up, each a document read, and each
- * client after it another: well inside a query's 4,096 reads. Past it the
+/** Most properties one breakdown looks up: each is a document read, its
+ * client another, and its earliest jobs a third (is the client new?), so
+ * three thousand of a query's 4,096 reads at most. Past it the
  * answer says it is part of the picture (`partial`). */
-const PLACES_READ = 1500
+const PLACES_READ = 1000
 
 /** Most rows a breakdown lists, most first. */
 const ROWS_LISTED = 20
@@ -659,7 +601,7 @@ function visitsPerYear(recurrence: Doc<'recurrences'>): number {
  * report emails went. The cards under the Analytics overview.
  *
  * A query of its own, so the overview's figures never wait for the property
- * and client of every job. Finished jobs only (completed or invoiced), dated
+ * and client of every job. Finished jobs only (completed, invoiced or paid), dated
  * as `report` dates them, and narrowed by the same service and person.
  */
 export const breakdowns = query({
@@ -686,12 +628,20 @@ export const breakdowns = query({
       staff !== undefined
         ? await alsoGoingInWindow(ctx, businessId, now.from, now.to)
         : new Map()
-    const done = now.jobs.filter(
-      (job) =>
-        DONE_STATUSES.has(job.status) &&
-        isForService(job, service) &&
-        isForPerson(job, staff, people),
-    )
+    const waived = await earnedOnWaivedJobs(ctx, businessId)
+    const done = now.jobs
+      .filter(
+        (job) =>
+          DONE_STATUSES.has(job.status) &&
+          isForService(job, service) &&
+          isForPerson(job, staff, people),
+      )
+      // Earned, as `report` counts it: a job done for nothing earned what
+      // came in before it was waived.
+      .map((job) => {
+        const kept = waived.get(job._id)
+        return kept === undefined ? job : { ...job, price: kept }
+      })
 
     const byService = new Map<string, Tally & { name: string }>()
     const byLead = new Map<Id<'memberships'>, Tally>()
@@ -725,6 +675,24 @@ export const breakdowns = query({
     const properties = await Promise.all(
       read.map(([propertyId]) => ctx.db.get(propertyId)),
     )
+    // Whether each property was worked at before the range: its earliest
+    // jobs, by when they were booked. A client's record can be far older or
+    // newer than their first job (an import makes every client "new" on the
+    // day it ran), so new is decided by the work, not the record.
+    const workedBefore = await Promise.all(
+      read.map(async ([propertyId]) => {
+        const earliest = await ctx.db
+          .query('jobs')
+          .withIndex('by_property', (q) => q.eq('propertyId', propertyId))
+          .take(5)
+        return earliest.some(
+          (job) =>
+            job.scheduledAt < now.from &&
+            isCountedJob(job) &&
+            job.deletedAt === undefined,
+        )
+      }),
+    )
     const clientIds = [
       ...new Set(properties.flatMap((p) => (p ? [p.clientId] : []))),
     ]
@@ -733,7 +701,7 @@ export const breakdowns = query({
       clientDocs.flatMap((c) => (c ? [[c._id, c] as const] : [])),
     )
 
-    const rangeStart = now.from
+    const returning = new Set<Id<'clients'>>()
     const bySuburb = new Map<string, Tally & { suburb: string }>()
     const byClient = new Map<Id<'clients'>, Tally>()
     const byKind = {
@@ -743,10 +711,14 @@ export const breakdowns = query({
     read.forEach(([, tally], i) => {
       const property = properties[i]
       if (!property) return
+      if (workedBefore[i]) returning.add(property.clientId)
       const suburb = property.suburb.trim()
       if (suburb) {
         const key = suburb.toLowerCase()
         const area = bySuburb.get(key) ?? { suburb, completed: 0, revenue: 0 }
+        // Typed "BAYSWATER" at one address and "Bayswater" at another: one
+        // suburb, named as it is written anywhere that isn't all capitals.
+        if (area.suburb === area.suburb.toUpperCase()) area.suburb = suburb
         area.completed += tally.completed
         area.revenue += tally.revenue
         bySuburb.set(key, area)
@@ -760,11 +732,12 @@ export const breakdowns = query({
       byKind[client.kind].completed += tally.completed
       byKind[client.kind].revenue += tally.revenue
     })
-    // New is a client first put on the books within the range.
+    // New is a client with no job before the range at any property worked
+    // at within it.
     let newClients = 0
     let newClientJobs = 0
     for (const [clientId, tally] of byClient) {
-      if ((clientOf.get(clientId)?.createdAt ?? 0) >= rangeStart) {
+      if (!returning.has(clientId)) {
         newClients += 1
         newClientJobs += tally.completed
       }

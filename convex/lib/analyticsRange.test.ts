@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'vitest'
 import {
-  ageBandOf,
   bucketIndex,
   bucketStarts,
   comparisonRange,
@@ -81,12 +80,4 @@ describe('the points of a chart', () => {
     expect(bucketIndex(range, 'month', '2026-11-30')).toBe(0)
     expect(bucketIndex(range, 'month', '2027-01-20')).toBe(2)
   })
-})
-
-test('finished work is banded by how long it has waited', () => {
-  expect(ageBandOf(-3)).toBe('week')
-  expect(ageBandOf(7)).toBe('week')
-  expect(ageBandOf(8)).toBe('fortnight')
-  expect(ageBandOf(15)).toBe('month')
-  expect(ageBandOf(31)).toBe('older')
 })

@@ -31,11 +31,9 @@ describe('what counts as open', () => {
       true,
       true,
     ])
-    expect(['completed', 'invoiced', 'cancelled'].map(isOpenStatus)).toEqual([
-      false,
-      false,
-      false,
-    ])
+    expect(
+      ['completed', 'invoiced', 'paid', 'cancelled'].map(isOpenStatus),
+    ).toEqual([false, false, false, false])
   })
 })
 
