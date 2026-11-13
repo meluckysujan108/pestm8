@@ -372,8 +372,8 @@ export async function moneyFigures(
     addMethod(person(whose).methods, row)
   }
 
-  // The count travels with the value, as `dashboard.summary` says: beside a
-  // hidden total, a count of one is the price.
+  // The count travels with the value: beside a hidden total, a count of one
+  // is the price.
   const hidden = hidePrices(caps)
   return {
     toBill: redactTotal(caps, toBill.length),

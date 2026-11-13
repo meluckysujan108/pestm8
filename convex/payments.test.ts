@@ -776,7 +776,8 @@ describe('giving a job away', () => {
     const dashboard = await s.owner.as.query(api.dashboard.summary, {
       businessId: s.businessId,
     })
-    expect(dashboard?.invoicedThisMonth).toBe(PRICE)
+    // The waived job's $0 adds nothing to what came in.
+    expect(dashboard?.paidThisMonth).toBe(PRICE)
   })
 
   test('what was kept before giving away the rest still counts', async () => {

@@ -11,9 +11,9 @@ import { startOfDayInZone } from './lib/dates'
 import type { Doc, Id } from './_generated/dataModel'
 
 /**
- * `analytics.report` and `analytics.uninvoiced` — what the Analytics page
- * reads. Every date is given, never today's, so these answer the same at any
- * hour (CI runs at all of them).
+ * `analytics.report`, `analytics.breakdowns` and `analytics.paperwork` — what
+ * the Analytics page reads. Every date is given, never today's, so these
+ * answer the same at any hour (CI runs at all of them).
  */
 
 const PERTH = 'Australia/Perth'
@@ -283,42 +283,6 @@ describe('who sees what', () => {
         today: TODAY,
       }),
     ).rejects.toThrow('NO_ACCESS')
-  })
-})
-
-describe('awaiting invoice, by age', () => {
-  test('bands finished work by how long it has waited, oldest listed first', async () => {
-    const s = await setup()
-    await job(s, '2026-11-10', 'completed', 10000)
-    await job(s, '2026-11-01', 'completed', 20000)
-    await job(s, '2026-10-20', 'completed', 30000)
-    const oldest = await job(s, '2026-08-01', 'completed', 40000, {
-      jobNumber: 7,
-    })
-    await job(s, '2026-11-09', 'invoiced', 99000)
-
-    const r = await s.owner.as.query(api.analytics.uninvoiced, {
-      businessId: s.businessId,
-      today: TODAY,
-    })
-    expect(r?.count).toBe(4)
-    expect(r?.value).toBe(100000)
-    expect(r?.bands).toEqual([
-      { key: 'week', count: 1, value: 10000 },
-      { key: 'fortnight', count: 1, value: 20000 },
-      { key: 'month', count: 1, value: 30000 },
-      { key: 'older', count: 1, value: 40000 },
-    ])
-    expect(r?.jobs[0]).toMatchObject({
-      jobId: oldest,
-      jobNumber: 7,
-      client: 'J. Nguyen',
-      suburb: 'Bayswater',
-      price: 40000,
-      dayKey: '2026-08-01',
-      days: 102,
-    })
-    expect(r?.more).toBe(false)
   })
 })
 

@@ -25,9 +25,7 @@ import { intervalOf } from './lib/recurrence'
 import { loadJobTypes } from './lib/jobTypeList'
 import { suggestTemplates } from '../src/lib/reportTemplates/suggest'
 import {
-  AGE_BANDS,
   OLD_AFTER_DAYS,
-  ageBandOf,
   bucketIndex,
   bucketStarts,
   comparisonRange,
@@ -105,9 +103,9 @@ export const overview = query({
     for (const job of jobs) {
       const monthKey = dayKeyOf(job.scheduledAt, business.timezone).slice(0, 7)
       volumeByMonth.set(monthKey, (volumeByMonth.get(monthKey) ?? 0) + 1)
-      // Only earned money — a booked job hasn't happened yet, matching
-      // `dashboard.summary`'s own awaitingInvoiceValue/invoicedThisMonth
-      // semantics rather than inventing a third revenue definition.
+      // Only earned money — a booked job hasn't happened yet, as
+      // `analytics.report` counts it, rather than inventing another revenue
+      // definition.
       if (DONE_STATUSES.has(job.status)) {
         const earned = waived.get(job._id) ?? job.price
         revenueByMonth.set(
@@ -195,9 +193,6 @@ const AHEAD_DAYS = 28
 /** Most finished, uninvoiced jobs one question reads, oldest first. Past it
  * the answer says it stopped (`more`), so a total is never quietly short. */
 const UNINVOICED_READ = 2000
-
-/** Most uninvoiced jobs the detail page lists, oldest first. */
-const UNINVOICED_LISTED = 100
 
 /** Most services the filter offers, most jobs first. */
 const SERVICES_OFFERED = 12
@@ -558,90 +553,6 @@ export const report = query({
         .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
         .slice(0, SERVICES_OFFERED),
       people,
-    }
-  },
-})
-
-/**
- * Finished work not yet invoiced, by how long it has waited: the page behind
- * the overview's "Awaiting invoice". Every such job in scope, whatever range
- * the overview is on — work is owed until it is billed — in four bands, with
- * the oldest listed so they can be opened and invoiced.
- *
- * RETIRED with job payments: the overview's card is To bill now and opens
- * Payments' list, which is the one list. Kept only so a phone still on the
- * frontend from before answers until it updates; delete it, its tests and
- * `uninvoicedInScope`'s second caller once that frontend is gone.
- */
-export const uninvoiced = query({
-  args: {
-    businessId: v.id('businesses'),
-    today: v.string(),
-    staff: v.optional(v.id('memberships')),
-    service: v.optional(v.string()),
-  },
-  handler: async (ctx, { businessId, today, service, ...args }) => {
-    if (!isRealDayKey(today)) throw new ConvexError('INVALID_RANGE')
-    const env = await requireActor(ctx, businessId)
-    const business = await ctx.db.get(businessId)
-    if (!business) return null
-    const scope = env.listScope
-    const staff = scope.kind === 'business' ? args.staff : undefined
-
-    const waiting = await uninvoicedInScope(ctx, scope, businessId)
-    const people = await peopleOn(ctx, businessId, waiting.jobs, staff)
-    const jobs = waiting.jobs
-      .filter(
-        (job) => isForService(job, service) && isForPerson(job, staff, people),
-      )
-      .map((job) => ({ job, days: waitedDays(job, today, business.timezone) }))
-      .sort((a, b) => b.days - a.days || a.job.scheduledAt - b.job.scheduledAt)
-
-    const hidden = hidePrices(env.caps)
-    const bands = AGE_BANDS.map((band) => {
-      const inBand = jobs.filter(({ days }) => ageBandOf(days) === band.key)
-      return {
-        key: band.key,
-        count: inBand.length,
-        value: redactTotal(
-          env.caps,
-          inBand.reduce((total, { job }) => total + job.price, 0),
-        ),
-      }
-    })
-
-    const listed = await Promise.all(
-      jobs.slice(0, UNINVOICED_LISTED).map(async ({ job, days }) => {
-        const property = await ctx.db.get(job.propertyId)
-        const client = property ? await ctx.db.get(property.clientId) : null
-        return {
-          jobId: job._id,
-          jobNumber: job.jobNumber ?? null,
-          client: client?.name ?? 'Client removed',
-          suburb: property?.suburb ?? '',
-          jobType: job.jobType,
-          price: hidden ? null : job.price,
-          dayKey: dayKeyOf(
-            job.completedAt ?? job.scheduledAt,
-            business.timezone,
-          ),
-          days,
-        }
-      }),
-    )
-
-    return {
-      scope: wireScope(scope),
-      pricesHidden: hidden,
-      count: jobs.length,
-      value: redactTotal(
-        env.caps,
-        jobs.reduce((total, { job }) => total + job.price, 0),
-      ),
-      bands,
-      jobs: listed,
-      // More waiting than is listed, or than was read at all.
-      more: jobs.length > listed.length || waiting.more,
     }
   },
 })
