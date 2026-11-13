@@ -100,6 +100,11 @@ describe('describeError', () => {
     'NO_ACCESS',
     'UNAUTHENTICATED',
     'JOB_INVOICED',
+    'JOB_PAID',
+    'NOTHING_OWING',
+    'PAYMENT_OVER_OWING',
+    'PAYMENT_NOT_ALLOWED',
+    'INVALID_PAYMENT',
   ] as const)('%s has its own words', (code) => {
     expect(describeError(new ConvexError(code))).toBe(ERROR_COPY[code])
   })

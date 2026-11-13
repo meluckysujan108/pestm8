@@ -18,6 +18,11 @@ export type SaveErrorCode =
   | 'UNAUTHENTICATED'
   | 'MFA_ENROLMENT_REQUIRED'
   | 'JOB_INVOICED'
+  | 'JOB_PAID'
+  | 'NOTHING_OWING'
+  | 'PAYMENT_OVER_OWING'
+  | 'PAYMENT_NOT_ALLOWED'
+  | 'INVALID_PAYMENT'
 
 /**
  * A form's own words, by code: any of the codes above, 'offline', 'default',
@@ -52,6 +57,13 @@ export const ERROR_COPY: Readonly<
     'Could not save: set up two-step sign-in first (the button at the bottom of the screen). What you typed is still here.',
   JOB_INVOICED:
     'Could not save: this job has been invoiced, so it can no longer be changed. Book a new job for any further work.',
+  JOB_PAID:
+    'Could not save: this job has been paid. Remove the payment to change it.',
+  NOTHING_OWING: 'Could not save: nothing is owing on this job.',
+  PAYMENT_OVER_OWING: 'Could not save: that is more than is owing on this job.',
+  PAYMENT_NOT_ALLOWED:
+    'Could not save: this job can’t take a payment while it’s cancelled or not booked yet.',
+  INVALID_PAYMENT: 'Could not save: check the amount and the reference.',
   offline:
     'Could not save: this device is offline. What you typed is still here — try again when you have signal.',
   default: 'Could not save. Check your signal and try again.',

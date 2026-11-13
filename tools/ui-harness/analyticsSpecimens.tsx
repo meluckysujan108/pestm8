@@ -5,18 +5,16 @@ import { ExportButton } from '#/components/analytics/ExportButton'
 import { PaperworkCard } from '#/components/analytics/PaperworkCard'
 import type { AnalyticsPaperwork } from '#/components/analytics/PaperworkCard'
 import type { AnalyticsBreakdown } from '#/components/analytics/AnalyticsBreakdowns'
-import { UninvoicedView } from '#/components/analytics/UninvoicedView'
 import { resolveRange } from '#/lib/analyticsView'
 import type { ReactNode } from 'react'
 import type { AnalyticsReport } from '#/components/analytics/AnalyticsOverview'
-import type { UninvoicedReport } from '#/components/analytics/UninvoicedView'
 import type { AnalyticsSearch } from '#/lib/analyticsView'
 import type { Compare } from '../../convex/lib/analyticsRange'
 
 /**
- * The Analytics overview and its Awaiting invoice page, from sample figures:
- * both are given what they show (`AnalyticsOverview`), so there is no query
- * to answer here.
+ * The Analytics overview, from sample figures: it is given what it shows
+ * (`AnalyticsOverview`), so there is no query to answer here. Its To bill
+ * card opens Payments, whose specimens are in `specimens.tsx`.
  */
 
 const TODAY = '2026-11-11'
@@ -336,92 +334,6 @@ function overview(
   }
 }
 
-const WAITING: UninvoicedReport = {
-  scope: 'business',
-  pricesHidden: false,
-  count: 17,
-  value: 428000,
-  bands: [
-    { key: 'week', count: 7, value: 172500 },
-    { key: 'fortnight', count: 4, value: 92000 },
-    { key: 'month', count: 4, value: 98500 },
-    { key: 'older', count: 2, value: 65000 },
-  ],
-  jobs: [
-    [
-      'Ray White Bayswater',
-      'Bayswater',
-      'Termite Inspection',
-      38000,
-      '2026-08-01',
-      102,
-      214,
-    ],
-    [
-      'J. Nguyen',
-      'Morley',
-      'General Pest Control',
-      27000,
-      '2026-10-02',
-      40,
-      301,
-    ],
-    [
-      'Harbour Café',
-      'Fremantle',
-      'Rodents, General Pest Control',
-      42000,
-      '2026-10-19',
-      23,
-      322,
-    ],
-    [
-      'M. O’Brien',
-      'Joondalup',
-      'General Pest Control',
-      24000,
-      '2026-10-27',
-      15,
-      340,
-    ],
-    ['S. Patel', 'Subiaco', 'Termite Treatment', 96000, '2026-11-03', 8, 355],
-    [
-      'K. Thompson',
-      'Scarborough',
-      'General Pest Control',
-      25000,
-      '2026-11-10',
-      1,
-      371,
-    ],
-  ].map(([client, suburb, jobType, price, dayKey, days, jobNumber], i) => ({
-    jobId: `job_${i}` as never,
-    jobNumber: jobNumber as number,
-    client: client as string,
-    suburb: suburb as string,
-    jobType: jobType as string,
-    price: price as number,
-    dayKey: dayKey as string,
-    days: days as number,
-  })),
-  more: true,
-}
-
-function waiting(report: UninvoicedReport | undefined, narrowed = false) {
-  return function Waiting() {
-    return (
-      <Phone title="Awaiting invoice">
-        <UninvoicedView
-          businessSlug="swan-river"
-          today={TODAY}
-          report={report}
-          narrowed={narrowed}
-        />
-      </Phone>
-    )
-  }
-}
-
 export const ANALYTICS_SPECIMENS = {
   analytics: overview(REPORT, { breakdown: BREAKDOWN }),
   'analytics-no-prices': overview(NO_PRICES, {
@@ -435,9 +347,4 @@ export const ANALYTICS_SPECIMENS = {
   'analytics-quiet': overview(QUIET),
   'analytics-loading': overview(undefined),
   'analytics-failed': overview(undefined, { failed: true }),
-  'analytics-waiting': waiting(WAITING),
-  'analytics-waiting-none': waiting(
-    { ...WAITING, count: 0, value: 0, jobs: [], more: false },
-    true,
-  ),
 }

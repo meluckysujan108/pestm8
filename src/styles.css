@@ -102,6 +102,9 @@
   --blue-bg: #d6e8ff;
   --blue-line: #0a84ff;
   --blue-ink: #024596;
+  --purple-bg: #ede0fb;
+  --purple-line: #9b44d4;
+  --purple-ink: #4e1478;
   --grey-bg: #ebebf0;
   --grey-line: #8e8e93;
   --grey-ink: #545458;
@@ -208,6 +211,9 @@
   --blue-bg: #0d3160;
   --blue-line: #0a84ff;
   --blue-ink: #99cbff;
+  --purple-bg: #331a4a;
+  --purple-line: #bf5af2;
+  --purple-ink: #dcb8ff;
   --grey-bg: #2c2c2e;
   --grey-line: #8e8e93;
   --grey-ink: #aeaeb2;
@@ -343,6 +349,9 @@
   --color-blue-bg: var(--blue-bg);
   --color-blue-line: var(--blue-line);
   --color-blue-ink: var(--blue-ink);
+  --color-purple-bg: var(--purple-bg);
+  --color-purple-line: var(--purple-line);
+  --color-purple-ink: var(--purple-ink);
   --color-grey-bg: var(--grey-bg);
   --color-grey-line: var(--grey-line);
   --color-grey-ink: var(--grey-ink);

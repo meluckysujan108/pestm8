@@ -19,7 +19,7 @@ import {
 } from './properties'
 import { suggestTemplates } from '../src/lib/reportTemplates/suggest'
 import { canonicalLabelFor, loadJobTypes } from './lib/jobTypeList'
-import { settableJobStatus } from './schema'
+import { bookedJobStatus, settableJobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import { isInScope, writeAttribution } from './lib/capabilities'
 import {
@@ -41,10 +41,16 @@ import {
   assertStatusChange,
   entersDone,
   initialJobStatus,
+  detailsLocked,
+  detailsLockedError,
+  finishedStatus,
+  followMoney,
+  invoiceStamp,
   isCountedJob,
   orderForDay,
   setJobStatus,
 } from './lib/jobStatus'
+import { moneyOnJob, paymentOnCard } from './lib/payments'
 import { hidePrices, redactJob } from './lib/prices'
 import { HORIZON_DAYS, intervalOf } from './lib/recurrence'
 import { contactPersonOf } from './lib/contactPerson'
@@ -312,6 +318,9 @@ async function decorate(
           ),
           // The card's Note row: the job's newest note in Notes.
           notePreview: await jobNotePreview(ctx, job._id),
+          // The line by the card's price: how a finished job was paid, or
+          // what is owing. Absent until the work is done.
+          payment: await paymentOnCard(ctx, env.caps, job),
         }
       }),
   )
@@ -450,9 +459,9 @@ export const listDay = query({
  */
 const JOB_LIST_LIMIT = 200
 
-/** Every status but `recurring`: the ones a person can set, which is to say
- * every job somebody booked (schema.ts `settableJobStatus`). */
-const BOOKED_STATUSES = settableJobStatus.members.map((m) => m.value)
+/** Every status but `recurring`: every job somebody booked (schema.ts
+ * `bookedJobStatus`). */
+const BOOKED_STATUSES = bookedJobStatus.members.map((m) => m.value)
 
 /**
  * The Job tab's order: when each job was booked (the default, and what an
@@ -482,7 +491,7 @@ export const list = query({
     // means the newest `limit` completed jobs and not the completed ones
     // among the newest `limit`. Optional: an older app asks without it and
     // filters what it gets, as it always has.
-    status: v.optional(settableJobStatus),
+    status: v.optional(bookedJobStatus),
     /**
      * One person's jobs: the ones they lead and the ones they are also going
      * on, within what this list already shows (`narrowToPerson`). The
@@ -582,7 +591,7 @@ const JOB_PAGE_BYTES_READ = 6 * 1024 * 1024
 export const listPage = query({
   args: {
     businessId: v.id('businesses'),
-    status: v.optional(settableJobStatus),
+    status: v.optional(bookedJobStatus),
     sort: v.optional(jobListSort),
     paginationOpts: paginationOptsValidator,
   },
@@ -667,7 +676,7 @@ const JOB_COUNT_LIMIT = 1000
 export const listCounts = query({
   args: {
     businessId: v.id('businesses'),
-    status: v.optional(settableJobStatus),
+    status: v.optional(bookedJobStatus),
   },
   handler: async (ctx, { businessId, status }) => {
     const env = await requireActor(ctx, businessId)
@@ -1513,7 +1522,7 @@ export const create = mutation({
  * A job write made inside someone else's account, on that account's record.
  * Nothing when the writer was working as themselves — see `recordOnBehalf`.
  */
-async function recordJobWrite(
+export async function recordJobWrite(
   ctx: MutationCtx,
   env: WriteEnvelope,
   job: Doc<'jobs'>,
@@ -1548,9 +1557,10 @@ export const update = mutation({
     // Everyone going beside the lead, as it should be afterwards — the whole
     // list, not a change to it. Absent leaves them alone.
     alsoGoing: v.optional(v.array(v.id('memberships'))),
-    // Deliberately not `jobStatus`: 'recurring' is system-only
-    // (lib/jobStatus.ts), refused here at the door so a client that sends it
-    // fails argument validation before any handler code runs.
+    // Deliberately not `jobStatus`: 'recurring' is system-only and 'paid'
+    // follows payments (lib/jobStatus.ts), refused here at the door so a
+    // client that sends either fails argument validation before any handler
+    // code runs.
     // `assertStatusChange` below repeats the rule for the day this is widened
     // by mistake. 'invoiced' is an ordinary choice for whoever may edit the
     // job — the owner's decision, 2026-09-22.
@@ -1599,7 +1609,8 @@ export const update = mutation({
     // an ordinary choice like any other, so a status-only change still passes
     // — moving it back out of invoiced is how its details are reopened. So
     // does its note, which the invoice does not carry: "paid cash on the day"
-    // is written after the invoice, not before it.
+    // is written after the invoice, not before it. A paid job is the same,
+    // though its status is not a choice: taking the payment back reopens it.
     const touchesDetails = Object.entries(
       patch as Record<string, unknown>,
     ).some(
@@ -1607,8 +1618,8 @@ export const update = mutation({
         field !== 'status' && field !== 'notes' && value !== undefined,
     )
     // Who went is a detail of the invoice like who led it.
-    if (job.status === 'invoiced' && (touchesDetails || peopleChanged)) {
-      throw new ConvexError('JOB_INVOICED')
+    if (detailsLocked(job.status) && (touchesDetails || peopleChanged)) {
+      throw detailsLockedError(job.status)
     }
     // Only those added are asked about: whoever is already on it — the lead
     // stepping aside included — stays, whoever may book them or not.
@@ -1683,9 +1694,31 @@ export const update = mutation({
       await assertReportIssued(ctx, job)
     }
 
+    if (patch.status !== undefined) {
+      Object.assign(fields, invoiceStamp(job, patch.status))
+      // Moved back to work still to do, it is not finished any more.
+      if (patch.status === 'pending' || patch.status === 'booked') {
+        fields.completedAt = undefined
+      }
+    }
+
+    // A job finished with its money already in, or a price corrected down to
+    // what has been paid, has nothing left to bill (lib/jobStatus.ts).
+    const finished = patch.status ?? job.status
+    const settles =
+      (patch.status !== undefined || fields.price !== undefined) &&
+      (finished === 'completed' || finished === 'invoiced') &&
+      finishedStatus(
+        finished,
+        typeof fields.price === 'number' ? fields.price : job.price,
+        await moneyOnJob(ctx, jobId),
+      ) === 'paid'
+    if (settles) delete fields.status
+
     if (Object.keys(fields).length > 0) {
       await ctx.db.patch(jobId, fields)
     }
+    if (settles) await followMoney(ctx, job, 'paid')
     // The people rows carry the job's date, for their schedules' index.
     if (fields.scheduledAt !== undefined) {
       await syncAlsoGoingDate(ctx, jobId, fields.scheduledAt as number)
@@ -1694,10 +1727,11 @@ export const update = mutation({
       const moved = await ctx.db.get(jobId)
       if (moved) await setAlsoGoing(ctx, moved, alsoGoing, env.actor.real._id)
     }
-    if (Object.keys(fields).length > 0 || peopleChanged) {
+    if (Object.keys(fields).length > 0 || peopleChanged || settles) {
       await recordJobWrite(ctx, env, job, 'job.update', {
         fields: [
           ...Object.keys(fields),
+          ...(settles ? ['status'] : []),
           ...(peopleChanged ? ['alsoGoing'] : []),
         ],
       })
@@ -1722,7 +1756,13 @@ export const complete = mutation({
     // Asked on the way into finished work only: an invoiced job moved back to
     // Completed already answered it.
     if (entersDone(job.status, 'completed')) await assertReportIssued(ctx, job)
-    await setJobStatus(ctx, job, 'completed', { completedAt: Date.now() })
+    const money = await moneyOnJob(ctx, job._id)
+    if (finishedStatus('completed', job.price, money) !== 'paid') {
+      await setJobStatus(ctx, job, 'completed', { completedAt: Date.now() })
+    } else if (job.status !== 'paid') {
+      // A deposit that covers it: nothing to bill, so the job closes itself.
+      await followMoney(ctx, job, 'paid', { completedAt: Date.now() })
+    }
     await recordJobWrite(ctx, env, job, 'job.complete')
   },
 })
@@ -1740,7 +1780,7 @@ export const complete = mutation({
  * changing, and "there is a half-filled draft somewhere" is the state this
  * exists to catch.
  */
-async function assertReportIssued(ctx: MutationCtx, job: Doc<'jobs'>) {
+export async function assertReportIssued(ctx: MutationCtx, job: Doc<'jobs'>) {
   const business = await ctx.db.get(job.businessId)
   if (business?.requireReportToComplete !== true) return
   // Any of the job's services with a form is enough: a general pest service

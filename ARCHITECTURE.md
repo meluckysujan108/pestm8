@@ -73,7 +73,8 @@ re-declared per theme, so nothing else in the system is themed twice.
 
   Job status ramps (Phase 4.3), one per hue, each a -bg / -line / -ink triple:
   --orange-*  Recurring   --red-*   Pending    --yellow-*  Booked
-  --green-*   Completed   --blue-*  Invoiced   --grey-*    Cancelled
+  --green-*   Completed   --blue-*  Invoiced   --purple-*  Paid
+  --grey-*    Cancelled
   Every -ink clears 7:1 on its -bg (grey 6.3:1) and every -line 3:1 on the
   card, in both themes — checked against this file by statusColours.test.ts.
   Which status takes which hue is decided once, in src/lib/statusColours.ts.
@@ -84,7 +85,9 @@ re-declared per theme, so nothing else in the system is themed twice.
   the owner sets it in Settings → Team); a bordered tinted pill with a word is
   a STATUS; ink with no hue is OVERDUE; and amber with a pale border stays a
   WARNING. Completed is green since 4.3 — the "raise the invoice" prompt
-  lives on Analytics' Awaiting invoice figure, which links to those jobs.
+  lives on Payments' To bill list (More → Payments), which Analytics' To
+  bill figure links to. Amended 11 Nov 2026: it was Analytics' Awaiting
+  invoice figure, linking to the Jobs list.
 
   Dark inverts the elevation model: --canvas is black and cards sit *above* it,
   where light has white cards on a grey canvas. --blue and --amber do not move
@@ -283,6 +286,9 @@ businesses: {
   name, slug, state,                    // state drives licence-field labelling
   abn?, timezone,                       // e.g. "Australia/Perth"
   stripeCustomerId?, subscriptionStatus, plan,
+  paymentsFrom?,                        // Payments counts Owing and To bill from
+                                        // this day; older jobs keep their status
+                                        // (convex/payments.ts setCountsFrom)
   createdAt
 }
 .index("by_slug", ["slug"])
@@ -318,9 +324,10 @@ jobs: {
   price,                                // cents
   scheduledAt, durationMinutes,
   status: "recurring" | "pending" | "booked"
-        | "completed" | "invoiced" | "cancelled",
+        | "completed" | "invoiced" | "paid" | "cancelled",
                                         // new by hand = pending; "recurring" only
-                                        // from the recurrence engine, one-way out
+                                        // from the recurrence engine, one-way out;
+                                        // "paid" only from recording money
                                         // (convex/lib/jobStatus.ts)
   recurrenceId?,                        // null = one-off
   completedAt?, createdAt
@@ -503,6 +510,22 @@ invoices: {
 }
 .index("by_job", ["jobId"])
 .index("by_business", ["businessId"])
+
+payments: {                              // how a job was paid (convex/payments.ts)
+  businessId, jobId,
+  method: "cash" | "card" | "bankTransfer" | "cheque" | "other" | "noCharge",
+  amount, receivedAt,                   // cents (0 for noCharge); the day it came in
+  recordedBy, recordedAt,
+  reference?, deposit?,                 // deposit: taken before the work was done
+  handOver?: { from, to, note?, markedBy, markedAt, doneAt?, doneBy? },
+                                        // a mark, never a rule: moves no money
+  removedAt?, removedBy?,               // kept, never deleted
+  clientRequestId?
+}
+.index("by_jobId", ["jobId"])
+.index("by_businessId_and_receivedAt", ["businessId", "receivedAt"])
+// A job's status follows its money: "paid" is set only here, and taking a
+// payment back puts back the status it moved (convex/lib/payments.ts).
 
 smsLog: { businessId, jobId, phone, kind: "reminder" | "receipt",
           providerSid?, status, sentAt }
