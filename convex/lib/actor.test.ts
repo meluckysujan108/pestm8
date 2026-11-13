@@ -1743,9 +1743,11 @@ describe('someone who cannot see prices', () => {
     const summary = await f.priya.as.query(api.dashboard.summary, {
       businessId: f.businessId,
     })
-    expect(summary?.awaitingInvoice).toBeNull()
-    expect(summary?.awaitingInvoiceValue).toBeNull()
-    expect(summary?.invoicedThisMonth).toBeNull()
+    expect(summary?.toBill).toBeNull()
+    expect(summary?.toBillValue).toBeNull()
+    expect(summary?.owing).toBeNull()
+    expect(summary?.owingValue).toBeNull()
+    expect(summary?.paidThisMonth).toBeNull()
   })
 
   /**
