@@ -1091,6 +1091,8 @@ Counts are digits with their noun ("3 jobs"), singular or plural by count.
 - A finished report's **Answers** (`ReportDocument` with `variant="answers"`) is not a preview: it is what was recorded, in the app's type and theme, with its questions in sentence case rather than grey capitals. The PDF, a tap away, is the paper.
 - A signature pad and a PDF page are `bg-paper` in both themes, because what is drawn on them is for paper.
 
+**A black screen stays dark:** the photo annotator (`AnnotationEditor.tsx`) is black in both themes, so it pins `data-theme="dark"`, and its warning text and surfaces come from the dark tokens. The light theme's `amber-ink` is too dim on black to read.
+
 **The PDF is its own design system.**
 
 - `src/components/reports/pdf/` renders with `@react-pdf/renderer`, which can't read CSS variables. It keeps its own hex palette in `pdf/theme.ts`, mirroring the tokens: its red is `--red-fill` (`#DC2A1F`), because the band and table header put white text on it.

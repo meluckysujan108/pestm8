@@ -119,6 +119,7 @@ import { StagedLicenceFiles } from '#/components/settings/StagedLicenceFiles'
 import type { StagedFiles } from '#/components/settings/StagedLicenceFiles'
 import type { LicenceDraft } from '#/components/settings/LicenceFields'
 import { ReportSigning } from '#/components/reports/fields/ReportSigning'
+import { AnnotationEditor } from '#/components/reports/fields/AnnotationEditor'
 import { SignatureRow } from '#/components/reports/fields/SignatureRow'
 import { MySignature } from '#/components/settings/MySignature'
 import { keepSignature } from '#/lib/signature/kept'
@@ -1404,6 +1405,36 @@ function SignClient() {
         onSigned={() => {}}
       />
     </Phone>
+  )
+}
+
+/** A report photo, drawn rather than shipped: the annotator's stand-in. */
+const ANNOTATE_PHOTO =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480"><rect width="640" height="480" fill="#c9b79c"/><rect y="360" width="640" height="120" fill="#8a7a63"/><path d="M180 120 l40 60 l-30 50 l50 70" stroke="#5b4a35" stroke-width="6" fill="none"/></svg>',
+  )
+
+/** The photo annotator over a photo, ready to be drawn on. */
+function Annotate() {
+  return (
+    <AnnotationEditor
+      imageUrl={ANNOTATE_PHOTO}
+      onSave={() => {}}
+      onCancel={() => {}}
+    />
+  )
+}
+
+/** The photo annotator when the photo did not load on either try
+ * (`editableImage.ts`): it says so, and offers Try again. */
+function AnnotateLoadFailed() {
+  return (
+    <AnnotationEditor
+      imageUrl="/__harness/no-such-photo.jpg"
+      onSave={() => {}}
+      onCancel={() => {}}
+    />
   )
 }
 
@@ -4284,6 +4315,8 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'schedule-recurring': scheduleRecurring(false),
   'schedule-recurring-date': scheduleRecurring(true),
   sign: Sign,
+  annotate: Annotate,
+  'annotate-load-failed': AnnotateLoadFailed,
   'sign-client': SignClient,
   'sign-row-saved': SignRowSaved,
   'sign-row-waiting': SignRowWaiting,
