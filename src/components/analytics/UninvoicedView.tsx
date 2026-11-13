@@ -91,11 +91,15 @@ export function UninvoicedView({
       ) : (
         <>
           <div className={STAT_CARD}>
+            {/* Without prices the count is the figure: never a lone dash
+                where the page's one big number goes. */}
             <p className="text-metric-lg text-ink">
-              {formatMoney(report.value)}
+              {report.value === null ? report.count : formatMoney(report.value)}
             </p>
             <p className="mt-1 text-body text-ink-2">
-              {jobs(report.count)} finished and not yet invoiced.
+              {report.value === null
+                ? `finished ${report.count === 1 ? 'job' : 'jobs'} not yet invoiced.`
+                : `${jobs(report.count)} finished and not yet invoiced.`}
             </p>
           </div>
 
@@ -109,11 +113,17 @@ export function UninvoicedView({
                       {BAND_LABEL[band.key]}
                     </span>
                     <span className="text-body text-ink tabular-nums">
-                      {formatMoney(band.value)}
-                      <span className="text-caption text-muted">
-                        {' · '}
-                        {jobs(band.count)}
-                      </span>
+                      {band.value === null ? (
+                        jobs(band.count)
+                      ) : (
+                        <>
+                          {formatMoney(band.value)}
+                          <span className="text-caption text-muted">
+                            {' · '}
+                            {jobs(band.count)}
+                          </span>
+                        </>
+                      )}
                     </span>
                   </div>
                   {/* Ink, not a hue: a bar here is a length, not a status. */}
