@@ -15,6 +15,7 @@ import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { WriteEnvelope } from './lib/actor'
 import { dropAlsoGoing } from './lib/jobPeople'
+import { paymentsOfJob } from './lib/payments'
 import { keepWipedRequest } from './lib/clientRequest'
 import { clearMatchHints } from './clientMatchHints'
 import {
@@ -947,6 +948,9 @@ export const wipeStep = internalMutation({
           await dropJobPhotoFile(ctx, photo)
         }
         await dropAlsoGoing(ctx, job._id)
+        for (const payment of await paymentsOfJob(ctx, job._id)) {
+          await ctx.db.delete('payments', payment._id)
+        }
         await keepWipedRequest(ctx, job, { kind: 'job', id: job._id })
         await ctx.db.delete('jobs', job._id)
       }

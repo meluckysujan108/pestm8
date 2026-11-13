@@ -64,7 +64,8 @@ export function analyticsCsv(
     bookedAhead.count,
     bookedAhead.value,
   )
-  add('Summary', 'Awaiting invoice', uninvoiced.count, uninvoiced.value)
+  // As the page's card says it: finished, not yet billed (Payments' To bill).
+  add('Summary', 'To bill', uninvoiced.count, uninvoiced.value)
 
   for (const point of report.series)
     add('Over time', point.start, point.completed, point.revenue)

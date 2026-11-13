@@ -47,10 +47,12 @@ import {
 
 // Every visit still to be done: a projected `recurring` visit and a `pending`
 // one are as much this person's upcoming work as a `booked` one — and so is
-// one already `invoiced`, since a visit can be billed before it happens.
+// one already `invoiced`, or even `paid`, since a visit can be billed and
+// settled before it happens.
 const FUTURE_JOB_STATUSES: ReadonlySet<JobStatus> = new Set<JobStatus>([
   ...NOT_STARTED_STATUSES,
   'invoiced',
+  'paid',
 ])
 
 async function futureJobsOf(
