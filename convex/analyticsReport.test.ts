@@ -528,3 +528,82 @@ describe('paperwork', () => {
     })
   })
 })
+
+describe('how you were paid', () => {
+  function paid(
+    s: Setup,
+    jobId: Id<'jobs'>,
+    dayKey: string,
+    method: Doc<'payments'>['method'],
+    amount: number,
+    more: Partial<Doc<'payments'>> = {},
+  ) {
+    return s.t.run((ctx) =>
+      ctx.db.insert('payments', {
+        businessId: s.businessId,
+        jobId,
+        method,
+        amount,
+        receivedAt: noon(dayKey),
+        recordedBy: s.ownerMembershipId,
+        recordedAt: noon(dayKey),
+        ...more,
+      }),
+    )
+  }
+
+  test('totals each method for money received in the range, most first', async () => {
+    const s = await setup()
+    // Done long before the range, paid within it: the payment's day counts.
+    const old = await job(s, '2026-08-01', 'invoiced', 30000)
+    const recent = await job(s, '2026-11-01', 'completed', 50000)
+    await paid(s, old, '2026-11-02', 'bankTransfer', 30000)
+    await paid(s, recent, '2026-11-01', 'cash', 20000, { deposit: true })
+    await paid(s, recent, '2026-11-03', 'cash', 5000)
+    // Not money, taken back, or outside the range: in none of it.
+    await paid(s, recent, '2026-11-03', 'noCharge', 0)
+    await paid(s, recent, '2026-11-04', 'card', 9900, { removedAt: 1 })
+    await paid(s, recent, '2026-10-12', 'cheque', 7700)
+
+    const r = await s.owner.as.query(api.analytics.payments, {
+      businessId: s.businessId,
+      ...RANGE,
+    })
+    expect(r).toEqual({
+      pricesHidden: false,
+      count: 3,
+      value: 55000,
+      methods: [
+        { method: 'bankTransfer', count: 1, value: 30000 },
+        { method: 'cash', count: 2, value: 25000 },
+      ],
+      more: false,
+    })
+  })
+
+  test('a subcontractor gets payments on their own jobs only', async () => {
+    const s = await setup()
+    const sam = await createActor(s.t, { email: 'sam@coastal.test' })
+    const samId = await joinBusiness(
+      s.t,
+      s.owner,
+      sam,
+      s.businessId,
+      'subcontractor',
+    )
+    const theirs = await job(s, '2026-11-01', 'completed', 20000, {
+      assignedMembershipId: samId,
+    })
+    const owners = await job(s, '2026-11-02', 'completed', 30000)
+    await paid(s, theirs, '2026-11-01', 'cash', 20000)
+    await paid(s, owners, '2026-11-02', 'card', 30000)
+
+    const r = await sam.as.query(api.analytics.payments, {
+      businessId: s.businessId,
+      ...RANGE,
+    })
+    expect(r?.count).toBe(1)
+    expect(r?.methods.map((m) => m.method)).toEqual(['cash'])
+    if (r?.pricesHidden) expect(r.value).toBeNull()
+  })
+})

@@ -45,7 +45,7 @@ describe('the Analytics spreadsheet', () => {
   const lines = analyticsCsv(REPORT, BREAKDOWN).trimEnd().split('\r\n')
 
   test('is four columns, in the page’s order, money as dollars', () => {
-    expect(lines[0]).toBe('Section,Name,Jobs completed,Revenue')
+    expect(lines[0]).toBe('Section,Name,Count,Amount')
     expect(lines[1]).toBe(
       'Summary,This range (2026-11-01 to 2026-11-02),2,500.00',
     )
@@ -76,6 +76,18 @@ describe('the Analytics spreadsheet', () => {
     expect(out[1]).toBe('Summary,This range (2026-11-01 to 2026-11-02),2,')
     expect(out).toContain('Summary,To bill,,')
     expect(out.some((line) => line.startsWith('Services'))).toBe(false)
+  })
+
+  test('lists money received by method when it is given', () => {
+    const paid = {
+      methods: [
+        { method: 'bankTransfer', count: 1, value: 30000 },
+        { method: 'cash', count: 2, value: null },
+      ],
+    } as never
+    const out = analyticsCsv(REPORT, BREAKDOWN, paid).split('\r\n')
+    expect(out).toContain('Payments received,Bank transfer,1,300.00')
+    expect(out).toContain('Payments received,Cash,2,')
   })
 
   test('is named for the days it covers', () => {

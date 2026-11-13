@@ -133,6 +133,9 @@ export const rq = {
   /** Finished jobs in a range with no finalised report: Analytics' Paperwork. */
   analyticsPaperwork: (args: FunctionArgs<typeof api.analytics.paperwork>) =>
     convexQuery(api.analytics.paperwork, args),
+  /** How a range's money was paid, by method: Analytics' How you were paid. */
+  analyticsPayments: (args: FunctionArgs<typeof api.analytics.payments>) =>
+    convexQuery(api.analytics.payments, args),
   currentUser: () => convexQuery(api.auth.getCurrentUser, {}),
   /** A new business's set-up guide — the owner's only (`setupGuide.ts`). */
   setupGuide: (businessId: B) =>

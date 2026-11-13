@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { AnalyticsBreakdowns } from '#/components/analytics/AnalyticsBreakdowns'
 import { AnalyticsOverview } from '#/components/analytics/AnalyticsOverview'
 import { ExportButton } from '#/components/analytics/ExportButton'
+import { PaidCard } from '#/components/analytics/PaidCard'
 import { PaperworkCard } from '#/components/analytics/PaperworkCard'
+import type { AnalyticsPayments } from '#/components/analytics/PaidCard'
 import type { AnalyticsPaperwork } from '#/components/analytics/PaperworkCard'
 import type { AnalyticsBreakdown } from '#/components/analytics/AnalyticsBreakdowns'
 import { resolveRange } from '#/lib/analyticsView'
@@ -247,6 +249,19 @@ const BREAKDOWN_NO_PRICES: AnalyticsBreakdown = {
   emails: null,
 }
 
+const PAID: AnalyticsPayments = {
+  pricesHidden: false,
+  count: 109,
+  value: 3142000,
+  methods: [
+    { method: 'card', count: 61, value: 1687000 },
+    { method: 'bankTransfer', count: 29, value: 1104000 },
+    { method: 'cash', count: 17, value: 306000 },
+    { method: 'cheque', count: 2, value: 45000 },
+  ],
+  more: false,
+}
+
 const PAPERWORK: AnalyticsPaperwork = {
   checked: 96,
   missing: 7,
@@ -319,12 +334,17 @@ function overview(
           )}
           {opts.breakdown && (
             <>
+              <PaidCard businessSlug="swan-river" data={PAID} />
               <PaperworkCard
                 businessSlug="swan-river"
                 today={TODAY}
                 data={PAPERWORK}
               />
-              <ExportButton report={report} breakdown={opts.breakdown} />
+              <ExportButton
+                report={report}
+                breakdown={opts.breakdown}
+                paid={PAID}
+              />
             </>
           )}
           {opts.note}
