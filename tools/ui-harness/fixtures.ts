@@ -248,6 +248,73 @@ export const state = {
   actingAs: false,
   technician: false,
   noClientEdits: false,
+  /** The client's sheet says they owe money (`payments:forClient`). */
+  clientOwes: false,
+}
+
+/**
+ * What a client owes on their sheet: nothing, unless the specimen says they
+ * owe (`state.clientOwes`): two bills, one part paid, and a job done with a
+ * deposit on it.
+ */
+function clientOwed() {
+  const day = 24 * 60 * 60 * 1000
+  const now = Date.now()
+  const nothing = {
+    pricesHidden: false,
+    owing: { count: 0, value: 0, since: null },
+    toBill: { count: 0, value: 0 },
+    rows: [],
+    more: false,
+  }
+  if (!state.clientOwes) return nothing
+  const job = (over: Record<string, unknown>) => ({
+    completedAt: null,
+    invoicedAt: null,
+    paid: 0,
+    ...over,
+  })
+  return {
+    ...nothing,
+    owing: { count: 2, value: 42000, since: now - 20 * day },
+    toBill: { count: 1, value: 16000 },
+    rows: [
+      job({
+        _id: 'j_owe1',
+        list: 'owing',
+        jobNumber: 2402,
+        jobType: 'Termite Inspection',
+        scheduledAt: now - 21 * day,
+        completedAt: now - 21 * day,
+        invoicedAt: now - 20 * day,
+        price: 35000,
+        paid: 15000,
+        owed: 20000,
+      }),
+      job({
+        _id: 'j_owe2',
+        list: 'owing',
+        jobNumber: 2418,
+        jobType: 'General Pest Control',
+        scheduledAt: now - 6 * day,
+        completedAt: now - 6 * day,
+        invoicedAt: now - 6 * day,
+        price: 22000,
+        owed: 22000,
+      }),
+      job({
+        _id: 'j_owe3',
+        list: 'toBill',
+        jobNumber: 2433,
+        jobType: 'Rodent Control',
+        scheduledAt: now - 2 * day,
+        completedAt: now - 2 * day,
+        price: 26000,
+        paid: 10000,
+        owed: 16000,
+      }),
+    ],
+  }
 }
 
 function accessMe() {
@@ -1000,6 +1067,7 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   'payments:outstanding': paymentsOutstanding,
   'payments:paidIn': (args: { businessId: string; month?: string }) =>
     paymentsPaidIn({ ...args, dayKeyOf: (ts) => dayKeyOf(ts, TZ) }),
+  'payments:forClient': () => clientOwed(),
   'payments:forJob': (args: { jobId: string }) =>
     paymentsForJob({
       jobId:
