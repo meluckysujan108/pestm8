@@ -329,9 +329,10 @@ describe('where the work came from', () => {
         businessId: s.businessId,
         kind: 'business',
         name: 'Harbour Café',
-        // First put on the books inside the range: a new client.
-        createdAt: noon('2026-10-20'),
-        updatedAt: noon('2026-10-20'),
+        // On the books for years, and never worked for until the range: a
+        // new client is one whose first job is in it, whatever their record.
+        createdAt: 0,
+        updatedAt: 0,
       })
       return ctx.db.insert('properties', {
         businessId: s.businessId,
@@ -340,7 +341,7 @@ describe('where the work came from', () => {
         suburb: 'Fremantle',
         state: 'WA',
         postcode: '6160',
-        createdAt: noon('2026-10-20'),
+        createdAt: 0,
       })
     })
   }
@@ -408,6 +409,31 @@ describe('where the work came from', () => {
     const r = await breakdowns(s, { service: 'rodents' })
     expect(r?.completed).toBe(1)
     expect(r?.areas.map((a) => a.suburb)).toEqual(['Fremantle'])
+  })
+
+  test('a cancelled job before the range does not make a client a returning one, and a suburb in capitals is the same suburb', async () => {
+    const s = await setup()
+    const shouting = await s.t.run(async (ctx) => {
+      const property = await ctx.db.get(s.propertyId)
+      return ctx.db.insert('properties', {
+        businessId: s.businessId,
+        clientId: property!.clientId,
+        addressLine: '14 Wattle Street',
+        suburb: 'BAYSWATER',
+        state: 'WA',
+        postcode: '6053',
+        createdAt: 0,
+      })
+    })
+    await job(s, '2026-09-01', 'cancelled', 20000)
+    await job(s, '2026-11-01', 'completed', 20000, { propertyId: shouting })
+    await job(s, '2026-11-02', 'completed', 30000)
+
+    const r = await breakdowns(s)
+    expect(r?.clients).toMatchObject({ served: 1, new: 1, newJobs: 2 })
+    expect(r?.areas).toEqual([
+      { suburb: 'Bayswater', completed: 2, revenue: 50000 },
+    ])
   })
 
   test('what repeats is valued by the year, and its finished visits counted', async () => {
