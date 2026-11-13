@@ -38,7 +38,8 @@ import {
 import type { DayRange } from './lib/analyticsRange'
 import { hidePrices, redactTotal } from './lib/prices'
 import { UNASSIGNED_COLOUR } from './lib/colours'
-import { alsoGoingInWindow, everyoneOn } from './lib/jobPeople'
+import { alsoGoingInWindow, everyoneOn, jobInScope } from './lib/jobPeople'
+import { unbinned } from './lib/bin'
 
 /** Shifts a `"YYYY-MM"` key by `offset` months (either direction). */
 function monthKeyOffset(monthKey: string, offset: number): string {
@@ -956,6 +957,115 @@ export const paperwork = query({
       jobs: listed,
       /** More finished jobs were due a report than were checked. */
       more: due.length > checked.length,
+    }
+  },
+})
+
+/** Most payments in a range that are counted, newest first: as many as
+ * Payments' own Paid in reads (`PAID_ROWS`). For someone whose list is their
+ * own jobs, a payment on another's job costs its job and who else is on it,
+ * so twice this in reads, against a query's 4,096. Past it the answer says
+ * so (`more`). */
+const PAYMENTS_READ = 1000
+
+/**
+ * How the money that came in during a range was paid: a count and a total
+ * for each method, most money first. The "How you were paid" card on
+ * Analytics.
+ *
+ * Counted as Payments' own Paid in is (`payments.paidIn`): payments received
+ * in the range, on jobs the caller may see, not removed. No charge moved no
+ * money and is left out. Dated by the day the money was received, which is
+ * not the day the job was done: a range's payments and its revenue are two
+ * different sums, and the card says so.
+ */
+export const payments = query({
+  args: {
+    businessId: v.id('businesses'),
+    from: v.string(),
+    to: v.string(),
+    staff: v.optional(v.id('memberships')),
+    service: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { businessId, service } = args
+    const range: DayRange = { from: args.from, to: args.to }
+    if (!isValidRange(range)) throw new ConvexError('INVALID_RANGE')
+    const env = await requireActor(ctx, businessId)
+    const business = await ctx.db.get(businessId)
+    if (!business) return null
+    const scope = env.listScope
+    const staff = scope.kind === 'business' ? args.staff : undefined
+    const from = startOfDayInZone(range.from, business.timezone)
+    const to = startOfDayInZone(addDaysToKey(range.to, 1), business.timezone)
+
+    const read = await ctx.db
+      .query('payments')
+      .withIndex('by_businessId_and_receivedAt', (q) =>
+        q
+          .eq('businessId', businessId)
+          .gte('receivedAt', from)
+          .lt('receivedAt', to),
+      )
+      .order('desc')
+      .take(PAYMENTS_READ + 1)
+
+    // Each job once, however many payments it took.
+    const jobsById = new Map<Id<'jobs'>, Promise<Doc<'jobs'> | null>>()
+    const visibleJob = (jobId: Id<'jobs'>) => {
+      const asked = jobsById.get(jobId)
+      if (asked) return asked
+      const pending = (async () => {
+        const job = unbinned(await ctx.db.get(jobId))
+        if (!job || job.businessId !== businessId) return null
+        return (await jobInScope(ctx, scope, job)) ? job : null
+      })()
+      jobsById.set(jobId, pending)
+      return pending
+    }
+
+    const methods = new Map<
+      Doc<'payments'>['method'],
+      { count: number; value: number }
+    >()
+    let count = 0
+    let value = 0
+    for (const row of read.slice(0, PAYMENTS_READ)) {
+      if (row.removedAt !== undefined || row.amount === 0) continue
+      const job = await visibleJob(row.jobId)
+      if (!job || !isForService(job, service)) continue
+      // Whose money it is: whoever it was handed to, else the job's lead,
+      // as Paid in counts it. Narrower than the rest of the page, which
+      // counts a job for everyone going on it: money is one person's, and a
+      // shared job's payment under each of them would be counted twice.
+      if (
+        staff !== undefined &&
+        (row.handOver?.to ?? job.assignedMembershipId) !== staff
+      )
+        continue
+      const tally = methods.get(row.method) ?? { count: 0, value: 0 }
+      tally.count += 1
+      tally.value += row.amount
+      methods.set(row.method, tally)
+      count += 1
+      value += row.amount
+    }
+
+    const hidden = hidePrices(env.caps)
+    return {
+      pricesHidden: hidden,
+      count,
+      value: redactTotal(env.caps, value),
+      methods: [...methods.entries()]
+        .sort((a, b) =>
+          hidden ? b[1].count - a[1].count : b[1].value - a[1].value,
+        )
+        .map(([method, tally]) => ({
+          method,
+          count: tally.count,
+          value: redactTotal(env.caps, tally.value),
+        })),
+      more: read.length > PAYMENTS_READ,
     }
   },
 })
