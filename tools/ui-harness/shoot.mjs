@@ -1682,6 +1682,10 @@ const PLAN = {
     },
   },
   sign: { before: async (p) => signAcross(p) },
+  // The photo annotator: a photo marked up, and a photo that did not load
+  // on either try.
+  annotate: { before: async (p) => signAcross(p) },
+  'annotate-load-failed': { before: async (p) => p.waitForTimeout(800) },
   // A client's pad: upright, asking their name.
   'sign-client': { before: async (p) => signAcross(p) },
   // The form's own slot with a saved signature, and a drawing kept on the

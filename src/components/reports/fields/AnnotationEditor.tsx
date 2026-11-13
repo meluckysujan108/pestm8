@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, RotateCcw, Trash2, X } from 'lucide-react'
 import { drawStroke, positionOf } from '#/lib/canvasStrokes'
+import { loadEditableImage } from '#/lib/images/editableImage'
 import { uploadCanvasQuality } from '#/lib/images/jpegQuality'
+import { cn } from '#/lib/utils'
 import type { Point } from '#/lib/canvasStrokes'
 
 /**
@@ -33,31 +35,48 @@ export function AnnotationEditor({
   const [ready, setReady] = useState(false)
   const [saving, setSaving] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
 
   useEffect(() => {
-    let cancelled = false
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      if (cancelled) return
-      imgRef.current = img
-      const canvas = canvasRef.current
-      if (!canvas) return
-      // A display-sized canvas, not the source resolution — this is a mark-up
-      // for "look here", not a second copy of the evidence at full fidelity.
-      const maxWidth = Math.min(img.naturalWidth, 640)
-      const scale = maxWidth / img.naturalWidth
-      canvas.width = maxWidth
-      canvas.height = Math.round(img.naturalHeight * scale)
-      redraw()
-      setReady(true)
-    }
-    img.onerror = () => setFailed(true)
-    img.src = imageUrl
+    const controller = new AbortController()
+    let release = () => {}
+    // Readable on a canvas, and tried twice: editableImage.ts says why.
+    loadEditableImage(imageUrl, { signal: controller.signal }).then(
+      (loaded) => {
+        if (controller.signal.aborted) {
+          loaded.release()
+          return
+        }
+        release = loaded.release
+        const img = loaded.image
+        imgRef.current = img
+        const canvas = canvasRef.current
+        if (!canvas) return
+        // A display-sized canvas, not the source resolution — this is a
+        // mark-up for "look here", not a second copy of the evidence at full
+        // fidelity.
+        const maxWidth = Math.min(img.naturalWidth, 640)
+        const scale = maxWidth / img.naturalWidth
+        canvas.width = maxWidth
+        canvas.height = Math.round(img.naturalHeight * scale)
+        redraw()
+        setReady(true)
+      },
+      () => {
+        if (!controller.signal.aborted) setLoadFailed(true)
+      },
+    )
     return () => {
-      cancelled = true
+      controller.abort()
+      release()
     }
-  }, [imageUrl])
+  }, [imageUrl, loadAttempt])
+
+  function retryLoad() {
+    setLoadFailed(false)
+    setLoadAttempt((n) => n + 1)
+  }
 
   function redraw() {
     const canvas = canvasRef.current
@@ -141,7 +160,12 @@ export function AnnotationEditor({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/90 p-4">
+    // Dark in both themes, so its tokens are the dark ones: the light theme's
+    // amber ink is too dim on black to read.
+    <div
+      data-theme="dark"
+      className="fixed inset-0 z-50 flex flex-col bg-black/90 p-4"
+    >
       <div className="flex items-center justify-between">
         <button
           type="button"
@@ -174,8 +198,28 @@ export function AnnotationEditor({
           onPointerMove={move}
           onPointerUp={end}
           onPointerCancel={end}
-          className="max-h-full max-w-full touch-none rounded-xl bg-surface-3"
+          className={cn(
+            'max-h-full max-w-full touch-none rounded-xl bg-surface-3',
+            !ready && 'hidden',
+          )}
         />
+        {!ready && !loadFailed && (
+          <p className="text-caption text-white/70">Loading the photo…</p>
+        )}
+        {loadFailed && (
+          <div className="flex flex-col items-center gap-3 px-4 text-center">
+            <p role="alert" className="text-caption text-amber-ink">
+              Could not load the photo. Check your signal and try again.
+            </p>
+            <button
+              type="button"
+              onClick={retryLoad}
+              className="tap-target relative rounded-full bg-white/10 px-4 py-2 text-caption font-semibold text-white"
+            >
+              Try again
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="flex justify-center gap-3">
@@ -200,7 +244,10 @@ export function AnnotationEditor({
       </div>
 
       {failed && (
-        <p role="alert" className="mt-2 text-center text-caption text-amber-ink">
+        <p
+          role="alert"
+          className="mt-2 text-center text-caption text-amber-ink"
+        >
           Could not save the annotation. Check your signal and try again.
         </p>
       )}
