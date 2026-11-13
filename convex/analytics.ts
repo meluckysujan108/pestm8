@@ -557,10 +557,11 @@ export const report = query({
   },
 })
 
-/** Most properties one breakdown looks up, each a document read, and each
- * client after it another: well inside a query's 4,096 reads. Past it the
+/** Most properties one breakdown looks up: each is a document read, its
+ * client another, and its earliest jobs a third (is the client new?), so
+ * three thousand of a query's 4,096 reads at most. Past it the
  * answer says it is part of the picture (`partial`). */
-const PLACES_READ = 1500
+const PLACES_READ = 1000
 
 /** Most rows a breakdown lists, most first. */
 const ROWS_LISTED = 20
@@ -674,6 +675,24 @@ export const breakdowns = query({
     const properties = await Promise.all(
       read.map(([propertyId]) => ctx.db.get(propertyId)),
     )
+    // Whether each property was worked at before the range: its earliest
+    // jobs, by when they were booked. A client's record can be far older or
+    // newer than their first job (an import makes every client "new" on the
+    // day it ran), so new is decided by the work, not the record.
+    const workedBefore = await Promise.all(
+      read.map(async ([propertyId]) => {
+        const earliest = await ctx.db
+          .query('jobs')
+          .withIndex('by_property', (q) => q.eq('propertyId', propertyId))
+          .take(5)
+        return earliest.some(
+          (job) =>
+            job.scheduledAt < now.from &&
+            isCountedJob(job) &&
+            job.deletedAt === undefined,
+        )
+      }),
+    )
     const clientIds = [
       ...new Set(properties.flatMap((p) => (p ? [p.clientId] : []))),
     ]
@@ -682,7 +701,7 @@ export const breakdowns = query({
       clientDocs.flatMap((c) => (c ? [[c._id, c] as const] : [])),
     )
 
-    const rangeStart = now.from
+    const returning = new Set<Id<'clients'>>()
     const bySuburb = new Map<string, Tally & { suburb: string }>()
     const byClient = new Map<Id<'clients'>, Tally>()
     const byKind = {
@@ -692,10 +711,14 @@ export const breakdowns = query({
     read.forEach(([, tally], i) => {
       const property = properties[i]
       if (!property) return
+      if (workedBefore[i]) returning.add(property.clientId)
       const suburb = property.suburb.trim()
       if (suburb) {
         const key = suburb.toLowerCase()
         const area = bySuburb.get(key) ?? { suburb, completed: 0, revenue: 0 }
+        // Typed "BAYSWATER" at one address and "Bayswater" at another: one
+        // suburb, named as it is written anywhere that isn't all capitals.
+        if (area.suburb === area.suburb.toUpperCase()) area.suburb = suburb
         area.completed += tally.completed
         area.revenue += tally.revenue
         bySuburb.set(key, area)
@@ -709,11 +732,12 @@ export const breakdowns = query({
       byKind[client.kind].completed += tally.completed
       byKind[client.kind].revenue += tally.revenue
     })
-    // New is a client first put on the books within the range.
+    // New is a client with no job before the range at any property worked
+    // at within it.
     let newClients = 0
     let newClientJobs = 0
     for (const [clientId, tally] of byClient) {
-      if ((clientOf.get(clientId)?.createdAt ?? 0) >= rangeStart) {
+      if (!returning.has(clientId)) {
         newClients += 1
         newClientJobs += tally.completed
       }
