@@ -15,6 +15,7 @@ import {
   MAY_HAVE_GONE_AFTER_MS,
   MAY_HAVE_GONE_FINDS,
   PAUSED_HOLD_MS,
+  STALE_AFTER_MS,
 } from './outboxSet'
 import { bookingFor, itemFor } from './outboxStore.fixtures'
 import type { InsetFacts } from './outboxInset'
@@ -43,6 +44,8 @@ function facts(
     storageTrouble: false,
     timezone: TZ,
     todayKey: TODAY,
+    // A minute after it was saved, whatever the test's own clock.
+    now: SAVED + 60_000,
     ...extra,
   }
 }
@@ -203,6 +206,128 @@ describe('the inset, for what 2c-E adds', () => {
         ),
       ),
     ).toBe('Not sent yet — it goes in a moment.')
+  })
+
+  test('one the phone will stop before it goes says why, and what to do, never that it goes with signal (the 2c-F follow-up)', () => {
+    const waited =
+      'Not sent yet — it’s waited more than three days, so it won’t go by itself. Send it when you have signal, or edit it.'
+    const later = SAVED + STALE_AFTER_MS + 60_000
+    // Three days unsent, the line down: it stays waiting all that time.
+    expect(
+      words(facts({}, { lineLive: false, held: 'line', now: later })),
+    ).toBe(waited)
+    expect(words(facts({}, { lineLive: false, now: later }))).toBe(waited)
+    // With signal and nothing holding it, the sender says it needs a look
+    // at its next step, when Send is there.
+    expect(words(facts({}, { now: later }))).toBe(
+      'Not sent yet — it’s waited more than three days, so it won’t go by itself. Send it in a moment, or edit it.',
+    )
+    // Its session ended, unanswered; a Send since then answered it.
+    expect(
+      words(facts({ sessionEndedAt: SAVED + 1 }, { lineLive: false })),
+    ).toBe(
+      'Not sent yet — you’ve signed in again since it was saved, so it won’t go by itself. Send it when you have signal, or edit it.',
+    )
+    expect(
+      words(
+        facts(
+          { sessionEndedAt: SAVED + 1, confirmedAt: SAVED + 2 },
+          { lineLive: false },
+        ),
+      ),
+    ).toBe(
+      'Not sent yet — it’s on this phone and goes when PestM8 is open with signal.',
+    )
+    // A Recurring Job whose first visit went by while it waited.
+    const series = {
+      kind: 'series' as const,
+      booking: bookingFor({
+        scheduledAt: SAVED + 3_600_000,
+        repeat: { count: 4, unit: 'week' },
+      }),
+    }
+    expect(
+      words(facts(series, { lineLive: false, now: SAVED + 2 * 86_400_000 })),
+    ).toBe(
+      'Not sent yet — its first visit, Tue 27 Oct at 10:42am, went by before it was sent. Edit it to change the start date.',
+    )
+    // What says more than the look still says it: an Edit open, the
+    // storage not answering.
+    expect(
+      words(facts({}, { now: later, editingHere: true, held: 'editing' })),
+    ).toBe('Not sent yet — it goes once the change is booked.')
+    expect(words(facts({}, { now: later, storageTrouble: true }))).toBe(
+      'This phone’s storage isn’t answering. Reload PestM8 to send it.',
+    )
+  })
+
+  test('one the phone will stop, held by something else with signal: Send waits on that hold, which it names, never on signal', () => {
+    // Three days and a minute after it was saved, 9:43am on Fri 30 Oct.
+    const later = SAVED + STALE_AFTER_MS + 60_000
+    const day = { now: later, todayKey: '2026-10-30' }
+    const waited =
+      'Not sent yet — it’s waited more than three days, so it won’t go by itself.'
+    const held = (
+      hold: InsetFacts['held'],
+      item: Partial<OutboxItem> = {},
+      extra: Partial<InsetFacts> = {},
+    ) => words(facts(item, { ...day, held: hold, ...extra }))
+    expect(held('two-step')).toBe(
+      `${waited} Send it once two-step sign-in is set up, or edit it.`,
+    )
+    expect(held('other-person')).toBe(
+      `${waited} Send it once nobody else is signed in to PestM8 in another tab, or edit it.`,
+    )
+    expect(held('switched')).toBe(
+      `${waited} Send it when you’re back in your own account, or edit it.`,
+    )
+    expect(held('switched-hold')).toBe(held('switched'))
+    expect(held('access')).toBe(
+      `${waited} Send it once PestM8 has checked your sign-in, or edit it.`,
+    )
+    // PestM8's pause, told from a sign-in check's hold by its length.
+    expect(
+      held('hold', { lastAttemptAt: later, holdUntil: later + PAUSED_HOLD_MS }),
+    ).toBe(
+      `${waited} PestM8 has paused sending from phones until 9:58am. Send it then, or edit it.`,
+    )
+    expect(
+      held('hold', { lastAttemptAt: later, holdUntil: later + 30_000 }),
+    ).toBe(held('access'))
+    expect(held('retry', { retryAt: later + 5 * 60_000 })).toBe(
+      `${waited} PestM8 couldn’t take it just now. Send it after 9:48am, or edit it.`,
+    )
+    // Made on a site another booking makes (2c-I): no Edit, only Discard.
+    expect(
+      held(
+        'parent',
+        { booking: bookingFor({ property: { local: 'local-parent' } }) },
+        { parentClient: 'Jane Nguyen' },
+      ),
+    ).toBe(
+      `${waited} Send it once the first booking for Jane Nguyen is sent, or discard it.`,
+    )
+    // Its session ended: the same, by its own reason.
+    expect(held('two-step', { sessionEndedAt: SAVED + 1 })).toBe(
+      'Not sent yet — you’ve signed in again since it was saved, so it won’t go by itself. Send it once two-step sign-in is set up, or edit it.',
+    )
+    // A Recurring Job whose first visit went by: Edit is the fix now,
+    // whatever holds it.
+    const series = {
+      kind: 'series' as const,
+      booking: bookingFor({
+        scheduledAt: SAVED + 3_600_000,
+        repeat: { count: 4, unit: 'week' },
+      }),
+    }
+    expect(
+      held('two-step', series, {
+        now: SAVED + 2 * 86_400_000,
+        todayKey: TODAY,
+      }),
+    ).toBe(
+      'Not sent yet — its first visit, Tue 27 Oct at 10:42am, went by before it was sent. Edit it to change the start date.',
+    )
   })
 
   test('another tab’s lock, the dead-line send and storage not answering', () => {

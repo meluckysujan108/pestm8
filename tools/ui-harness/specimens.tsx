@@ -98,6 +98,8 @@ import { OutboxOnPhoneLine } from '#/components/auth/OutboxOnPhoneLine'
 import { FIELD } from '#/components/forms/FormField'
 import { dayKeyOf } from '../../convex/lib/dates'
 import {
+  FOR_SUBI,
+  FOR_SUBI_ROKEBY,
   HARNESS_TOKEN,
   MADE,
   SENDING,
@@ -106,7 +108,9 @@ import {
   WAITING,
   laterAt,
   outboxDayOf,
+  outboxListOf,
 } from './outboxFixtures'
+import { OutboxVisits } from '#/components/clients/OutboxVisits'
 import { BusinessSwitcher } from '#/components/shell/BusinessSwitcher'
 import { JobTimeFields, useJobTimes } from '#/components/schedule/JobTimeFields'
 import { ClientSheet } from '#/components/clients/ClientSheet'
@@ -143,7 +147,7 @@ import { SHEET_BODY, Sheet, SheetShell } from '#/components/primitives/Sheet'
 import { Segmented } from '#/components/primitives/Segmented'
 import { SearchBox } from '#/components/primitives/SearchBox'
 import { LoadMore } from '#/components/primitives/LoadMore'
-import { CardCells } from '#/components/shell/Pending'
+import { CardCells, ListPending } from '#/components/shell/Pending'
 import { useRevealMore } from '#/lib/useRevealMore'
 import {
   EmptyState,
@@ -2323,6 +2327,101 @@ function WeekOutboxLatched() {
   )
 }
 
+/**
+ * The Job tab with no signal (plan part 2c §9.8): the bookings on the phone
+ * in a group of their own above the list, of every day, each card dated and
+ * its people named as the list's own are, over the list's placeholder: the
+ * list itself isn't kept on the phone. The route's own markup.
+ */
+function JobTabOutbox() {
+  const later: OutboxItem = {
+    ...WAITING,
+    booking: { ...WAITING.booking, scheduledAt: laterAt(2) },
+  }
+  const list = outboxListOf<JobRow>([{ items: [later, SENDING] }])
+  return (
+    <Phone>
+      <Header title="Jobs" />
+      <div className="px-4 pt-3">
+        <div className="flex min-h-9 items-center justify-between gap-3">
+          <div className="shrink-0 whitespace-nowrap">
+            <Segmented
+              label="View"
+              value="job"
+              options={[
+                { value: 'job', label: 'Job' },
+                { value: 'recurring', label: 'Recurring Job' },
+              ]}
+              onChange={() => {}}
+            />
+          </div>
+          <JobListFilterButton
+            status={undefined}
+            staffId="all"
+            sort="booked"
+            members={MEMBERS}
+            showStaff
+            onChange={() => {}}
+          />
+        </div>
+      </div>
+      <section className="px-4 pt-3 pb-6">
+        <p className="mb-3 min-h-5 text-caption tabular-nums text-muted" />
+        <OutboxGroup
+          day={{
+            slots: list.slots.map((slot) => ({
+              ...slot,
+              row: slot.real ?? slot.card,
+            })),
+            hidden: list.hidden,
+            heading: list.heading,
+            lineLive: list.lineLive,
+          }}
+          timezone={TZ}
+          onOpenItem={() => {}}
+          onOpenJob={() => {}}
+          weatherOf={() => ({ status: 'outOfWindow' })}
+          grid="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch xl:grid-cols-3"
+          className="mb-6"
+        />
+        <ListPending label="Loading jobs" count={3} columns={3} size="job" />
+      </section>
+    </Phone>
+  )
+}
+
+const SUBI_BOOKINGS = [FOR_SUBI, FOR_SUBI_ROKEBY]
+
+/**
+ * A client's Jobs tab with two of their bookings on the phone (plan §9.8):
+ * at the end of "Coming up", in "Nothing booked."'s place, headed as a
+ * day's group is, each with its chip where the status pill goes and its
+ * site, the client having two. The live sheet (the `client` specimen's
+ * client), drawn from the outbox itself.
+ */
+function ClientJobsOutbox() {
+  state.technician = false
+  state.actingAs = false
+  return (
+    <Phone>
+      <AccessProvider businessId={bizId}>
+        <Header title="Clients" />
+        <WithBookings items={SUBI_BOOKINGS}>
+          <ClientSheet
+            businessId={bizId}
+            timezone={TZ}
+            businessSlug="demo"
+            businessState="WA"
+            canManageClients
+            clientId="c1"
+            onClose={() => {}}
+          />
+        </WithBookings>
+      </AccessProvider>
+    </Phone>
+  )
+}
+
 /** A booking of the person's for their other business (the switcher's
  * second row). */
 const FOR_HILLS: OutboxItem = {
@@ -2747,7 +2846,7 @@ function JobSheetNotKept() {
  * opens when there is signal. The client the `client` specimen opens, so
  * the two sit side by side.
  */
-function ClientSheetKept() {
+function ClientSheetKept({ booked = false }: { booked?: boolean }) {
   const createdAt = Date.now() - 400 * 24 * 60 * 60 * 1000
   return (
     <Phone>
@@ -2795,11 +2894,38 @@ function ClientSheetKept() {
             down="no-signal"
             timezone={TZ}
             email="ops@subicafe.example"
+            unsent={
+              booked ? (
+                <OutboxVisits
+                  list={outboxListOf<{
+                    _id: string
+                    scheduledAt: number
+                    status: string
+                    jobType: string
+                  }>([{ items: SUBI_BOOKINGS }])}
+                  businessSlug="demo"
+                  timezone={TZ}
+                  siteOf={(slot) => slot.item.display.addressLine}
+                  className="-mx-3.5 -mb-2.5 border-t border-hairline-2"
+                />
+              ) : undefined
+            }
+            onBook={booked ? () => {} : undefined}
           />
         </div>
       </SheetShell>
     </Phone>
   )
+}
+
+/**
+ * The client sheet kept on the phone, with no signal, and two of their
+ * bookings on it (plan §9.8): Book a job under the line saying why, as the
+ * live sheet has it, for a booking kept on the phone; and the bookings
+ * under the Details card's Jobs row, whose own line stays.
+ */
+function ClientSheetKeptOutbox() {
+  return <ClientSheetKept booked />
 }
 
 /** A client opened with no signal that the phone's client list doesn't
@@ -4210,6 +4336,8 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'schedule-outbox-today-foreign': ScheduleOutboxTodayForeign,
   'week-outbox': WeekOutbox,
   'week-outbox-latched': WeekOutboxLatched,
+  'jobtab-outbox': JobTabOutbox,
+  'clientjobs-outbox': ClientJobsOutbox,
   ...LEAVE_CONFIRMS,
   'signout-offline-nobusiness': SignOutOfflineNoBusiness,
   'signout-failed-discarded': SignOutFailedDiscarded,
@@ -4343,6 +4471,7 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'clients-kept-notice': ClientsKeptNotice,
   'clients-kept-notice-held': ClientsKeptNoticeHeld,
   'clientsheet-kept': ClientSheetKept,
+  'clientsheet-kept-outbox': ClientSheetKeptOutbox,
   'clientsheet-kept-notice': ClientSheetKeptNotice,
   'clientsheet-not-kept': ClientSheetNotKept,
   empty: Empty,

@@ -113,6 +113,10 @@ import {
   useKeptClient,
 } from '#/components/clients/KeptClientView'
 import { ClientEditForm } from '#/components/clients/ClientEditForm'
+import { OutboxVisits } from '#/components/clients/OutboxVisits'
+import { bookedForClient } from '#/lib/outbox/outboxList'
+import { OUTBOX_ENABLED } from '#/lib/outbox/outboxSet'
+import { useOutboxList } from '#/lib/outbox/useOutbox'
 import { PropertyFields } from '#/components/clients/PropertyFields'
 import type { PropertyFieldsValue } from '#/components/clients/PropertyFields'
 import { TextInput } from '#/components/clients/clientFormFields'
@@ -331,15 +335,30 @@ function ClientBody({
     clientId,
     client === undefined && !clientQuery.isError,
   )
+  const keptShown =
+    client === undefined &&
+    !clientQuery.isError &&
+    kept.state === 'kept' &&
+    kept.kept !== null
   // The sheet's one scrolling body, for the client from the list and then
   // the live sheet in its place: scrolled where it was, and as tall, so Call
   // doesn't move when PestM8 answers (useHandOverBody).
-  const body = useHandOverBody(
-    client === undefined &&
-      !clientQuery.isError &&
-      kept.state === 'kept' &&
-      kept.kept !== null,
-  )
+  const body = useHandOverBody(keptShown)
+  // Their bookings on this phone, not sent yet, under the kept sheet's Jobs
+  // row (plan part 2c §9.8): those on a site the client list has for them,
+  // or a new site of theirs. The live sheet's Jobs tab has its own.
+  const keptSites = kept.kept?.sites
+  const keptUnsent = useOutboxList({
+    businessId,
+    rows: NO_VISITS,
+    redrawKey: 'kept',
+    draws: keptShown,
+    shows: (item) =>
+      bookedForClient(item, {
+        clientId,
+        propertyIds: new Set(keptSites?.map((s) => s._id)),
+      }),
+  })
   // The contact person is the primary contact (Prompt 6.1), not a field of
   // its own. The same query the Contacts section runs, so no second fetch.
   // Read for a person client too: flipping one back to business in the edit
@@ -445,6 +464,38 @@ function ClientBody({
     void loadLocalities(businessState)
   }, [businessState])
 
+  // Their site is chosen for New Job only when which one is plain: their
+  // only one, or the one the Jobs tab is showing. Otherwise New Job asks, as
+  // it always does — a hurried booking must not go to whichever came first.
+  // With no answer yet, from the sites the phone's client list has.
+  const sitesKnown = properties ?? keptSites
+  const bookFor =
+    sitesKnown?.find((p) => p._id === site)?._id ??
+    (sitesKnown?.length === 1 ? sitesKnown[0]._id : undefined)
+  // Loaded when asked for: New Job brings the pickers and the interval
+  // model, which a client sheet opened to read never needs. Keyed, so a
+  // booking begun on the kept sheet stays open, as typed, when the live
+  // sheet takes its place; and, with the outbox on, when PestM8 answers
+  // instead that it can't load the client, or that they're gone (merged or
+  // deleted meanwhile), so what was typed is never lost without a word.
+  // With it off those drop it, as they always did.
+  const newJob = (
+    <Suspense key="new-job" fallback={null}>
+      {bookOpen && (
+        <NewJobSheet
+          open
+          businessId={businessId}
+          dayKey={todayKey(timezone)}
+          timezone={timezone}
+          onClose={() => setBookOpen(false)}
+          forProperty={bookFor}
+          pickDate
+          onBooked={() => setTab('jobs')}
+        />
+      )}
+    </Suspense>
+  )
+
   if (client === undefined && clientQuery.isError) {
     return (
       <div className="px-4 py-10">
@@ -454,12 +505,18 @@ function ClientBody({
           what="this client"
           onRetry={() => void clientQuery.refetch()}
         />
+        {OUTBOX_ENABLED && newJob}
       </div>
     )
   }
 
   if (client === undefined) {
     if (kept.state === 'kept' && kept.kept) {
+      const many = kept.kept.sites.length > 1
+      const keptSiteOf = (at: string) =>
+        many
+          ? kept.kept?.sites.find((s) => s._id === at)?.addressLine
+          : undefined
       return (
         // The live sheet's own body, so the live sheet lands in it.
         <div
@@ -475,7 +532,31 @@ function ClientBody({
             timezone={timezone}
             xero={kept.xero}
             email={kept.email}
+            unsent={
+              keptUnsent.slots.length > 0 ? (
+                <OutboxVisits
+                  list={keptUnsent}
+                  businessSlug={businessSlug}
+                  timezone={timezone}
+                  siteOf={(slot) =>
+                    'newProperty' in slot.item.booking.property
+                      ? slot.item.display.addressLine
+                      : keptSiteOf(slot.card.propertyId)
+                  }
+                  // To the card's edges, under the row's own line.
+                  className="-mx-3.5 -mb-2.5 border-t border-hairline-2"
+                />
+              ) : undefined
+            }
+            // Behind the flag that keeps a booking on the phone (2c), so the
+            // app with it off doesn't change: with it off, every booking
+            // made with the line down would be held only while PestM8 stays
+            // open. With it on, as on the live sheet, whatever New Job can
+            // do now: where it can't keep one (switched in, say), it sends
+            // it straight and says "Keep PestM8 open until then."
+            onBook={OUTBOX_ENABLED ? () => setBookOpen(true) : undefined}
           />
+          {OUTBOX_ENABLED && newJob}
         </div>
       )
     }
@@ -498,6 +579,7 @@ function ClientBody({
         <p className="mt-1 text-body text-muted">
           This client does not exist, or you do not have access to it.
         </p>
+        {OUTBOX_ENABLED && newJob}
       </div>
     )
   }
@@ -540,12 +622,6 @@ function ClientBody({
   // A contact or site half-typed in Details holds the tabs still: leaving
   // would unmount the form and lose it without a word.
   const formOpen = contactFormOpen || propertyFormOpen
-  // Their site is chosen for New Job only when which one is plain: their
-  // only one, or the one the Jobs tab is showing. Otherwise New Job asks, as
-  // it always does — a hurried booking must not go to whichever came first.
-  const bookFor =
-    properties?.find((p) => p._id === site)?._id ??
-    (properties?.length === 1 ? properties[0]._id : undefined)
 
   return (
     <div ref={body.ref} style={body.style} className={`${SHEET_BODY} pt-3`}>
@@ -849,25 +925,18 @@ function ClientBody({
         onConfirm={() => remove.mutate({ businessId, clientId })}
       />
 
-      {/* Loaded when asked for: New Job brings the pickers and the
-          interval model, which a client sheet opened to read never needs. */}
-      <Suspense fallback={null}>
-        {bookOpen && (
-          <NewJobSheet
-            open
-            businessId={businessId}
-            dayKey={todayKey(timezone)}
-            timezone={timezone}
-            onClose={() => setBookOpen(false)}
-            forProperty={bookFor}
-            pickDate
-            onBooked={() => setTab('jobs')}
-          />
-        )}
-      </Suspense>
+      {newJob}
     </div>
   )
 }
+
+/** The kept sheet's visits: none, the phone keeps no client's jobs. */
+const NO_VISITS: ReadonlyArray<{
+  _id: string
+  scheduledAt: number
+  status: string
+  jobType: string
+}> = []
 
 /** The client, as the merge sheet names them and matches others to them. */
 function mergeClientOf(client: {

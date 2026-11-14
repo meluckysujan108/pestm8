@@ -153,6 +153,54 @@ describe('clients.summary', () => {
     expect(summary!.capped).toBe(false)
   })
 
+  test('carries the id a phone booked a visit or a service under, so a booking still on that phone is drawn as it, never beside it (outbox 2c-H)', async () => {
+    const s = await setup()
+    const jobKey = crypto.randomUUID()
+    const seriesKey = crypto.randomUUID()
+    const fromPhone = await s.owner.as.mutation(api.jobs.create, {
+      businessId: s.businessId,
+      propertyId: s.propertyId,
+      assignedMembershipId: s.ownerMembershipId,
+      jobType: 'General Pest Control',
+      price: 20000,
+      scheduledAt: Date.now() + DAY,
+      durationMinutes: 60,
+      clientRequestId: jobKey,
+    })
+    const byHand = await book(s, {
+      at: Date.now() + 2 * DAY,
+      to: s.ownerMembershipId,
+    })
+    const seriesId = await s.owner.as.mutation(api.recurrences.create, {
+      businessId: s.businessId,
+      propertyId: s.propertyId,
+      assignedMembershipId: s.kevinMembershipId,
+      intervalCount: 1,
+      intervalUnit: 'month',
+      jobType: 'Rodents',
+      price: 12000,
+      anchorDate: Date.now() + 3 * DAY,
+      durationMinutes: 45,
+      clientRequestId: seriesKey,
+    })
+
+    const summary = await s.owner.as.query(api.clients.summary, {
+      businessId: s.businessId,
+      clientId: s.clientId,
+    })
+    const visit = (id: Id<'jobs'>) => summary!.visits.find((v) => v._id === id)
+    expect(visit(fromPhone)?.clientRequestId).toBe(jobKey)
+    expect(visit(byHand)).toBeDefined()
+    expect(visit(byHand)?.clientRequestId).toBeUndefined()
+    expect(summary!.series).toEqual([
+      expect.objectContaining({ _id: seriesId, clientRequestId: seriesKey }),
+    ])
+    // The service carries it; its visits, the first included, never do.
+    const ofSeries = summary!.visits.filter((v) => v.recurrenceId === seriesId)
+    expect(ofSeries.length).toBeGreaterThan(0)
+    for (const v of ofSeries) expect(v.clientRequestId).toBeUndefined()
+  })
+
   test('a subcontractor sees their own visits and services, and nothing of the rest', async () => {
     const s = await setup()
     const mine = await book(s, {

@@ -1768,6 +1768,23 @@ const PLAN = {
   // chip fits the pill's place and the group's heading doesn't wrap.
   'week-outbox': { full: true, before: async (p) => p.waitForTimeout(900) },
   'week-outbox-latched': { full: true },
+  // Part 2c-H. The Job tab with no signal: the bookings on the phone in a
+  // group above the list's placeholder, each dated, and the chip in the
+  // pill's place. Check the heading doesn't wrap.
+  'jobtab-outbox': { full: true },
+  // A client's Jobs tab with two of their bookings on the phone, at the end
+  // of "Coming up" in "Nothing booked."'s place, with their sites: drawn
+  // from the outbox itself. Check the chip fits the pill's place at 390.
+  'clientjobs-outbox': {
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p
+        .getByRole('heading', { name: 'Coming up' })
+        .first()
+        .scrollIntoViewIfNeeded()
+      await p.waitForTimeout(300)
+    },
+  },
   // What leaving asks: a sign-out with one maybe gone, one of another
   // business's, a switch of business, and the phone not read in time.
   'leave-confirm-signout': {},
@@ -1846,6 +1863,27 @@ const PLAN = {
     },
   },
   'clientsheet-not-kept': { before: async (p) => p.waitForTimeout(900) },
+  // The sheet kept on the phone with two of the client's bookings on it:
+  // Book a job under the line saying why, and the bookings under the
+  // Details card's Jobs row (part 2c-H).
+  'clientsheet-kept-outbox': { before: async (p) => p.waitForTimeout(900) },
+  'clientsheet-kept-outbox-scrolled': {
+    spec: 'clientsheet-kept-outbox',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.evaluate(() => {
+        const el = [
+          ...document.querySelectorAll('[data-vaul-drawer] div'),
+        ].find(
+          (d) =>
+            d.scrollHeight > d.clientHeight + 20 &&
+            getComputedStyle(d).overflowY === 'auto',
+        )
+        if (el) el.scrollTop = el.scrollHeight
+      })
+      await p.waitForTimeout(300)
+    },
+  },
   guide: { before: async (p) => p.waitForTimeout(500) },
   confirm: { before: async (p) => p.waitForTimeout(500) },
   inputs: { before: async (p) => p.waitForTimeout(600) },

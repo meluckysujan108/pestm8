@@ -71,6 +71,8 @@ function render(
     down?: 'no-signal' | 'unreachable' | null
     xero?: boolean
     email?: string
+    unsent?: ReactNode
+    onBook?: () => void
   } = {},
 ) {
   return renderToStaticMarkup(
@@ -82,6 +84,8 @@ function render(
       timezone={TZ}
       xero={more.xero}
       email={more.email}
+      unsent={more.unsent}
+      onBook={more.onBook}
     />,
   )
 }
@@ -213,6 +217,31 @@ describe('a client from the client list', () => {
     expect(render(client(), [], { xero: true })).toMatch(
       /Xero<\/dt>.*Opens when you have signal\./,
     )
+  })
+
+  test('their bookings on this phone, not sent yet, under the Jobs row, whose own line stays (2c-H)', () => {
+    const html = render(client(), [], {
+      unsent: <p>1 job not sent yet</p>,
+    })
+    expect(html).toMatch(
+      /Jobs<\/dt>.*Opens when you have signal\..*<dd class="col-span-2 mt-1\.5"><p>1 job not sent yet<\/p><\/dd>/,
+    )
+    // None: the row is as it was.
+    expect(render(client(), [])).not.toContain('col-span-2')
+  })
+
+  test('Book a job where the live sheet has it, only with `onBook` (the outbox on) and the client has a site', () => {
+    const sites = [site('p1', '220 Hay St')]
+    const book = 'Book a job for this client'
+    const html = render(client(), sites, { onBook: () => {} })
+    expect(html).toContain(book)
+    // Under the line saying why, above their sites.
+    expect(html.indexOf('Editing needs signal.')).toBeLessThan(
+      html.indexOf(book),
+    )
+    expect(html.indexOf(book)).toBeLessThan(html.indexOf('Properties'))
+    expect(render(client(), sites)).not.toContain(book)
+    expect(render(client(), [], { onBook: () => {} })).not.toContain(book)
   })
 
   test('a late answer on a line that looks up is PestM8 not answering', () => {

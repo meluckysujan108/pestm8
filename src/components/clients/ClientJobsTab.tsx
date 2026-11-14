@@ -11,18 +11,22 @@ import { Bone, RowPending } from '#/components/shell/Pending'
 import { ReportLine } from '#/components/reports/ReportRows'
 import { SeeAllReports } from '#/components/reports/InlineReports'
 import { VisitRow } from '#/components/schedule/VisitRow'
+import { OutboxVisits } from '#/components/clients/OutboxVisits'
 import { personLabel } from '#/lib/assignees'
 import { byYear, clientOverview } from '#/lib/clientJobs'
 import { formatJobDate } from '#/lib/format'
 import { useBusinessDay } from '#/lib/useBusinessDay'
 import { useHydrated } from '#/lib/useHydrated'
 import { reportsByVisit } from '#/lib/jobHistory'
+import { bookedForClient } from '#/lib/outbox/outboxList'
+import { useOutboxList, useOutboxSettled } from '#/lib/outbox/useOutbox'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 import type { ReactNode } from 'react'
 import type { FunctionReturnType } from 'convex/server'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { InlineReport } from '#/components/reports/ReportRows'
 import type { Day, SeriesView } from '#/lib/clientJobs'
+import type { LatchRow } from '#/lib/outbox/latchSlots'
 
 type Summary = NonNullable<FunctionReturnType<typeof api.clients.summary>>
 type Visit = Summary['visits'][number]
@@ -30,6 +34,32 @@ type Series = Summary['series'][number]
 
 /** One-off jobs drawn at a time. */
 const PAGE = 10
+
+const NO_ROWS: ReadonlyArray<Visit> = []
+
+/**
+ * Their visits as the phone's bookings are matched to them (`realRowOf`):
+ * each with its own request id, and a Recurring Job's with its service's
+ * (`seriesRequestId`), so a booking whose job or service is here before
+ * this tab hears it went is drawn as it, never beside it.
+ */
+function latchRowsOf(
+  summary: Summary | null | undefined,
+): ReadonlyArray<Visit & LatchRow> {
+  if (!summary) return NO_ROWS
+  const requestOf = new Map<string, string>()
+  for (const s of summary.series) {
+    if (s.clientRequestId !== undefined) requestOf.set(s._id, s.clientRequestId)
+  }
+  if (requestOf.size === 0) return summary.visits
+  return summary.visits.map((visit) => {
+    const seriesRequestId =
+      visit.recurrenceId === undefined
+        ? undefined
+        : requestOf.get(visit.recurrenceId)
+    return seriesRequestId === undefined ? visit : { ...visit, seriesRequestId }
+  })
+}
 
 /** A site filter's value for every site at once. */
 export const ALL_SITES = 'all'
@@ -76,7 +106,40 @@ export function ClientJobsTab({
   const hydrated = useHydrated()
 
   const summary = summaryQuery.data
-  if (summary === undefined || summary === null) {
+  // Only a site they still have: one deleted meanwhile falls back to all,
+  // rather than leaving the tab empty with no way to say otherwise.
+  const propertyId = summary?.properties.some((p) => p._id === site)
+    ? site
+    : undefined
+  // Their bookings on this phone, not sent yet (plan part 2c §9.8), at the
+  // end of "Coming up": drawn as the tab first draws its jobs, which waits
+  // for the phone's to be read too (`useOutboxSettled`: read, or 500 ms, so
+  // at once on a mount once it has been read; at once too where nothing can
+  // be on the phone, keeping switched off on a phone that never kept one),
+  // so they never push the tab's sections down later, but for one booked
+  // here just now. Each keeps its slot until a site is chosen, the account
+  // changes (`useOutboxList` adds that), or the tab or sheet closes, drawing
+  // its visit once their jobs have it (a Recurring Job's first); that visit,
+  // and a Recurring Job's whole service, kept out of the sections meanwhile.
+  // Their visits and services carry the request id a phone booked them
+  // under (`clients.summary`), so one whose job is here before this tab
+  // hears it went is drawn once, as its job (latchSlots.ts).
+  const settled = useOutboxSettled()
+  const drawsJobs = summary !== undefined && summary !== null && settled
+  const unsent = useOutboxList({
+    businessId,
+    rows: latchRowsOf(summary),
+    redrawKey: propertyId ?? ALL_SITES,
+    draws: drawsJobs,
+    shows: (item) =>
+      bookedForClient(item, {
+        clientId,
+        propertyIds: new Set(summary?.properties.map((p) => p._id)),
+        site: propertyId,
+      }),
+  })
+
+  if (summary === undefined || summary === null || !drawsJobs) {
     return (
       <Section label="Jobs">
         {summaryQuery.isError ? (
@@ -95,19 +158,50 @@ export function ClientJobsTab({
     )
   }
 
-  // Only a site they still have: one deleted meanwhile falls back to all,
-  // rather than leaving the tab empty with no way to say otherwise.
-  const propertyId = summary.properties.some((p) => p._id === site)
-    ? site
-    : undefined
-  const overview = clientOverview(summary, { ...day, propertyId })
+  // A Recurring Job's service and visits, while its slot holds it: the
+  // series it was answered with, or, before this tab has heard, the one
+  // booked under its request id (with no visit here yet to draw in the
+  // slot, a series begun in the past with its next beyond those booked).
+  const slotSeries = unsent.slots.filter((slot) => slot.item.kind === 'series')
+  const seriesRequests = new Set(slotSeries.map((slot) => slot.item.requestId))
+  const latchedSeries = new Set([
+    ...slotSeries.flatMap((slot) =>
+      slot.item.result ? [slot.item.result.id] : [],
+    ),
+    ...summary.series.flatMap((s) =>
+      s.clientRequestId !== undefined && seriesRequests.has(s.clientRequestId)
+        ? [s._id]
+        : [],
+    ),
+  ])
+  const listed =
+    unsent.hidden.size === 0 && latchedSeries.size === 0
+      ? summary
+      : {
+          ...summary,
+          visits: summary.visits.filter(
+            (v) =>
+              !unsent.hidden.has(v._id) &&
+              !(
+                v.recurrenceId !== undefined &&
+                latchedSeries.has(v.recurrenceId)
+              ),
+          ),
+          series: summary.series.filter((s) => !latchedSeries.has(s._id)),
+        }
+  const overview = clientOverview(listed, { ...day, propertyId })
   // A report replaced by its amendment is the amendment's to show.
   const reports = (reportsQuery.data?.reports ?? []).filter(
     (r) => !r.superseded,
   )
   // Filed under the visits the tab draws; a report on any other (a
   // cancelled visit of a service, one at another site) is with the rest.
-  const { byVisit, unlinked } = reportsByVisit(reports, overview.drawn)
+  const { byVisit, unlinked } = reportsByVisit(
+    reports,
+    unsent.hidden.size === 0
+      ? overview.drawn
+      : new Set([...overview.drawn, ...unsent.hidden]),
+  )
   const loose = unlinked.filter(
     (r) => propertyId === undefined || r.propertyId === propertyId,
   )
@@ -166,8 +260,22 @@ export function ClientJobsTab({
             {overview.comingUp.map((visit) => row(visit))}
           </div>
         ) : (
-          <Empty>Nothing booked.</Empty>
+          unsent.slots.length === 0 && <Empty>Nothing booked.</Empty>
         )}
+        <OutboxVisits
+          list={unsent}
+          businessSlug={businessSlug}
+          timezone={timezone}
+          siteOf={(slot) => {
+            const at = slot.real?.propertyId ?? slot.card.propertyId
+            if (summary.properties.some((p) => p._id === at)) return siteOf(at)
+            // A new site of theirs, which the booking makes.
+            return 'newProperty' in slot.item.booking.property
+              ? slot.item.display.addressLine
+              : undefined
+          }}
+          reportsOf={(id) => byVisit.get(id) ?? []}
+        />
       </Section>
 
       {overview.series.length > 0 && (
@@ -205,11 +313,13 @@ export function ClientJobsTab({
         </Section>
       )}
 
-      {overview.series.length === 0 && overview.oneOffs.length === 0 && (
-        <p className="mt-3 text-body text-muted">
-          No jobs for {propertyId ? 'this site' : clientName} yet.
-        </p>
-      )}
+      {overview.series.length === 0 &&
+        overview.oneOffs.length === 0 &&
+        unsent.slots.length === 0 && (
+          <p className="mt-3 text-body text-muted">
+            No jobs for {propertyId ? 'this site' : clientName} yet.
+          </p>
+        )}
 
       {loose.length > 0 && (
         <Section label={`Other reports · ${loose.length}`}>

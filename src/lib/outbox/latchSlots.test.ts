@@ -394,7 +394,7 @@ describe('coming onto the screen', () => {
       mayAdd: (_item, latch) => {
         asked.push(latch.since)
         return addRule(
-          { mayDraw: () => true, keptHere: new Set() },
+          { mayDraw: () => true, keptHere: new Map() },
           { drawsCards: false, now: NOW + 4_000 },
         )(a, latch)
       },
@@ -479,11 +479,150 @@ describe('bookings saved by a newer build (`latchForeign`)', () => {
   })
 })
 
+describe('a list of every day (`dayShown` null: the Job tab, a client’s jobs, §9.8)', () => {
+  const list = (over: Partial<LatchInput>) =>
+    input({ dayShown: null, dayLive: true, ...over })
+
+  test('its bookings, whatever their day, in the order they are booked for', () => {
+    const a = booking(NINE + 2 * 86_400_000)
+    const b = booking(NINE)
+    const first = latchSlots(null, list({ items: [a, b] }))
+    expect(first.slots.map((s) => [s.localId, s.chip])).toEqual([
+      [b.localId, 'waiting'],
+      [a.localId, 'waiting'],
+    ])
+    expect(first.heading).toBe('2 jobs not sent yet')
+  })
+
+  test('sent with no job in the list yet: "Sent" until the next redraw, whatever the day’s state, its going moving what is under it', () => {
+    const a = booking(NINE)
+    const b = booking(Date.UTC(2026, 9, 29, 1))
+    const first = latchSlots(null, list({ items: [a, b] }))
+    const sentBoth = latchSlots(
+      first.latch,
+      list({
+        items: [sent(a, 'job-1'), sent(b, 'job-2')],
+        now: NOW + ROW_WAIT_MS + 60_000,
+      }),
+    )
+    expect(sentBoth.slots.map((s) => s.chip)).toEqual(['sent', 'sent'])
+    expect(sentBoth.heading).toBe('Sent')
+    expect(sentBoth.recheckAt).toBeNull()
+    // Gone from the phone, as a sent one is in time: the slot still holds.
+    const gone = latchSlots(sentBoth.latch, list({ items: [] }))
+    expect(gone.slots.map((s) => s.chip)).toEqual(['sent', 'sent'])
+    // The next redraw: the list is drawn afresh, without them.
+    expect(
+      latchSlots(gone.latch, list({ items: [], redrawKey: 'status' })).slots,
+    ).toEqual([])
+  })
+
+  test('its job, once the list has it, drawn in the slot and kept out of the list', () => {
+    const a = booking(NINE)
+    const first = latchSlots(null, list({ items: [a] }))
+    const job = row('job-1')
+    const next = latchSlots(
+      first.latch,
+      list({ items: [sent(a, 'job-1')], rows: [job] }),
+    )
+    expect(next.slots[0].real).toBe(job)
+    expect([...next.hidden]).toEqual(['job-1'])
+  })
+
+  test('one sent before it came on never comes: there is nothing of it left to say', () => {
+    const a = sent(booking(NINE), 'job-1')
+    expect(latchSlots(null, list({ items: [a] })).slots).toEqual([])
+  })
+
+  test('a Recurring Job is the visit booked, never one ahead, in a list latest first with the visits the series projects (a client’s jobs)', () => {
+    const WEEKS_4 = 28 * 86_400_000
+    const a = booking(NINE, {
+      kind: 'series',
+      booking: bookingFor({
+        scheduledAt: NINE,
+        repeat: { count: 4, unit: 'week' },
+      }),
+    })
+    // As `clients.summary` lists them: latest first, its first visit last.
+    const visits = [6, 5, 4, 3, 2, 1, 0].map((n) =>
+      row(`v${n}`, {
+        recurrenceId: 'series-1' as Id<'recurrences'>,
+        scheduledAt: NINE + n * WEEKS_4,
+        occurrenceAt: NINE + n * WEEKS_4,
+      }),
+    )
+    const first = latchSlots(null, list({ items: [a] }))
+    const answered = sent(a, 'series-1')
+    const next = latchSlots(
+      first.latch,
+      list({ items: [answered], rows: visits }),
+    )
+    expect(next.slots[0].real?._id).toBe('v0')
+    expect([...next.hidden]).toEqual(['v0'])
+    // Named by `find` too: the first visit, wherever the list has it.
+    const settled: OutboxItem = {
+      ...answered,
+      result: { id: 'series-1', firstJobId: 'v0' as Id<'jobs'> },
+    }
+    expect(realRowOf(settled, visits)?._id).toBe('v0')
+    // Its first visit moved since: still the one booked, by its occurrence.
+    const moved = visits.map((visit) =>
+      visit._id === 'v0' ? { ...visit, scheduledAt: NINE + HOUR } : visit,
+    )
+    expect(realRowOf(answered, moved)?._id).toBe('v0')
+    // None at the time booked (a series begun in the past starts at its
+    // first visit projected): the first after it.
+    expect(realRowOf(answered, visits.slice(0, -1))?._id).toBe('v1')
+  })
+
+  test('a Recurring Job is its series’ before this tab hears the answer, where the list says whose request its visits’ series was booked under (a client’s jobs, `seriesRequestId`)', () => {
+    const WEEKS_4 = 28 * 86_400_000
+    const a = booking(NINE, {
+      kind: 'series',
+      state: 'sending',
+      attempts: 1,
+      booking: bookingFor({
+        scheduledAt: NINE,
+        repeat: { count: 4, unit: 'week' },
+      }),
+    })
+    // Latest first, as `clients.summary` has them, each with its service's
+    // request id.
+    const visits = [3, 2, 1, 0].map((n) => ({
+      ...row(`v${n}`, {
+        recurrenceId: 'series-1' as Id<'recurrences'>,
+        scheduledAt: NINE + n * WEEKS_4,
+        occurrenceAt: NINE + n * WEEKS_4,
+      }),
+      seriesRequestId: a.requestId,
+    }))
+    // Not on screen yet: left to the list, never drawn beside its service.
+    expect(latchSlots(null, list({ items: [a], rows: visits })).slots).toEqual(
+      [],
+    )
+    // On screen: the slot draws the visit booked, which the list leaves out.
+    const first = latchSlots(null, list({ items: [a] }))
+    expect(first.slots.map((slot) => slot.chip)).toEqual(['sending'])
+    const next = latchSlots(first.latch, list({ items: [a], rows: visits }))
+    expect(next.slots[0]).toMatchObject({ chip: null })
+    expect(next.slots[0].real?._id).toBe('v0')
+    expect([...next.hidden]).toEqual(['v0'])
+    expect(next.heading).toBe('Sent')
+    // Another booking's service is not this one's.
+    expect(
+      realRowOf(
+        a,
+        visits.map((visit) => ({ ...visit, seriesRequestId: 'other' })),
+      ),
+    ).toBeNull()
+  })
+})
+
 describe('what may come onto the screen (`addRule`)', () => {
   const latch: SlotLatch = { redrawKey: 'day', since: NOW, slots: [] }
   const source = (over: Partial<DrawSource> = {}): DrawSource => ({
     mayDraw: () => true,
-    keptHere: new Set(),
+    keptHere: new Map(),
     ...over,
   })
 
@@ -505,7 +644,9 @@ describe('what may come onto the screen (`addRule`)', () => {
       addRule(source(over), { drawsCards: false, now })(a, latch)
     expect(rule(NOW + ADD_AFTER_DRAW_MS)).toBe(true)
     expect(rule(NOW + ADD_AFTER_DRAW_MS + 1)).toBe(false)
-    expect(rule(NOW + 60_000, { keptHere: new Set([a.localId]) })).toBe(true)
+    expect(rule(NOW + 60_000, { keptHere: new Map([[a.localId, NOW]]) })).toBe(
+      true,
+    )
   })
 
   test('never one its sheet is still deciding, or closed on its job', () => {
@@ -530,9 +671,9 @@ describe('what may come onto the screen (`addRule`)', () => {
     expect(rule(NOW + ADD_AFTER_DRAW_MS, group)).toBe(true)
     expect(rule(NOW + ADD_AFTER_DRAW_MS + 1, latch)).toBe(false)
     expect(rule(NOW + 60_000, group)).toBe(false)
-    expect(rule(NOW + 60_000, group, { keptHere: new Set([a.localId]) })).toBe(
-      true,
-    )
+    expect(
+      rule(NOW + 60_000, group, { keptHere: new Map([[a.localId, NOW]]) }),
+    ).toBe(true)
     expect(
       addRule(source(), {
         drawsCards: true,

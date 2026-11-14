@@ -21,6 +21,11 @@ import type { WeatherCell } from '#/lib/weather'
  * the page's being the day shown's, and after them any saved by a newer
  * PestM8, whose day can't be read: a card of their own that opens their
  * sheet, for its Discard (plan D13). Nothing when there are none.
+ *
+ * With no `dayShown`, a list of every day's (the Job tab's, above its list:
+ * `useOutboxList`): each card dated, its people named and its forecast
+ * asked for, as that list's own cards are, and headed as a section of the
+ * page (`h2`) rather than of a day (`h3`).
  */
 export function OutboxGroup({
   day,
@@ -34,8 +39,9 @@ export function OutboxGroup({
 }: {
   day: OutboxDay
   timezone: string
-  /** The day the list shows (`JobCard`'s `dayShown`). */
-  dayShown: string
+  /** The day the list shows (`JobCard`'s `dayShown`); none for a list of
+   * every day. */
+  dayShown?: string
   /** Opens a booking not sent yet (`?outboxId=`). */
   onOpenItem: (localId: string) => void
   /** Opens a job a slot now draws, once sent. */
@@ -49,29 +55,33 @@ export function OutboxGroup({
   const headingId = useId()
   const foreign = day.foreign ?? []
   if (day.slots.length === 0 && foreign.length === 0) return null
+  // Under the day's own h2 on the Schedule; the Job tab's has only the
+  // page's h1 above it, so it is a section of the page.
+  const Heading = dayShown === undefined ? 'h2' : 'h3'
   return (
     <section aria-labelledby={headingId} className={className}>
       {/* Its counts change in place as the bookings go. */}
-      <h3
+      <Heading
         id={headingId}
         aria-live="polite"
         className="section-label mb-2 truncate"
       >
         {day.heading}
-      </h3>
+      </Heading>
       <div className={grid}>
         {day.slots.map((slot) => (
           <JobCard
             key={slot.key}
             job={slot.row}
             weather={
+              dayShown === undefined ||
               dayKeyOf(slot.row.scheduledAt, timezone) === dayShown
                 ? weatherOf(slot.row)
                 : { status: 'outOfWindow' }
             }
             timezone={timezone}
             onOpen={onOpenJob}
-            hideTechnician
+            hideTechnician={dayShown !== undefined}
             dayShown={dayShown}
             outbox={
               slot.chip === null

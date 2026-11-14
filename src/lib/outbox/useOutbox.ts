@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAccess } from '#/lib/access'
+import { cameByHistory } from '#/lib/installPrompt'
 import { keeper } from '#/lib/offline/keeper'
 import { lensOf } from '#/lib/offline/keptSet'
 import { signedInUserId } from '#/lib/rootState'
@@ -24,6 +25,7 @@ import {
   latchSlots,
 } from './latchSlots'
 import { browserLocks } from './outboxLocks'
+import { firstDrawOffers, listAddRule } from './outboxList'
 import { newRequestId } from './outboxItem'
 import { bookingDay, outboxRow } from './outboxRow'
 import { OUTBOX_ENABLED, isReadable } from './outboxSet'
@@ -41,7 +43,8 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { JobRow } from '#/components/schedule/JobCard'
 import type { BookingDraft, BookingPath, BookingSheet } from './book'
 import type { ItemDeps } from './itemActions'
-import type { DrawnSlot, ForeignLatch, SlotLatch } from './latchSlots'
+import type { DayRow } from '#/lib/offline/keeper'
+import type { DrawnSlot, ForeignLatch, LatchRow, SlotLatch } from './latchSlots'
 import type { BookingCall, OutboxItem } from './outboxItem'
 import type { RosterPerson } from './outboxRow'
 
@@ -163,12 +166,30 @@ export function useCanKeep(keepable: boolean): boolean {
 
 // ── What the screens show ──────────────────────────────────────────────────
 
+const noSubscription = () => () => {}
+
+/**
+ * False on a hydrating render (the server's HTML, which knows nothing of
+ * the phone), true on every other: as `useFirstDrawOffer` and the install
+ * card tell them apart. Not `useHydrated`, which is false on the first
+ * render of every mount, so a list mounted long after the page hydrated
+ * would draw a placeholder for a frame first.
+ */
+function useClientRender(): boolean {
+  return useSyncExternalStore(
+    noSubscription,
+    () => true,
+    () => false,
+  )
+}
+
 /**
  * The bookings on this phone that the person may see here: theirs, for
  * this business, that this build reads, and none while they work in
  * someone else's account or look at the business as them (`lensOf`), whose
- * screen it then is. Null while hydrating (the server knows nothing of
- * them) and until the outbox has been read.
+ * screen it then is. Null on a hydrating render (the server knows nothing
+ * of them) and until the outbox has been read; on a later mount, from its
+ * first render.
  */
 export function useOutboxItems(
   businessId: Id<'businesses'>,
@@ -176,7 +197,7 @@ export function useOutboxItems(
    * (`isReadable`): for their sheet and today's group (plan D13). */
   { foreign = false }: { foreign?: boolean } = {},
 ): ReadonlyArray<OutboxItem> | null {
-  const hydrated = useHydrated()
+  const hydrated = useClientRender()
   const revision = useSyncExternalStore(
     outbox.subscribe,
     () => outbox.revision(),
@@ -406,6 +427,131 @@ export function useOutboxDay(at: {
   }
 }
 
+// ── A list of every day: the Job tab, a client's jobs ─────────────────────
+
+/**
+ * Whether the page's list may put the bookings on this phone on screen as
+ * it first draws (`firstDrawOffers`): decided on its first render, then
+ * kept, as the schedule's install card is (`useInstallCardOffer`). Not on a
+ * full page load, whose first render hydrates; nor on a page reached with
+ * Back or Forward. `historyKey`: the router's key for this history entry
+ * (`location.state.__TSR_key`).
+ */
+export function useFirstDrawOffer(historyKey: string | undefined): boolean {
+  const clientRender = useClientRender()
+  const [offered] = useState(() =>
+    firstDrawOffers({
+      hydrating: !clientRender,
+      byHistory: cameByHistory(historyKey),
+    }),
+  )
+  return offered
+}
+
+/** A slot as a list of every day draws it (`useOutboxList`). */
+export type OutboxListSlot<TRow extends LatchRow> = DrawnSlot<TRow> & {
+  /** The booking as its day's list would carry its job (`outboxRow`): what
+   * the slot draws until it draws `real`. */
+  card: DayRow
+}
+
+export type OutboxList<TRow extends LatchRow> = {
+  slots: Array<OutboxListSlot<TRow>>
+  /** The rows the slots draw, which the list leaves out. */
+  hidden: ReadonlySet<string>
+  /** "1 job not sent yet", …, "Sent" (`outboxHeading`); null with none. */
+  heading: string | null
+  /** For the "Sending…" chip's spinner. */
+  lineLive: boolean
+}
+
+/**
+ * The bookings on this phone in a list of every day (lib/outbox/
+ * outboxList.ts): the Job tab's group above its list, a client's in their
+ * Jobs tab and on their sheet kept on the phone. The person's, for this
+ * business, those `shows` lets through by the card each will be, each as
+ * the server's answer has it the moment it is heard (`answeredView`), and
+ * slotted (`latchSlots`, every day): a slot keeps its place until the next
+ * redraw, drawing its job once the list has it, and "Sent" until then. One
+ * comes on only as the list first draws (`offered` at the page's first;
+ * `listAddRule`) or booked here just now, since what is under the group
+ * moves when it does. Nothing is decided until the list `draws`, its window
+ * running from then.
+ */
+export function useOutboxList<TRow extends LatchRow>(at: {
+  businessId: Id<'businesses'>
+  /** The list as the server has it, as far as it is read: what a sent
+   * booking became. */
+  rows: ReadonlyArray<TRow>
+  /** What starts the list's drawing over: its filters, its site, its view.
+   * The account (`lensOf`) is added here. */
+  redrawKey: string
+  /** Whether the list draws as it will be seen (hydrated, and past its own
+   * placeholder): nothing is decided before. */
+  draws: boolean
+  /** Which bookings it lists, by the card each will be. */
+  shows: (item: OutboxItem, card: DayRow) => boolean
+  /** Whether they may come on at the page's first drawing
+   * (`useFirstDrawOffer`); a later redraw always may. */
+  offered?: boolean
+}): OutboxList<TRow> {
+  const access = useAccess()
+  const queryClient = useQueryClient()
+  const items = useOutboxItems(at.businessId)
+  const lineLive = useSyncExternalStore(
+    keeper.subscribe,
+    () => keeper.lineLive(),
+    () => false,
+  )
+  const live = {
+    seesPrices: access.caps['prices.see'],
+    roster: queryClient.getQueryData<Array<RosterPerson>>(
+      rq.roster(at.businessId).queryKey,
+    ),
+  }
+  const [latch, setLatch] = useState<SlotLatch | null>(null)
+  // The page's first drawing is the one `offered` is for; once redrawn, it
+  // no longer holds anything back.
+  const [firstKey] = useState(at.redrawKey)
+  const [redrawn, setRedrawn] = useState(false)
+  if (!redrawn && at.redrawKey !== firstKey) setRedrawn(true)
+  const offered = at.offered !== false || redrawn || at.redrawKey !== firstKey
+  // Whose screen it is starts the drawing over too, whatever the caller's
+  // key (`lensOf`): switched into someone else's account, nothing of the
+  // person's is drawn, a slot latched before included (plan D2).
+  const redrawKey = `${at.redrawKey}|${lensOf(access) ?? ''}`
+  const now = Date.now()
+  const result = latchSlots(latch, {
+    items:
+      items === null || !at.draws
+        ? null
+        : items
+            .filter((item) => at.shows(item, outboxRow(item, live)))
+            .map((item) =>
+              answeredView(item, outbox.answeredWith(item.localId)),
+            ),
+    drawing: at.draws,
+    rows: at.rows,
+    redrawKey,
+    dayShown: null,
+    timezone: '',
+    dayLive: false,
+    now,
+    mayAdd: listAddRule(outbox, { now, offered }),
+  })
+  // Held between renders, as React holds state adjusted while rendering.
+  if (result.latch !== latch) setLatch(result.latch)
+  return {
+    slots: result.slots.map((slot) => ({
+      ...slot,
+      card: outboxRow(slot.item, live),
+    })),
+    hidden: result.hidden,
+    heading: result.heading,
+    lineLive,
+  }
+}
+
 /**
  * Where a day's bookings not sent yet are, whatever the filters: for the
  * day's forecast, asked for with the jobs', so a booking's weather strip is
@@ -432,13 +578,14 @@ export function useOutboxPlaces(
 }
 
 /**
- * Whether the bookings on this phone can be shown: once hydrated (the
- * server knows nothing of them), and once the outbox has been read. A
+ * Whether the bookings on this phone can be shown: never on a hydrating
+ * render (the server knows nothing of them), and once the outbox has been
+ * read, so on a later mount from its first render (`useClientRender`). A
  * booking's sheet opens only then, so a reload or an iOS restore of its
  * address never opens a sheet with nothing in it.
  */
 export function useOutboxReadable(): boolean {
-  const hydrated = useHydrated()
+  const hydrated = useClientRender()
   const readable = useSyncExternalStore(
     outbox.subscribe,
     () => outbox.readable(),

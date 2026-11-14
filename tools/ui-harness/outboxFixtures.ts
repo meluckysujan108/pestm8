@@ -3,8 +3,8 @@ import { latchSlots } from '#/lib/outbox/latchSlots'
 import { outboxRow } from '#/lib/outbox/outboxRow'
 import { BIZ, JOBS, MEMBERS, TZ, perthTodayKey } from './fixtures'
 import type { BookingArgs, OutboxItem } from '#/lib/outbox/outboxItem'
-import type { OutboxDay } from '#/lib/outbox/useOutbox'
-import type { SlotLatch } from '#/lib/outbox/latchSlots'
+import type { OutboxDay, OutboxList } from '#/lib/outbox/useOutbox'
+import type { LatchRow, SlotLatch } from '#/lib/outbox/latchSlots'
 import type { JobRow } from '#/components/schedule/JobCard'
 
 /**
@@ -231,3 +231,84 @@ export function outboxDayOf(
     lineLive,
   }
 }
+
+/**
+ * A list of every day's group (the Job tab's, a client's) as `useOutboxList`
+ * would draw it, from these bookings: the latch run over each set in turn,
+ * every day at once (`dayShown` null).
+ */
+export function outboxListOf<TRow extends LatchRow>(
+  steps: Array<{ items: Array<OutboxItem>; rows?: Array<TRow> }>,
+  lineLive = false,
+): OutboxList<TRow> {
+  const at = {
+    drawing: true,
+    redrawKey: 'harness',
+    dayShown: null,
+    timezone: TZ,
+    dayLive: false,
+    now: Date.now(),
+    mayAdd: () => true,
+  }
+  let latch: SlotLatch | null = null
+  let result = latchSlots<TRow>(null, { ...at, items: null, rows: [] })
+  for (const step of steps) {
+    result = latchSlots<TRow>(latch, {
+      ...at,
+      items: step.items,
+      rows: step.rows ?? [],
+    })
+    latch = result.latch
+  }
+  return {
+    slots: result.slots.map((slot) => ({
+      ...slot,
+      card: outboxRow(slot.item, { seesPrices: true, roster: MEMBERS }),
+    })),
+    hidden: result.hidden,
+    heading: result.heading,
+    lineLive,
+  }
+}
+
+/** Subi Café Group's (the `client` specimen's) bookings on the phone: one
+ * at 220 Hay St tomorrow, not sent yet; one at 9 Rokeby Rd, sent as the
+ * signal went. */
+export const FOR_SUBI: OutboxItem = kept(
+  'a3',
+  {
+    scheduledAt: laterAt(1, 10),
+    property: { propertyId: 'p1' as never },
+  },
+  {
+    clientName: 'Subi Café Group',
+    clientKind: 'business',
+    clientPhone: '08 9381 2200',
+    addressLine: '220 Hay St',
+    suburb: 'Subiaco',
+    postcode: '6008',
+  },
+)
+export const FOR_SUBI_ROKEBY: OutboxItem = kept(
+  'a4',
+  {
+    scheduledAt: laterAt(4, 8),
+    property: { propertyId: 'p2' as never },
+    jobType: 'Termite Inspection',
+    price: 38_500,
+  },
+  {
+    clientName: 'Subi Café Group',
+    clientKind: 'business',
+    clientPhone: '08 9381 2200',
+    addressLine: '9 Rokeby Rd',
+    suburb: 'Subiaco',
+    postcode: '6008',
+  },
+  {
+    state: 'sending',
+    attempts: 1,
+    lastAttemptAt: Date.now() - 5 * 60_000,
+    sentKinds: ['job'],
+  },
+)

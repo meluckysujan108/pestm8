@@ -4,7 +4,9 @@ import { dayKeyOf } from '../../../convex/lib/dates'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import { ReportChip } from '#/components/reports/ReportRows'
 import { formatJobDate, formatTime, todayKey } from '#/lib/format'
+import { OutboxChip } from './OutboxChip'
 import type { InlineReport } from '#/components/reports/ReportRows'
+import type { OutboxChip as OutboxChipKind } from '#/lib/outbox/outboxRules'
 
 /**
  * A visit in a list — a job's history, a client's jobs — opening it on the
@@ -12,6 +14,9 @@ import type { InlineReport } from '#/components/reports/ReportRows'
  *
  * Headed by the service, or, where every row is the same service (a
  * recurring service's own visits), by the day.
+ *
+ * With `outbox`, a booking on this phone, not sent yet (lib/outbox/): its
+ * `OutboxChip` where the status pill is, opening its sheet on the Schedule.
  */
 export function VisitRow({
   businessSlug,
@@ -21,6 +26,7 @@ export function VisitRow({
   headedBy = 'service',
   site,
   onOpen,
+  outbox,
 }: {
   businessSlug: string
   timezone: string
@@ -38,6 +44,9 @@ export function VisitRow({
   /** Opens the visit where the list is (a page with its own job sheet),
    * rather than on the Schedule. */
   onOpen?: (id: string) => void
+  /** A booking on the phone, not sent yet: its chip, and its `localId`,
+   * which opens its sheet (`?outboxId=`), never `?jobId=`. */
+  outbox?: { chip: OutboxChipKind; lineLive: boolean; localId: string }
 }) {
   const dayKey = dayKeyOf(visit.scheduledAt, timezone)
   const day = formatJobDate(dayKey, todayKey(timezone))
@@ -67,7 +76,11 @@ export function VisitRow({
         </span>
       </span>
       <span className="flex shrink-0 items-center gap-1">
-        <StatusPill status={visit.status} />
+        {outbox ? (
+          <OutboxChip chip={outbox.chip} lineLive={outbox.lineLive} />
+        ) : (
+          <StatusPill status={visit.status} />
+        )}
         <ChevronRight
           aria-hidden
           size={16}
@@ -79,7 +92,16 @@ export function VisitRow({
   )
   return (
     <div className="px-3.5 py-2">
-      {onOpen ? (
+      {outbox ? (
+        <Link
+          to="/$businessSlug/schedule"
+          params={{ businessSlug }}
+          search={{ date: dayKey, outboxId: outbox.localId }}
+          className="flex min-h-11 items-center justify-between gap-2"
+        >
+          {content}
+        </Link>
+      ) : onOpen ? (
         <button
           type="button"
           onClick={() => onOpen(visit._id)}

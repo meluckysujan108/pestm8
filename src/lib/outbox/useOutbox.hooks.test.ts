@@ -13,6 +13,7 @@ import { KEEP_WAIT_MS, STORE_OP_MS } from './outboxSet'
 import { replaceItem } from './itemActions'
 import {
   beginEditChange,
+  beginSendChange,
   checkOutboxOwner,
   confirmStaleChange,
   setOutboxBackendForTests,
@@ -34,7 +35,9 @@ import {
   useBooking,
   useCanKeep,
   useDraftRequestId,
+  useFirstDrawOffer,
   useOutboxDay,
+  useOutboxList,
   useOutboxSettled,
 } from './useOutbox'
 import type * as React from 'react'
@@ -42,6 +45,7 @@ import type * as ReactQuery from '@tanstack/react-query'
 import type { QueryKey } from '@tanstack/react-query'
 import type * as TwoStep from '#/lib/twoStep'
 import type * as Keeper from '#/lib/offline/keeper'
+import type * as InstallPrompt from '#/lib/installPrompt'
 import type { Access } from '#/lib/access'
 import type { JobRow } from '#/components/schedule/JobCard'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -94,6 +98,15 @@ vi.mock('#/lib/rootState', () => ({
   signedOutAfterAll: vi.fn(async () => false),
 }))
 vi.mock('#/lib/connectionLog', () => ({ logConnection: vi.fn() }))
+// The history entry the last Back or Forward went to (`cameByHistory`).
+const history = vi.hoisted(() => ({
+  traversedTo: undefined as string | undefined,
+}))
+vi.mock('#/lib/installPrompt', async (importOriginal) => ({
+  ...(await importOriginal<typeof InstallPrompt>()),
+  cameByHistory: (key: string | undefined) =>
+    key !== undefined && key === history.traversedTo,
+}))
 vi.mock('#/lib/twoStep', async (importOriginal) => ({
   ...(await importOriginal<typeof TwoStep>()),
   flagIfTwoStepNeeded: vi.fn(),
@@ -1209,6 +1222,226 @@ describe('the Week View’s day (`inWeek`, §9.3)', () => {
     expect(await booked).toEqual({ outcome: 'kept' })
     hook.rerender()
     expect(ids()).toEqual([[], [monday.localId]])
+  })
+})
+
+describe('the Job tab’s group above its list (`useOutboxList`, `useFirstDrawOffer`, §9.8)', () => {
+  type ListRow = { _id: string; clientRequestId?: string }
+
+  /** The Job tab as it draws its group: the page's first render decides
+   * whether its bookings may come on then, as the install card does. */
+  function jobTab(
+    list: { redrawKey: string; rows: Array<ListRow> },
+    at: { historyKey?: string; hydrating?: boolean } = {},
+  ) {
+    const draws: Array<ReturnType<typeof useOutboxList<ListRow>>> = []
+    const hook = hookHarness.mount(
+      () => {
+        const offered = useFirstDrawOffer(at.historyKey ?? 'entry-1')
+        const unsent = useOutboxList({
+          businessId: B1,
+          rows: list.rows,
+          redrawKey: list.redrawKey,
+          draws: true,
+          offered,
+          shows: () => true,
+        })
+        draws.push(unsent)
+        return unsent
+      },
+      { hydrating: at.hydrating },
+    )
+    const ids = () => draws[draws.length - 1].slots.map((s) => s.localId)
+    return { now: () => draws[draws.length - 1], ids, hook }
+  }
+
+  /** Kept on the phone already as the page loads, the line down. */
+  async function phoneWith(items: Array<ReturnType<typeof itemFor>>) {
+    const made = await phone()
+    page.keeper.live = false
+    for (const item of items) made.backend.items.set(item.localId, item)
+    await outbox.refresh()
+    await flush()
+    return made
+  }
+
+  afterEach(() => {
+    history.traversedTo = undefined
+  })
+
+  test('reached in the app: they come on as it first draws, of every day, and stay for the redraw', async () => {
+    const today = itemFor('u1')
+    const nextWeek = itemFor('u1', {
+      booking: bookingFor({ scheduledAt: Date.UTC(2026, 10, 3, 1) }),
+    })
+    await phoneWith([today, nextWeek])
+    const { ids } = jobTab({ redrawKey: 'all', rows: [] })
+    expect(ids().sort()).toEqual([today.localId, nextWeek.localId].sort())
+  })
+
+  test('a full page load: none as it hydrates, nor after, until a filter draws the list afresh', async () => {
+    const item = itemFor('u1')
+    await phoneWith([item])
+    const list = { redrawKey: 'all', rows: [] }
+    const { ids, hook } = jobTab(list, { hydrating: true })
+    expect(ids()).toEqual([])
+    await vi.advanceTimersByTimeAsync(ADD_AFTER_DRAW_MS / 2)
+    hook.rerender()
+    expect(ids()).toEqual([])
+    list.redrawKey = 'staff'
+    hook.rerender()
+    expect(ids()).toEqual([item.localId])
+    // Back to the first list: drawn afresh too, the person's doing.
+    list.redrawKey = 'all'
+    hook.rerender()
+    expect(ids()).toEqual([item.localId])
+  })
+
+  test('reached with Back or Forward (`cameByHistory`): none, its scroll put back where it was', async () => {
+    const item = itemFor('u1')
+    await phoneWith([item])
+    history.traversedTo = 'entry-7'
+    expect(
+      jobTab({ redrawKey: 'all', rows: [] }, { historyKey: 'entry-7' }).ids(),
+    ).toEqual([])
+    // Another entry, reached in the app.
+    expect(
+      jobTab({ redrawKey: 'all', rows: [] }, { historyKey: 'entry-8' }).ids(),
+    ).toEqual([item.localId])
+  })
+
+  test('one coming after the list first drew waits for the next redraw: the list under it would move', async () => {
+    const first = itemFor('u1')
+    const { backend } = await phoneWith([first])
+    const list = { redrawKey: 'all', rows: [] }
+    const { ids, hook } = jobTab(list)
+    expect(ids()).toEqual([first.localId])
+    await vi.advanceTimersByTimeAsync(ADD_AFTER_DRAW_MS + 500)
+    const second = itemFor('u1')
+    backend.items.set(second.localId, second)
+    await outbox.refresh()
+    await flush()
+    hook.rerender()
+    expect(ids()).toEqual([first.localId])
+    list.redrawKey = 'sorted'
+    hook.rerender()
+    expect(ids().sort()).toEqual([first.localId, second.localId].sort())
+  })
+
+  test('its job, once the list has it, drawn in its slot and kept out of the list until the redraw', async () => {
+    const item = itemFor('u1')
+    await phoneWith([item])
+    const list: { redrawKey: string; rows: Array<ListRow> } = {
+      redrawKey: 'all',
+      rows: [],
+    }
+    const { now, hook } = jobTab(list)
+    expect(now().slots[0].chip).not.toBeNull()
+    // Made by a send whose answer this tab hasn't had: it carries the
+    // booking's request id.
+    const job = { _id: 'job-1', clientRequestId: item.requestId }
+    list.rows = [job]
+    hook.rerender()
+    expect(now().slots.map((s) => [s.localId, s.real, s.chip])).toEqual([
+      [item.localId, job, null],
+    ])
+    expect([...now().hidden]).toEqual(['job-1'])
+    list.redrawKey = 'staff'
+    hook.rerender()
+    expect(now().slots).toEqual([])
+    expect(now().hidden.size).toBe(0)
+  })
+
+  test('Back to it with one booked here earlier: none when the sender changes it since, only when booked here again', async () => {
+    await phone()
+    page.keeper.live = false
+    const item = itemFor('u1', {}, Date.now())
+    expect(await outbox.keep(item)).toBe('kept')
+    await flush()
+    // Booked on the Schedule, then Back to the Job tab a minute later.
+    await vi.advanceTimersByTimeAsync(60_000)
+    history.traversedTo = 'entry-9'
+    const { ids, hook } = jobTab(
+      { redrawKey: 'all', rows: [] },
+      { historyKey: 'entry-9' },
+    )
+    expect(ids()).toEqual([])
+    // Signal back: the sender marks it sending. Not the person's doing.
+    await vi.advanceTimersByTimeAsync(ADD_AFTER_DRAW_MS + 500)
+    await outbox.change('send', item.localId, beginSendChange(Date.now()))
+    await flush()
+    expect(outbox.get(item.localId)?.state).toBe('sending')
+    hook.rerender()
+    expect(ids()).toEqual([])
+    // An Edit's Book in this tab since the list drew: the person's doing.
+    outbox.bookedHere(item.localId)
+    hook.rerender()
+    expect(ids()).toEqual([item.localId])
+  })
+
+  test('switched into someone else’s account: a slot latched before, sent, goes at once, whatever the list’s own key (`lensOf`, D2)', async () => {
+    const item = itemFor('u1')
+    const { backend } = await phoneWith([item])
+    // A client's Jobs tab: its key is only the site.
+    const list: { redrawKey: string; rows: Array<ListRow> } = {
+      redrawKey: 'all',
+      rows: [],
+    }
+    const { now, hook } = jobTab(list)
+    expect(now().slots.map((s) => s.localId)).toEqual([item.localId])
+    // Sent: the slot stays until the next redraw, drawing its job.
+    const at = Date.now()
+    backend.items.set(item.localId, {
+      ...item,
+      state: 'sent',
+      result: { id: 'job-1' },
+      sentAt: at,
+      updatedAt: at,
+    })
+    await outbox.refresh()
+    await flush()
+    list.rows = [{ _id: 'job-1' }]
+    hook.rerender()
+    expect(now().slots.map((s) => s.real?._id)).toEqual(['job-1'])
+    // The same sign-in switches into Kevin's account in another tab:
+    // access:me says so here, and the screen is Kevin's.
+    page.access.current = {
+      ...own,
+      actingAs: { membershipId: 'm-kevin' as Id<'memberships'>, name: 'Kevin' },
+    }
+    hook.rerender()
+    expect(now().slots).toEqual([])
+    expect(now().hidden.size).toBe(0)
+    // Back in their own: drawn afresh, the job in the list as itself.
+    page.access.current = own
+    hook.rerender()
+    expect(now().slots).toEqual([])
+  })
+
+  test('mounted once the page has hydrated and the phone is read: its first render draws them, never a frame of nothing first (`useOutboxSettled`, `useOutboxItems`)', async () => {
+    const item = itemFor('u1')
+    await phoneWith([item])
+    // A client's Jobs tab: it draws its jobs once settled, and its
+    // bookings with them.
+    const renders: Array<{ settled: boolean; ids: Array<string> }> = []
+    const tab = () => {
+      const settled = useOutboxSettled()
+      const unsent = useOutboxList<ListRow>({
+        businessId: B1,
+        rows: [],
+        redrawKey: 'all',
+        draws: settled,
+        shows: () => true,
+      })
+      renders.push({ settled, ids: unsent.slots.map((s) => s.localId) })
+    }
+    hookHarness.mount(tab)
+    expect(renders[0]).toEqual({ settled: true, ids: [item.localId] })
+    // A full page load: nothing on the hydrating render, as before.
+    renders.length = 0
+    hookHarness.mount(tab, { hydrating: true })
+    expect(renders[0]).toEqual({ settled: false, ids: [] })
+    expect(renders.at(-1)).toEqual({ settled: true, ids: [item.localId] })
   })
 })
 
