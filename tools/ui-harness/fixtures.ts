@@ -13,7 +13,14 @@ import { resolveMergeFixture } from './mergeFixtures'
 import { openWorkFixture, resolveSiteBook } from './siteWorkFixtures'
 import { resolveSheetCheckBook, sheetCheckMutation } from './sheetCheckFixtures'
 import { clientFacets } from '../../convex/lib/clientFacets'
+import { dayKeyOf } from '../../convex/lib/dates'
 import { XERO_FIXTURES, XERO_LIVE, XERO_MUTATIONS } from './xeroFixtures'
+import {
+  paymentsForJob,
+  paymentsOutstanding,
+  paymentsPaidIn,
+  paymentsSummary,
+} from './paymentFixtures'
 
 export const TZ = 'Australia/Perth'
 export const BIZ = 'biz_demo'
@@ -276,9 +283,55 @@ function bookedJobs(status?: string) {
   )
 }
 
+/** A finished job for each thing a card's price line can say. */
+export const PAYMENT_JOBS = [
+  {
+    _id: 'jp1',
+    status: 'paid',
+    payment: { methods: ['cash'], paid: 22000, owing: 0 },
+  },
+  {
+    _id: 'jp2',
+    status: 'invoiced',
+    payment: { methods: ['card'], paid: 15000, owing: 20000 },
+  },
+  {
+    _id: 'jp3',
+    status: 'completed',
+    payment: { methods: [], paid: 0, owing: 22000 },
+  },
+  {
+    _id: 'jp4',
+    status: 'paid',
+    payment: { methods: ['bankTransfer', 'card'], paid: 22000, owing: 0 },
+  },
+  {
+    _id: 'jp5',
+    status: 'paid',
+    payment: { methods: ['noCharge'], paid: 0, owing: 0 },
+  },
+  {
+    _id: 'jp6',
+    status: 'invoiced',
+    payment: { methods: [], paid: 0, owing: 38500 },
+  },
+].map((over, i) => ({
+  ...JOBS[1],
+  ...over,
+  jobNumber: 2418 + i,
+  clientKind: i % 3 === 2 ? 'business' : 'person',
+  clientName: ['Jan Morris', 'Dev Patel', 'Cottesloe Café'][i % 3],
+  contactPersonName: undefined,
+  siteContactName: undefined,
+  price: over.payment.paid + over.payment.owing,
+}))
+
 function jobGet(args: { jobId: string }) {
   if (args.jobId === 'loading') return undefined
-  const row = JOBS.find((j) => j._id === args.jobId) ?? JOBS[1]
+  const row =
+    PAYMENT_JOBS.find((j) => j._id === args.jobId) ??
+    JOBS.find((j) => j._id === args.jobId) ??
+    JOBS[1]
   return {
     ...row,
     businessId: BIZ,
@@ -943,6 +996,19 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
       : [],
   'access:me': accessMe,
   'jobs:get': jobGet,
+  'payments:summary': paymentsSummary,
+  'payments:outstanding': paymentsOutstanding,
+  'payments:paidIn': (args: { businessId: string; month?: string }) =>
+    paymentsPaidIn({ ...args, dayKeyOf: (ts) => dayKeyOf(ts, TZ) }),
+  'payments:forJob': (args: { jobId: string }) =>
+    paymentsForJob({
+      jobId:
+        args.jobId === 'jp1'
+          ? 'pay_recorded'
+          : args.jobId === 'jp3'
+            ? 'pay_ask'
+            : args.jobId,
+    }),
   // The Job tab a page at a time, and its caption: the sample's booked jobs,
   // newest first, as one finished page (`jobs.listPage`, `jobs.listCounts`).
   'jobs:listPage': (args: { status?: string }) => ({

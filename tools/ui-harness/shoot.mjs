@@ -203,11 +203,6 @@ const PLAN = {
   'analytics-quiet': { full: true, before: async (p) => p.waitForTimeout(600) },
   'analytics-loading': { before: async (p) => p.waitForTimeout(300) },
   'analytics-failed': { before: async (p) => p.waitForTimeout(300) },
-  'analytics-waiting': {
-    full: true,
-    before: async (p) => p.waitForTimeout(400),
-  },
-  'analytics-waiting-none': { before: async (p) => p.waitForTimeout(400) },
   // Settings → Xero and My Xero (Release 1: connect), one state each.
   xero: { full: true, before: async (p) => p.waitForTimeout(500) },
   'xero-connected': { before: async (p) => p.waitForTimeout(500) },
@@ -1687,6 +1682,10 @@ const PLAN = {
     },
   },
   sign: { before: async (p) => signAcross(p) },
+  // The photo annotator: a photo marked up, and a photo that did not load
+  // on either try.
+  annotate: { before: async (p) => signAcross(p) },
+  'annotate-load-failed': { before: async (p) => p.waitForTimeout(800) },
   // A client's pad: upright, asking their name.
   'sign-client': { before: async (p) => signAcross(p) },
   // The form's own slot with a saved signature, and a drawing kept on the

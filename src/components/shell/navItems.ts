@@ -8,6 +8,7 @@ import {
   Settings,
   StickyNote,
   Target,
+  Wallet,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -45,6 +46,8 @@ export const PRIMARY_NAV: Array<NavItem> = [
 /** Behind the burger: the sections that are not a daily destination. */
 export const MORE_NAV: Array<NavItem> = [
   { to: JOB_TO, label: 'Jobs', icon: Briefcase },
+  // What is owed, to bill and paid: the money side of the jobs above it.
+  { to: '/$businessSlug/payments', label: 'Payments', icon: Wallet },
   { to: '/$businessSlug/analytics', label: 'Analytics', icon: BarChart3 },
   { to: '/$businessSlug/products', label: 'Products', icon: Package },
   { to: '/$businessSlug/leads', label: 'Leads', icon: Target },

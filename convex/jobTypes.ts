@@ -17,7 +17,7 @@ import {
   splitJobTypes,
   tidyJobTypeName,
 } from './lib/jobTypes'
-import { settableJobStatus } from './schema'
+import { bookedJobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 
@@ -112,7 +112,7 @@ export const manage = query({
 
     let scanned = 0
     let complete = true
-    statuses: for (const { value: status } of settableJobStatus.members) {
+    statuses: for (const { value: status } of bookedJobStatus.members) {
       const jobs = ctx.db
         .query('jobs')
         .withIndex('by_business_status', (q) =>

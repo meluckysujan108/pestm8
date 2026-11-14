@@ -20,7 +20,7 @@ type Visit = {
 }
 
 /** Visits that happened: what a report can be about. */
-const DONE = new Set(['completed', 'invoiced'])
+const DONE = new Set(['completed', 'invoiced', 'paid'])
 
 /** A visit still to come, which the series' "Next" can be. */
 const COMING = new Set(['pending', 'booked', 'recurring'])

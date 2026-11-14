@@ -18,6 +18,9 @@ const PNG_200 = solidPng(200, 200)
 test('a gallery photo can be annotated, and the annotated version survives finalise', async ({
   page,
 }) => {
+  // The worker's install and claim (below) can take most of a minute on a
+  // loaded machine, on top of a sign-up, an upload and a finalise.
+  test.setTimeout(120_000)
   const email = uniqueEmail('annotate-owner')
   const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
 
@@ -40,11 +43,28 @@ test('a gallery photo can be annotated, and the annotated version survives final
   )
 
   await signInViaUi(page, email)
-  await page.goto(sectionUrl(slug, reportId, 'serviceReport', 'addPhotos'))
 
-  // A tap before hydration is dropped: the server-rendered button has no
-  // handler yet, and "Report Photos" would never appear.
-  await builderReady(page)
+  // On a phone the service worker took the app over long ago, and it is what
+  // stood in this test's way: the gallery's <img> left an opaque copy of the
+  // photo in the worker's image cache, the editor's CORS load of the same URL
+  // was answered with it and refused, and the editor never opened
+  // (src/lib/offline/imagesCache.ts). A fresh test browser only sometimes had
+  // the worker in control by the time the photo showed, so this failed now
+  // and then instead of every time. So the worker takes the page over first,
+  // as on a phone: reloaded until it has, since under load the claim can
+  // trail `ready` (licences.spec.ts).
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready
+  })
+  await expect(async () => {
+    await page.goto(sectionUrl(slug, reportId, 'serviceReport', 'addPhotos'))
+    // A tap before hydration is dropped: the server-rendered button has no
+    // handler yet, and "Report Photos" would never appear.
+    await builderReady(page)
+    expect(
+      await page.evaluate(() => navigator.serviceWorker.controller !== null),
+    ).toBe(true)
+  }).toPass({ timeout: 60_000 })
 
   // "Report Photos" only shows while the form's own "Add Photos?" is Yes.
   await page
@@ -69,6 +89,17 @@ test('a gallery photo can be annotated, and the annotated version survives final
   ).toBeVisible({ timeout: 20_000 })
 
   const photoBefore = await page.getByRole('img', { name: 'Report Photos photo 1', exact: true }).getAttribute('src')
+  // Tapped once the worker has kept the gallery's copy of the photo, as it
+  // has on a phone long before anyone taps Annotate, so the editor's own load
+  // meets that copy every time and not only when the timing falls that way.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async (src) => (await caches.match(src)) !== undefined,
+        photoBefore!,
+      ),
+    )
+    .toBe(true)
 
   await page.getByRole('button', { name: 'Annotate Report Photos photo 1', exact: true }).click()
 

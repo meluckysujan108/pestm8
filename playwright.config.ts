@@ -57,7 +57,7 @@ export default defineConfig({
       // one browser to install.
       use: { ...devices['iPhone 13'], browserName: 'chromium' },
       testMatch:
-        /(shell|schedule|job|jobCard|jobSheet|jobRecordEdit|jobTimes|jobTypes|sharedJobs|clientSheet|recurringServices|ownerTechnician|viewMenu|navigation|clientDetails|clientImport|products|twoStep|onboarding|install|xero)\.spec\.ts/,
+        /(shell|schedule|job|jobCard|jobSheet|payments|jobRecordEdit|jobTimes|jobTypes|sharedJobs|clientSheet|recurringServices|ownerTechnician|viewMenu|navigation|clientDetails|clientImport|products|twoStep|onboarding|install|xero)\.spec\.ts/,
     },
   ],
   /**

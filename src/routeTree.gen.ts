@@ -22,12 +22,12 @@ import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as BusinessSlugJobRouteRouteImport } from './routes/$businessSlug/job/route'
 import { Route as BusinessSlugLeadsRouteImport } from './routes/$businessSlug/leads'
 import { Route as BusinessSlugNotesRouteImport } from './routes/$businessSlug/notes'
+import { Route as BusinessSlugPaymentsRouteImport } from './routes/$businessSlug/payments'
 import { Route as BusinessSlugProductsRouteImport } from './routes/$businessSlug/products'
 import { Route as BusinessSlugScheduleRouteImport } from './routes/$businessSlug/schedule'
 import { Route as JoinTokenRouteImport } from './routes/join.$token'
 import { Route as StartTokenRouteImport } from './routes/start.$token'
 import { Route as BusinessSlugAnalyticsIndexRouteImport } from './routes/$businessSlug/analytics/index'
-import { Route as BusinessSlugAnalyticsUninvoicedRouteImport } from './routes/$businessSlug/analytics/uninvoiced'
 import { Route as BusinessSlugClientsIndexRouteImport } from './routes/$businessSlug/clients/index'
 import { Route as BusinessSlugClientsImportRouteImport } from './routes/$businessSlug/clients/import'
 import { Route as BusinessSlugJobIndexRouteImport } from './routes/$businessSlug/job/index'
@@ -125,6 +125,11 @@ const BusinessSlugNotesRoute = BusinessSlugNotesRouteImport.update({
   path: '/notes',
   getParentRoute: () => BusinessSlugRouteRoute,
 } as any)
+const BusinessSlugPaymentsRoute = BusinessSlugPaymentsRouteImport.update({
+  id: '/payments',
+  path: '/payments',
+  getParentRoute: () => BusinessSlugRouteRoute,
+} as any)
 const BusinessSlugProductsRoute = BusinessSlugProductsRouteImport.update({
   id: '/products',
   path: '/products',
@@ -149,12 +154,6 @@ const BusinessSlugAnalyticsIndexRoute =
   BusinessSlugAnalyticsIndexRouteImport.update({
     id: '/analytics/',
     path: '/analytics/',
-    getParentRoute: () => BusinessSlugRouteRoute,
-  } as any)
-const BusinessSlugAnalyticsUninvoicedRoute =
-  BusinessSlugAnalyticsUninvoicedRouteImport.update({
-    id: '/analytics/uninvoiced',
-    path: '/analytics/uninvoiced',
     getParentRoute: () => BusinessSlugRouteRoute,
   } as any)
 const BusinessSlugClientsIndexRoute =
@@ -354,11 +353,11 @@ export interface FileRoutesByFullPath {
   '/$businessSlug/job': typeof BusinessSlugJobRouteRouteWithChildren
   '/$businessSlug/leads': typeof BusinessSlugLeadsRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
+  '/$businessSlug/payments': typeof BusinessSlugPaymentsRoute
   '/$businessSlug/products': typeof BusinessSlugProductsRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/join/$token': typeof JoinTokenRoute
   '/start/$token': typeof StartTokenRoute
-  '/$businessSlug/analytics/uninvoiced': typeof BusinessSlugAnalyticsUninvoicedRoute
   '/$businessSlug/clients/import': typeof BusinessSlugClientsImportRoute
   '/$businessSlug/job/recurring': typeof BusinessSlugJobRecurringRoute
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
@@ -405,11 +404,11 @@ export interface FileRoutesByTo {
   '/welcome': typeof WelcomeRoute
   '/$businessSlug/leads': typeof BusinessSlugLeadsRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
+  '/$businessSlug/payments': typeof BusinessSlugPaymentsRoute
   '/$businessSlug/products': typeof BusinessSlugProductsRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/join/$token': typeof JoinTokenRoute
   '/start/$token': typeof StartTokenRoute
-  '/$businessSlug/analytics/uninvoiced': typeof BusinessSlugAnalyticsUninvoicedRoute
   '/$businessSlug/clients/import': typeof BusinessSlugClientsImportRoute
   '/$businessSlug/job/recurring': typeof BusinessSlugJobRecurringRoute
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
@@ -458,11 +457,11 @@ export interface FileRoutesById {
   '/$businessSlug/job': typeof BusinessSlugJobRouteRouteWithChildren
   '/$businessSlug/leads': typeof BusinessSlugLeadsRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
+  '/$businessSlug/payments': typeof BusinessSlugPaymentsRoute
   '/$businessSlug/products': typeof BusinessSlugProductsRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/join/$token': typeof JoinTokenRoute
   '/start/$token': typeof StartTokenRoute
-  '/$businessSlug/analytics/uninvoiced': typeof BusinessSlugAnalyticsUninvoicedRoute
   '/$businessSlug/clients/import': typeof BusinessSlugClientsImportRoute
   '/$businessSlug/job/recurring': typeof BusinessSlugJobRecurringRoute
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
@@ -512,11 +511,11 @@ export interface FileRouteTypes {
     | '/$businessSlug/job'
     | '/$businessSlug/leads'
     | '/$businessSlug/notes'
+    | '/$businessSlug/payments'
     | '/$businessSlug/products'
     | '/$businessSlug/schedule'
     | '/join/$token'
     | '/start/$token'
-    | '/$businessSlug/analytics/uninvoiced'
     | '/$businessSlug/clients/import'
     | '/$businessSlug/job/recurring'
     | '/$businessSlug/reports/$reportId'
@@ -563,11 +562,11 @@ export interface FileRouteTypes {
     | '/welcome'
     | '/$businessSlug/leads'
     | '/$businessSlug/notes'
+    | '/$businessSlug/payments'
     | '/$businessSlug/products'
     | '/$businessSlug/schedule'
     | '/join/$token'
     | '/start/$token'
-    | '/$businessSlug/analytics/uninvoiced'
     | '/$businessSlug/clients/import'
     | '/$businessSlug/job/recurring'
     | '/$businessSlug/reports/$reportId'
@@ -615,11 +614,11 @@ export interface FileRouteTypes {
     | '/$businessSlug/job'
     | '/$businessSlug/leads'
     | '/$businessSlug/notes'
+    | '/$businessSlug/payments'
     | '/$businessSlug/products'
     | '/$businessSlug/schedule'
     | '/join/$token'
     | '/start/$token'
-    | '/$businessSlug/analytics/uninvoiced'
     | '/$businessSlug/clients/import'
     | '/$businessSlug/job/recurring'
     | '/$businessSlug/reports/$reportId'
@@ -763,6 +762,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BusinessSlugNotesRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
+    '/$businessSlug/payments': {
+      id: '/$businessSlug/payments'
+      path: '/payments'
+      fullPath: '/$businessSlug/payments'
+      preLoaderRoute: typeof BusinessSlugPaymentsRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
     '/$businessSlug/products': {
       id: '/$businessSlug/products'
       path: '/products'
@@ -796,13 +802,6 @@ declare module '@tanstack/react-router' {
       path: '/analytics'
       fullPath: '/$businessSlug/analytics/'
       preLoaderRoute: typeof BusinessSlugAnalyticsIndexRouteImport
-      parentRoute: typeof BusinessSlugRouteRoute
-    }
-    '/$businessSlug/analytics/uninvoiced': {
-      id: '/$businessSlug/analytics/uninvoiced'
-      path: '/analytics/uninvoiced'
-      fullPath: '/$businessSlug/analytics/uninvoiced'
-      preLoaderRoute: typeof BusinessSlugAnalyticsUninvoicedRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
     '/$businessSlug/clients/': {
@@ -1042,9 +1041,9 @@ interface BusinessSlugRouteRouteChildren {
   BusinessSlugJobRouteRoute: typeof BusinessSlugJobRouteRouteWithChildren
   BusinessSlugLeadsRoute: typeof BusinessSlugLeadsRoute
   BusinessSlugNotesRoute: typeof BusinessSlugNotesRoute
+  BusinessSlugPaymentsRoute: typeof BusinessSlugPaymentsRoute
   BusinessSlugProductsRoute: typeof BusinessSlugProductsRoute
   BusinessSlugScheduleRoute: typeof BusinessSlugScheduleRoute
-  BusinessSlugAnalyticsUninvoicedRoute: typeof BusinessSlugAnalyticsUninvoicedRoute
   BusinessSlugClientsImportRoute: typeof BusinessSlugClientsImportRoute
   BusinessSlugReportsReportIdRoute: typeof BusinessSlugReportsReportIdRoute
   BusinessSlugReportsNewRoute: typeof BusinessSlugReportsNewRoute
@@ -1080,9 +1079,9 @@ const BusinessSlugRouteRouteChildren: BusinessSlugRouteRouteChildren = {
   BusinessSlugJobRouteRoute: BusinessSlugJobRouteRouteWithChildren,
   BusinessSlugLeadsRoute: BusinessSlugLeadsRoute,
   BusinessSlugNotesRoute: BusinessSlugNotesRoute,
+  BusinessSlugPaymentsRoute: BusinessSlugPaymentsRoute,
   BusinessSlugProductsRoute: BusinessSlugProductsRoute,
   BusinessSlugScheduleRoute: BusinessSlugScheduleRoute,
-  BusinessSlugAnalyticsUninvoicedRoute: BusinessSlugAnalyticsUninvoicedRoute,
   BusinessSlugClientsImportRoute: BusinessSlugClientsImportRoute,
   BusinessSlugReportsReportIdRoute: BusinessSlugReportsReportIdRoute,
   BusinessSlugReportsNewRoute: BusinessSlugReportsNewRoute,

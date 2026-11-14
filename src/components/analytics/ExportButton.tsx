@@ -5,6 +5,7 @@ import { analyticsCsv, analyticsCsvName } from '#/lib/analyticsCsv'
 import { saveTextFile } from '#/lib/saveFile'
 import type { AnalyticsBreakdown } from '#/components/analytics/AnalyticsBreakdowns'
 import type { AnalyticsReport } from '#/components/analytics/AnalyticsOverview'
+import type { AnalyticsPayments } from '#/components/analytics/PaidCard'
 
 /**
  * The page's figures as a spreadsheet (`analyticsCsv`): the range on screen,
@@ -15,10 +16,12 @@ import type { AnalyticsReport } from '#/components/analytics/AnalyticsOverview'
 export function ExportButton({
   report,
   breakdown,
+  paid,
   disabled = false,
 }: {
   report: AnalyticsReport | undefined
   breakdown: AnalyticsBreakdown | undefined
+  paid?: AnalyticsPayments
   /** Until the page hydrates. */
   disabled?: boolean
 }) {
@@ -34,7 +37,7 @@ export function ExportButton({
           setState('working')
           saveTextFile(
             analyticsCsvName(report),
-            analyticsCsv(report, breakdown),
+            analyticsCsv(report, breakdown, paid),
           )
             .then(() => setState('idle'))
             .catch(() => setState('failed'))

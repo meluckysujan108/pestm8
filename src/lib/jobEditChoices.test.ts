@@ -66,6 +66,7 @@ describe('the rows Edit offers', () => {
   test('none where the job’s Edit doesn’t show: someone else’s job, or an invoiced one', () => {
     expect(jobEditChoices(job({ canEdit: false }))).toEqual([])
     expect(jobEditChoices(job({ status: 'invoiced' }))).toEqual([])
+    expect(jobEditChoices(job({ status: 'paid' }))).toEqual([])
     // Every other status keeps them: moving an invoiced job back out is
     // how its details reopen.
     for (const status of [

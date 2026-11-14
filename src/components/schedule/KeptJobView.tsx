@@ -19,7 +19,7 @@ import { mapsUrl } from '#/lib/maps'
 import { keeper } from '#/lib/offline/keeper'
 import { useShowsKept } from '#/lib/offline/keptOnScreen'
 import {
-  INVOICED_LOCKED,
+  lockedNotice,
   KEPT_JOB_WAIT_MS,
   NOT_KEPT_JOB,
   SOMEONE_ELSES_JOB,
@@ -36,6 +36,7 @@ import {
 } from '#/lib/offline/useKept'
 import { rq } from '#/lib/routeQueries'
 import { dayKeyOf } from '../../../convex/lib/dates'
+import { detailsLocked } from '../../../convex/lib/jobStatus'
 import { describeInterval } from '../../../convex/lib/recurrence'
 import { siteContactOf } from '../../../convex/lib/siteContact'
 import type { ReactNode } from 'react'
@@ -276,7 +277,7 @@ export function KeptJobView({
         {job.jobNumber !== undefined && (
           <p className="section-label mb-0.5">Job #{job.jobNumber}</p>
         )}
-        {!readOnly && job.status !== 'invoiced' && <UnseenEdit />}
+        {!readOnly && !detailsLocked(job.status) && <UnseenEdit />}
       </div>
       <Drawer.Title className="text-sheet-title text-ink">
         {job.jobType}
@@ -287,7 +288,7 @@ export function KeptJobView({
             date beside it wraps where the live one does. */}
         {outbox ? (
           <UnseenMenu>{outbox.chip}</UnseenMenu>
-        ) : readOnly ? (
+        ) : readOnly || job.status === 'paid' ? (
           <StatusPill status={job.status} />
         ) : (
           <UnseenMenu>
@@ -345,9 +346,9 @@ export function KeptJobView({
           {SOMEONE_ELSES_JOB}
         </p>
       )}
-      {job.status === 'invoiced' && (
+      {detailsLocked(job.status) && (
         <p className="mt-3 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5 text-caption text-ink-2">
-          {INVOICED_LOCKED}
+          {lockedNotice(job.status)}
         </p>
       )}
 

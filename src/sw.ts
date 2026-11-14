@@ -10,6 +10,7 @@ import {
 import { version as pdfjsVersion } from 'pdfjs-dist/package.json'
 import type { PrecacheEntry, SerwistGlobalConfig, SerwistPlugin } from 'serwist'
 import { APP_VERSION } from './lib/appVersion'
+import { IMAGES_CACHE, cachesAsImage } from './lib/offline/imagesCache'
 import {
   HOME_MARKER,
   PAGES_CACHE,
@@ -174,8 +175,10 @@ const serwist = new Serwist({
       }),
     },
     {
-      matcher: ({ request }) => request.destination === 'image',
-      handler: new StaleWhileRevalidate({ cacheName: 'images' }),
+      // Not a CORS image request: the opaque copy an `<img>` leaves here
+      // would be refused it (imagesCache.ts says how photo markup broke).
+      matcher: ({ request }) => cachesAsImage(request),
+      handler: new StaleWhileRevalidate({ cacheName: IMAGES_CACHE }),
     },
   ],
 })

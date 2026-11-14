@@ -5,6 +5,7 @@ import type { Coords } from '#/lib/travel'
 import type { JobStatus } from '#/components/primitives/StatusPill'
 import type { JobListStatus } from '#/lib/routeQueries'
 import { UNASSIGNED_COLOUR } from '../../convex/lib/colours'
+import { sinksOnDay } from '../../convex/lib/jobStatus'
 import { splitJobTypes } from '../../convex/lib/jobTypes'
 
 // Pending is here because every job booked by hand now starts there — without
@@ -21,6 +22,7 @@ export const SCHEDULE_FILTER_STATUSES = [
   'booked',
   'completed',
   'invoiced',
+  'paid',
 ] as const satisfies ReadonlyArray<JobStatus>
 
 export type StatusFilter = 'all' | (typeof SCHEDULE_FILTER_STATUSES)[number]
@@ -111,6 +113,7 @@ const JOB_LIST_STATUSES = [
   'booked',
   'completed',
   'invoiced',
+  'paid',
   'cancelled',
 ] as const satisfies ReadonlyArray<JobListStatus>
 
@@ -281,6 +284,7 @@ export function sortDayJobs<
   T extends {
     status: JobStatus
     scheduledAt: number
+    completedAt?: number
     suburb: string
     assigneeName?: string
     assignedMembershipId: string
@@ -291,7 +295,7 @@ export function sortDayJobs<
     (sort === 'suburb' ? job.suburb : job.assigneeName)?.trim() ?? ''
   return [...jobs].sort(
     (a, b) =>
-      Number(a.status === 'completed') - Number(b.status === 'completed') ||
+      Number(sinksOnDay(a)) - Number(sinksOnDay(b)) ||
       // A job with no suburb (or a lead without a name) after the rest.
       Number(keyOf(a) === '') - Number(keyOf(b) === '') ||
       keyOf(a).localeCompare(keyOf(b), undefined, { sensitivity: 'base' }) ||

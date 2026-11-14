@@ -8,6 +8,7 @@ import {
 } from '#/components/analytics/AnalyticsOverview'
 import { AnalyticsBreakdowns } from '#/components/analytics/AnalyticsBreakdowns'
 import { ExportButton } from '#/components/analytics/ExportButton'
+import { PaidCard } from '#/components/analytics/PaidCard'
 import { PaperworkCard } from '#/components/analytics/PaperworkCard'
 import {
   RANGE_PRESETS,
@@ -98,6 +99,11 @@ function AnalyticsPage() {
     placeholderData: keepPreviousData,
   })
 
+  const paid = useQuery({
+    ...rq.analyticsPayments(breakdownArgs(business._id, search, today)),
+    placeholderData: keepPreviousData,
+  })
+
   const onSearch = (next: Partial<AnalyticsSearch>) =>
     navigate({
       search: (prev) => ({ ...prev, ...next }),
@@ -136,6 +142,12 @@ function AnalyticsPage() {
           onRetry={() => void breakdowns.refetch()}
           onSearch={onSearch}
         />
+        <PaidCard
+          businessSlug={business.slug}
+          data={paid.data ?? undefined}
+          failed={paid.isError}
+          onRetry={() => void paid.refetch()}
+        />
         <PaperworkCard
           businessSlug={business.slug}
           today={today}
@@ -146,6 +158,7 @@ function AnalyticsPage() {
         <ExportButton
           report={report.data ?? undefined}
           breakdown={breakdowns.data ?? undefined}
+          paid={paid.data ?? undefined}
           disabled={!hydrated}
         />
         {/* Being explicit beats a subcontractor wondering why the owner's

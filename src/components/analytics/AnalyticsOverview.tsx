@@ -41,7 +41,7 @@ const jobs = (count: number) => `${count} ${count === 1 ? 'job' : 'jobs'}`
 /**
  * The Analytics overview under its header: which days and what they are
  * compared with, the filters, four headline figures, the finished work still
- * to invoice, and the range drawn over time.
+ * to bill (opening Payments' To bill), and the range drawn over time.
  *
  * It is given its figures rather than reading them, so the route decides how
  * they load and the UI harness can draw it from sample data. Changing the
@@ -125,12 +125,7 @@ export function AnalyticsOverview({
         ) : !report ? (
           <OverviewPending />
         ) : (
-          <Figures
-            businessSlug={businessSlug}
-            today={today}
-            search={search}
-            report={report}
-          />
+          <Figures businessSlug={businessSlug} today={today} report={report} />
         )}
         {children}
       </section>
@@ -141,12 +136,10 @@ export function AnalyticsOverview({
 function Figures({
   businessSlug,
   today,
-  search,
   report,
 }: {
   businessSlug: string
   today: string
-  search: AnalyticsSearch
   report: AnalyticsReport
 }) {
   const { totals, before, series, bookedAhead, uninvoiced, pricesHidden } =
@@ -203,23 +196,25 @@ function Figures({
       </div>
 
       {/* A hidden price hides the count with it (analytics.ts), so there is
-          nothing to say here to someone who can't see prices. */}
+          nothing to say here to someone who can't see prices. The list is
+          Payments' To bill: one list of work done and not billed, whichever
+          page it is reached from. */}
       {uninvoiced.value !== null && uninvoiced.count !== null && (
         <Link
-          to="/$businessSlug/analytics/uninvoiced"
+          to="/$businessSlug/payments"
           params={{ businessSlug }}
-          search={{ staff: search.staff, service: search.service }}
+          search={{ tab: 'toBill' }}
           className={`${STAT_CARD} flex items-center gap-3 outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.99]`}
         >
           <div className="min-w-0 flex-1">
-            <p className="section-label mb-1">Awaiting invoice</p>
+            <p className="section-label mb-1">To bill</p>
             <p className="text-metric text-ink">
               {formatMoney(uninvoiced.value)}
             </p>
             <p className="mt-1 text-body text-ink-2">
               {uninvoiced.count === 0
-                ? 'Every finished job is invoiced.'
-                : `${jobs(uninvoiced.count)} finished and not yet invoiced${uninvoiced.more ? ', or more' : ''}.`}
+                ? 'Nothing to bill.'
+                : `${jobs(uninvoiced.count)} finished and not yet billed${uninvoiced.more ? ', or more' : ''}.`}
             </p>
             {uninvoiced.oldCount !== null && uninvoiced.oldCount > 0 && (
               <p className="mt-0.5 text-caption text-amber-ink">

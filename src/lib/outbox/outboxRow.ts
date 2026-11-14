@@ -111,6 +111,8 @@ export function outboxRow(item: OutboxItem, live: OutboxRowLive): DayRow {
     // The note as typed. The real card's is its title and first lines
     // (`jobNotePreview`), which may run a different length.
     notePreview: booking.notes,
+    // Nothing is paid on a booking still on the phone.
+    payment: undefined,
   }
   return row satisfies DayRow
 }

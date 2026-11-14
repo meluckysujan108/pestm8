@@ -132,23 +132,6 @@ export function bucketStarts(range: DayRange, grain: Grain): Array<string> {
   )
 }
 
-/** How long finished work has waited for its invoice, oldest last. */
-export const AGE_BANDS = [
-  { key: 'week', maxDays: 7 },
-  { key: 'fortnight', maxDays: 14 },
-  { key: 'month', maxDays: 30 },
-  { key: 'older', maxDays: Infinity },
-] as const
-
-export type AgeBand = (typeof AGE_BANDS)[number]['key']
-
-/** The band a wait of this many days falls in. A job finished today, or
- * dated ahead of today, has waited no days. */
-export function ageBandOf(days: number): AgeBand {
-  const waited = Math.max(0, days)
-  return (AGE_BANDS.find((band) => waited <= band.maxDays) ?? AGE_BANDS[3]).key
-}
-
 /** Finished work is "old" once it has waited longer than this, in days: the
  * page points it out. */
 export const OLD_AFTER_DAYS = 14

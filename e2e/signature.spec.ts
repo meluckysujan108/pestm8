@@ -553,6 +553,13 @@ test('a drawing kept on the phone is shown only to the person who drew it', asyn
   page,
   context,
 }) => {
+  // Three sign-ins, two sign-outs and the report opened three times, every
+  // page rendered on the server against the e2e deployment. That is most of
+  // the default minute with the test alone, and more than all of it when the
+  // suite's other workers share the server: it failed wherever the minute
+  // ran out (a sign-in that "never left" /login, a goto that never loaded,
+  // a report that never got ready), with nothing wrong on the page.
+  test.setTimeout(120_000)
   const s = await setupBusinessWithSub('sig-kept-person')
   const reportId = await createReport(s.sub.client, s, 'serviceReport')
   const url = sectionUrl(
@@ -562,8 +569,9 @@ test('a drawing kept on the phone is shown only to the person who drew it', asyn
     'technicianSignature',
   )
 
-  await signInViaUi(page, s.sub.email)
-  await page.goto(url)
+  // Each sign-in lands on the report itself (`next`), not by way of `/` and
+  // the Schedule: two more pages to render for nothing.
+  await signInViaUi(page, s.sub.email, FIXTURE_PASSWORD, url)
   await builderReady(page)
   await page
     .getByRole('button', { name: "Technician's Signature — sign" })
@@ -578,8 +586,7 @@ test('a drawing kept on the phone is shown only to the person who drew it', asyn
   // Someone else on the same phone: not theirs to save, nor to keep as
   // their own signature.
   await signOut(page, s.slug)
-  await signInViaUi(page, s.owner.email)
-  await page.goto(url)
+  await signInViaUi(page, s.owner.email, FIXTURE_PASSWORD, url)
   await builderReady(page)
   await expect(
     page.getByRole('button', { name: "Technician's Signature — sign" }),
@@ -588,8 +595,7 @@ test('a drawing kept on the phone is shown only to the person who drew it', asyn
 
   // Back to the person who drew it: still there for them.
   await signOut(page, s.slug)
-  await signInViaUi(page, s.sub.email)
-  await page.goto(url)
+  await signInViaUi(page, s.sub.email, FIXTURE_PASSWORD, url)
   await builderReady(page)
   await expect(page.getByText(/Not saved yet/)).toBeVisible()
 })

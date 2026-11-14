@@ -16,7 +16,8 @@ import type { ClientStatus } from '../../convex/lib/clientRecord'
  * - overdue has no hue at all (`OVERDUE_CHIP`), and amber stays "warning".
  */
 
-export type StatusTone = 'orange' | 'red' | 'yellow' | 'green' | 'blue' | 'grey'
+export type StatusTone =
+  'orange' | 'red' | 'yellow' | 'green' | 'blue' | 'purple' | 'grey'
 
 export const JOB_STATUS = {
   recurring: {
@@ -34,11 +35,22 @@ export const JOB_STATUS = {
     tone: 'yellow',
     meaning: 'Confirmed: someone is going.',
   },
-  completed: { label: 'Completed', tone: 'green', meaning: 'Done on site.' },
+  completed: {
+    label: 'Completed',
+    tone: 'green',
+    meaning: 'Done on site. Not billed or paid yet.',
+  },
   invoiced: {
     label: 'Invoiced',
     tone: 'blue',
-    meaning: 'Billed. Its details lock until it is moved back.',
+    meaning:
+      'Billed, waiting to be paid. Its details lock until it is moved back.',
+  },
+  paid: {
+    label: 'Paid',
+    tone: 'purple',
+    meaning:
+      'Set by recording a payment. Its details lock until that is removed.',
   },
   cancelled: {
     label: 'Cancelled',
@@ -88,6 +100,7 @@ export const TONE_PILL: Record<StatusTone, string> = {
   yellow: 'border border-yellow-line bg-yellow-bg text-yellow-ink',
   green: 'border border-green-line bg-green-bg text-green-ink',
   blue: 'border border-blue-line bg-blue-bg text-blue-ink',
+  purple: 'border border-purple-line bg-purple-bg text-purple-ink',
   grey: 'border border-grey-line bg-grey-bg text-grey-ink',
 }
 
@@ -99,6 +112,7 @@ export const TONE_CHART: Record<StatusTone, string> = {
   yellow: 'var(--yellow-line)',
   green: 'var(--green-line)',
   blue: 'var(--blue-line)',
+  purple: 'var(--purple-line)',
   grey: 'var(--grey-line)',
 }
 

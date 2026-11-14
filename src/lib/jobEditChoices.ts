@@ -8,6 +8,8 @@
  * names from here.
  */
 
+import { detailsLocked } from '../../convex/lib/jobStatus'
+
 export type JobEditTarget = 'job' | 'client' | 'property'
 
 /** The job as `jobs.get` answers it, as far as its Edit is concerned. */
@@ -44,7 +46,7 @@ export type JobEditChoice = {
  * row must never open a form on a record that is gone.
  */
 export function jobEditChoices(job: EditableJob): Array<JobEditChoice> {
-  if (!job.canEdit || job.status === 'invoiced') return []
+  if (!job.canEdit || detailsLocked(job.status)) return []
   const choices: Array<JobEditChoice> = [
     {
       target: 'job',

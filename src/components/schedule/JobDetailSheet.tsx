@@ -53,7 +53,7 @@ import { OffViewNote } from './OffViewNote'
 import { KeptJobView, NotKeptJob, useKeptJob } from './KeptJobView'
 import { OutboxItemBody } from './OutboxItemSheet'
 import { useOutboxReadable } from '#/lib/outbox/useOutbox'
-import { INVOICED_LOCKED, SOMEONE_ELSES_JOB } from '#/lib/offline/keptJob'
+import { SOMEONE_ELSES_JOB, lockedNotice } from '#/lib/offline/keptJob'
 import { useHandOverBody } from '#/lib/offline/useKept'
 import { useLineDown } from '#/lib/offline/useLineDown'
 import { editSaveWaits } from '#/lib/editSaveWaits'
@@ -67,6 +67,8 @@ import { PropertyHistory } from './PropertyHistory'
 import { nextVisit } from '#/lib/jobHistory'
 import { Bone, RowPending, SheetPending } from '#/components/shell/Pending'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
+import { detailsLocked } from '../../../convex/lib/jobStatus'
+import { paymentAsk } from '#/lib/payments'
 import { describeInterval } from '../../../convex/lib/recurrence'
 import type { Interval } from '../../../convex/lib/recurrence'
 import type { Role } from '../../../convex/lib/capabilities'
@@ -135,6 +137,12 @@ const StartReportButtons = lazy(() =>
   loadReports().then((m) => ({ default: m.StartReportButtons })),
 )
 
+/** The Payment section, loaded on demand for the same reason. */
+const loadPayment = () => import('./JobPayment')
+const JobPaymentSection = lazy(() =>
+  loadPayment().then((m) => ({ default: m.JobPaymentSection })),
+)
+
 /**
  * Edit → Client details and Property details: the client sheet's own forms
  * (JobRecordEdit), loaded on demand for the same reason, and asked for as a
@@ -189,6 +197,16 @@ const STATUS_MENU: ReadonlyArray<SettableStatus> = [
   'booked',
   'completed',
   'invoiced',
+  'cancelled',
+]
+
+/** Paid is offered beside these, and is answered by the Payment section. */
+const STATUS_MENU_WITH_PAID: ReadonlyArray<SettableStatus | 'paid'> = [
+  'pending',
+  'booked',
+  'completed',
+  'invoiced',
+  'paid',
   'cancelled',
 ]
 
@@ -349,6 +367,21 @@ function JobDetailBody({
   )
   const [statusOpen, setStatusOpen] = useState(false)
   const statusButton = useRef<HTMLButtonElement>(null)
+  // Picking Completed or Paid goes on to the Payment section: its heading,
+  // not the pill, is where focus goes as the status sheet finishes closing.
+  const paymentHeading = useRef<HTMLHeadingElement>(null)
+  const toPayment = useRef(false)
+  const [paymentAsked, setPaymentAsked] = useState(0)
+  const statusReturn = useMemo<RefObject<HTMLElement | null>>(
+    () => ({
+      get current() {
+        return (
+          (toPayment.current && paymentHeading.current) || statusButton.current
+        )
+      },
+    }),
+    [],
+  )
   const editButton = useRef<HTMLButtonElement>(null)
   const editTitle = useRef<HTMLHeadingElement>(null)
   const sheetTitle = useRef<HTMLHeadingElement>(null)
@@ -388,6 +421,7 @@ function JobDetailBody({
   useEffect(() => {
     void loadNotes()
     void loadReports()
+    void loadPayment()
     loadRecordForms()
   }, [])
 
@@ -496,7 +530,7 @@ function JobDetailBody({
     }) => convexUpdate(args),
   })
 
-  function selectStatus(next: SettableStatus) {
+  function selectStatus(next: SettableStatus | 'paid') {
     if (!job || next === job.status) return
     // A refusal belongs to the choice that caused it, not the next one.
     complete.reset()
@@ -508,8 +542,25 @@ function JobDetailBody({
       setConfirmCancelOpen(true)
       return
     }
+    if (next === 'paid') {
+      // Nobody sets Paid: recording the money does. This goes and asks.
+      toPayment.current = true
+      setPaymentAsked((asked) => asked + 1)
+      return
+    }
     if (next === 'completed') {
-      complete.mutate({ businessId, jobId: job._id })
+      complete.mutate(
+        { businessId, jobId: job._id },
+        {
+          // Only once it has saved: a refusal is said up by the status, and
+          // the sheet has to stay there to be read. The section may also
+          // only have come with the status.
+          onSuccess: () => {
+            toPayment.current = true
+            paymentHeading.current?.focus()
+          },
+        },
+      )
       return
     }
     setStatus.mutate({ businessId, jobId: job._id, status: next })
@@ -541,6 +592,24 @@ function JobDetailBody({
 
   // The Edit sheet, first in whatever is drawn below, so it is one instance
   // through the swap to a form and slides away over the form it opened.
+  const payAsk = job
+    ? paymentAsk(
+        job,
+        dayKeyOf(job.scheduledAt, timezone),
+        dayKeyOf(Date.now(), timezone),
+      )
+    : 'none'
+  // Money before the work: a deposit on a booking, behind a tap, by whoever
+  // could take payment for it on the day and can see what it costs. A job
+  // with no price has nothing to take part of.
+  const canDeposit =
+    job !== null &&
+    job !== undefined &&
+    job.canEdit &&
+    !job.pricesHidden &&
+    job.price > 0 &&
+    (job.status === 'booked' || job.status === 'pending')
+
   const chooser = job ? (
     <JobEditChooser
       key="edit-chooser"
@@ -636,7 +705,7 @@ function JobDetailBody({
             {job.jobNumber !== undefined && (
               <p className="section-label mb-0.5">Job #{job.jobNumber}</p>
             )}
-            {job.canEdit && job.status !== 'invoiced' && (
+            {job.canEdit && !detailsLocked(job.status) && (
               <button
                 ref={editButton}
                 type="button"
@@ -664,14 +733,18 @@ function JobDetailBody({
             {/* Read access can be granted without edit rights, so the menu
                 is driven by the server's canEdit, not by role. An invoiced
                 job keeps its menu: moving it back out is how its details
-                reopen for editing. */}
-            {job.canEdit ? (
+                reopen for editing. A paid one doesn't: taking the payment
+                back is how, and that's in the Payment section. */}
+            {job.canEdit && job.status !== 'paid' ? (
               <StatusPillButton
                 pill={<StatusPill status={job.status} />}
                 ariaLabel="Change job status"
                 disabled={!hydrated}
                 buttonRef={statusButton}
-                onClick={() => setStatusOpen(true)}
+                onClick={() => {
+                  toPayment.current = false
+                  setStatusOpen(true)
+                }}
               />
             ) : (
               <StatusPill status={job.status} />
@@ -748,9 +821,9 @@ function JobDetailBody({
               {SOMEONE_ELSES_JOB}
             </p>
           )}
-          {job.status === 'invoiced' && (
+          {detailsLocked(job.status) && (
             <p className="mt-3 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5 text-caption text-ink-2">
-              {INVOICED_LOCKED}
+              {lockedNotice(job.status)}
             </p>
           )}
 
@@ -914,6 +987,26 @@ function JobDetailBody({
             }
           />
 
+          {/* The last thing that happens at the door. */}
+          <Suspense
+            fallback={
+              payAsk === 'none' && job.status !== 'paid' ? null : (
+                <SectionLoading label="Payment" />
+              )
+            }
+          >
+            <JobPaymentSection
+              businessId={businessId}
+              timezone={timezone}
+              job={job}
+              ask={payAsk}
+              roster={rosterQuery.data}
+              asked={paymentAsked}
+              headingRef={paymentHeading}
+              canDeposit={canDeposit}
+            />
+          </Suspense>
+
           {/* The job's own facts, one row each. Price, the work order and
               "One-off" used to take a card apiece. */}
           <Section label="Details" flush>
@@ -1045,7 +1138,10 @@ function JobDetailBody({
                 ? `Job #${job.jobNumber} · ${job.jobType}`
                 : job.jobType
             }
-            choices={STATUS_MENU.map((option) => ({
+            choices={(payAsk === 'none'
+              ? STATUS_MENU
+              : STATUS_MENU_WITH_PAID
+            ).map((option) => ({
               value: option,
               pill: <StatusPill status={option} />,
               meaning: JOB_STATUS[option].meaning,
@@ -1055,7 +1151,7 @@ function JobDetailBody({
               setStatusOpen(false)
               selectStatus(next)
             }}
-            returnFocusRef={statusButton}
+            returnFocusRef={statusReturn}
           />
 
           <ConfirmDialog
@@ -1945,7 +2041,7 @@ function RepeatsRow({
     }),
   )
   const [now] = useState(() => Date.now())
-  const changeable = job.canEdit && job.status !== 'invoiced'
+  const changeable = job.canEdit && !detailsLocked(job.status)
 
   if (!job.recurrence?.active) {
     return (

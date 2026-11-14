@@ -92,6 +92,13 @@ export const SOMEONE_ELSES_JOB =
   'This job is assigned to someone else, so it is read-only.'
 export const INVOICED_LOCKED =
   'This job has been invoiced, so its details are locked. Change its status to edit them.'
+export const PAID_LOCKED =
+  'This job has been paid, so its details are locked. Remove the payment to edit them.'
+
+/** Which of those a job whose details are locked shows. */
+export function lockedNotice(status: string): string {
+  return status === 'paid' ? PAID_LOCKED : INVOICED_LOCKED
+}
 
 /**
  * Whether the live sheet would say the job is someone else's

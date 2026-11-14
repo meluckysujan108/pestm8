@@ -23,6 +23,8 @@ import type { OutboxChip as OutboxChipKind } from '#/lib/outbox/outboxRules'
 import type { WeatherCell } from '#/lib/weather'
 import type { Interval } from '../../../convex/lib/recurrence'
 import { everyoneOnJob, firstName, namesOf } from '#/lib/jobPeople'
+import { paymentCardLine } from '#/lib/payments'
+import type { CardPayment } from '#/lib/payments'
 
 export type JobRow = {
   _id: string
@@ -32,6 +34,12 @@ export type JobRow = {
   scheduledAt: number
   durationMinutes: number
   status: JobStatus
+  /** Set when the work was finished. Absent from a job not finished yet. */
+  completedAt?: number
+  /** How a finished job was paid, or what's owing (`paymentOnCard`). Absent
+   * until the work is done, and from a backend older than the line. */
+  payment?: CardPayment
+  pricesHidden?: boolean
   addressLine?: string
   suburb: string
   postcode?: string
@@ -218,6 +226,11 @@ export function JobCard({
   // Never beside the "Overdue" chip: that marks a projection, and a
   // projection has no Map. So the corner can sit at a fixed height below.
   const offersMap = buttons.map && mapsUrl(job) !== null
+  const paymentLine = paymentCardLine(
+    job.status,
+    job.payment,
+    job.pricesHidden === true,
+  )
 
   return (
     <div className={shell}>
@@ -371,6 +384,15 @@ export function JobCard({
               {travel && (
                 <span className="block truncate text-caption text-muted">
                   {travel}
+                </span>
+              )}
+              {/* How it was paid, or what's still to come, beside the price
+                  it is about. */}
+              {paymentLine && (
+                <span
+                  className={`block truncate text-caption ${paymentLine.quiet ? 'text-muted' : 'font-semibold text-ink-2'}`}
+                >
+                  {paymentLine.text}
                 </span>
               )}
               {/* Who to ask for, on the price's line: straight above Call,

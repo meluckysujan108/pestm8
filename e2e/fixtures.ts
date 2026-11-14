@@ -260,13 +260,22 @@ export function skipNearPerthMidnight(reason: string, aheadMs = 0) {
  * Signs in through the real form. The submit button is disabled until the page
  * hydrates, so waiting for it to enable is the readiness signal — clicking
  * earlier lands on markup React is still replacing and is silently swallowed.
+ *
+ * With `next`, the form is opened as a link followed while signed out opens
+ * it (`$businessSlug/route.tsx`), and the sign-in lands on that page: one
+ * page rendered on the server, where a sign-in to `/` is two (its redirect,
+ * then the Schedule) before the caller's own goto, which leaves the Schedule
+ * half loaded.
  */
 export async function signInViaUi(
   page: Page,
   email: string,
   password = FIXTURE_PASSWORD,
+  next?: string,
 ) {
-  await page.goto('/login')
+  await page.goto(
+    next === undefined ? '/login' : `/login?next=${encodeURIComponent(next)}`,
+  )
   const submit = page.getByRole('button', { name: 'Sign in' })
   await expect(submit).toBeEnabled()
   await page.getByLabel('Email').fill(email)

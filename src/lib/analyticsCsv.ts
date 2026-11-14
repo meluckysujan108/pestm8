@@ -1,5 +1,7 @@
 import type { AnalyticsBreakdown } from '#/components/analytics/AnalyticsBreakdowns'
 import type { AnalyticsReport } from '#/components/analytics/AnalyticsOverview'
+import type { AnalyticsPayments } from '#/components/analytics/PaidCard'
+import { PAYMENT_METHOD } from './payments'
 
 /**
  * The Analytics page as a spreadsheet: one file, one row a figure, in the
@@ -11,7 +13,9 @@ import type { AnalyticsReport } from '#/components/analytics/AnalyticsOverview'
  * page shows "—": never a zero.
  */
 
-const HEADER = ['Section', 'Name', 'Jobs completed', 'Revenue']
+// "Count" is jobs completed on every row but a payment's, where it is
+// payments received.
+const HEADER = ['Section', 'Name', 'Count', 'Amount']
 
 /**
  * One cell. Quoted when it holds a comma, a quote or a line break, and a
@@ -36,6 +40,7 @@ export function analyticsCsvName(report: AnalyticsReport): string {
 export function analyticsCsv(
   report: AnalyticsReport,
   breakdown: AnalyticsBreakdown | undefined,
+  paid?: AnalyticsPayments,
 ): string {
   const rows: Array<Array<string | number | null>> = [HEADER]
   const add = (
@@ -64,7 +69,8 @@ export function analyticsCsv(
     bookedAhead.count,
     bookedAhead.value,
   )
-  add('Summary', 'Awaiting invoice', uninvoiced.count, uninvoiced.value)
+  // As the page's card says it: finished, not yet billed (Payments' To bill).
+  add('Summary', 'To bill', uninvoiced.count, uninvoiced.value)
 
   for (const point of report.series)
     add('Over time', point.start, point.completed, point.revenue)
@@ -91,6 +97,16 @@ export function analyticsCsv(
       breakdown.recurring.yearlyValue,
     )
   }
+
+  // By the day the money came in, which is not the day the job was done.
+  if (paid)
+    for (const row of paid.methods)
+      add(
+        'Payments received',
+        PAYMENT_METHOD[row.method].label,
+        row.count,
+        row.value,
+      )
 
   return rows.map((row) => row.map(cell).join(',')).join('\r\n') + '\r\n'
 }

@@ -1,4 +1,4 @@
-import { Profiler, useEffect, useId, useState } from 'react'
+import { Profiler, useEffect, useId, useRef, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
 import { ErrorComponent, useRouteContext } from '@tanstack/react-router'
 import { ErrorScreen as AppErrorScreen } from '#/components/shell/ErrorScreen'
@@ -9,6 +9,10 @@ import {
 import { KeptCopyNote } from '#/components/shell/KeptCopyNote'
 import { NotKeptDay } from '#/components/schedule/NotKeptDay'
 import { KeptJobView, NotKeptJob } from '#/components/schedule/KeptJobView'
+import { JobPaymentSection } from '#/components/schedule/JobPayment'
+import { paymentSaveKey } from '#/lib/payments'
+import type { PaymentAsk, PaymentsTab } from '#/lib/payments'
+import { PaymentsView } from '#/components/payments/PaymentsView'
 import {
   KeptClientView,
   NotKeptClient,
@@ -123,6 +127,7 @@ import { StagedLicenceFiles } from '#/components/settings/StagedLicenceFiles'
 import type { StagedFiles } from '#/components/settings/StagedLicenceFiles'
 import type { LicenceDraft } from '#/components/settings/LicenceFields'
 import { ReportSigning } from '#/components/reports/fields/ReportSigning'
+import { AnnotationEditor } from '#/components/reports/fields/AnnotationEditor'
 import { SignatureRow } from '#/components/reports/fields/SignatureRow'
 import { MySignature } from '#/components/settings/MySignature'
 import { keepSignature } from '#/lib/signature/kept'
@@ -228,6 +233,7 @@ import {
   BIZ,
   JOBS,
   MEMBERS,
+  PAYMENT_JOBS,
   SAMPLE_LOGO,
   TZ,
   addDays,
@@ -392,6 +398,234 @@ function jobDetail(jobId: string) {
 
 /** A job with no note and one service. */
 const JobDetail = jobDetail('j2')
+
+/**
+ * The Payment section alone, as the sheet draws it, one job per state
+ * (`paymentFixtures`). `press` taps through to a state that takes a tap, once
+ * the section has drawn.
+ */
+function payment(
+  jobId: string,
+  opts: {
+    status?: string
+    ask?: PaymentAsk
+    press?: ReadonlyArray<string>
+    kind?: 'person' | 'business'
+    canDeposit?: boolean
+  } = {},
+) {
+  return function PaymentSpecimen() {
+    const heading = useRef<HTMLHeadingElement>(null)
+    const frame = useRef<HTMLDivElement>(null)
+    useEffect(() => {
+      let at = 0
+      let tries = 0
+      // StrictMode runs this twice, and a tile pressed twice is off again.
+      let stopped = false
+      const step = () => {
+        const name = opts.press?.[at]
+        if (stopped || name === undefined || tries > 80) return
+        tries += 1
+        const button = [
+          ...(frame.current?.querySelectorAll('button') ?? []),
+        ].find((b) => b.textContent.startsWith(name))
+        if (button) {
+          button.click()
+          at += 1
+        }
+        window.setTimeout(step, 60)
+      }
+      const first = window.setTimeout(step, 0)
+      return () => {
+        stopped = true
+        window.clearTimeout(first)
+      }
+    }, [])
+    return (
+      <Phone>
+        <div ref={frame} className="px-4 pb-6">
+          <JobPaymentSection
+            businessId={bizId}
+            timezone={TZ}
+            job={{
+              _id: jobId as never,
+              status: opts.status ?? 'booked',
+              canEdit: true,
+              property: {
+                client: { name: 'Jan Morris', kind: opts.kind ?? 'person' },
+              },
+            }}
+            ask={opts.ask ?? 'open'}
+            roster={MEMBERS as never}
+            asked={0}
+            headingRef={heading}
+            canDeposit={opts.canDeposit}
+          />
+        </div>
+      </Phone>
+    )
+  }
+}
+
+/**
+ * The Payments page under its header, on one tab, for one sample business
+ * (`paymentFixtures`): `biz_pay` two people's money, `biz_pay_empty` nothing
+ * waiting, `biz_pay_hidden` someone who cannot see prices. `press` taps a
+ * button by its words once the page has drawn.
+ */
+function paymentsPage(
+  tab: PaymentsTab,
+  opts: { biz?: string; press?: string } = {},
+) {
+  return function PaymentsSpecimen() {
+    const [shown, setShown] = useState<{
+      tab: PaymentsTab
+      month: string | undefined
+    }>({ tab, month: undefined })
+    const frame = useRef<HTMLDivElement>(null)
+    useEffect(() => {
+      let tries = 0
+      let stopped = false
+      const step = () => {
+        if (stopped || opts.press === undefined || tries > 80) return
+        tries += 1
+        const button = [
+          ...(frame.current?.querySelectorAll('button:not([disabled])') ?? []),
+        ].find((b) => b.textContent === opts.press)
+        if (button instanceof HTMLButtonElement) button.click()
+        else window.setTimeout(step, 60)
+      }
+      const first = window.setTimeout(step, 0)
+      return () => {
+        stopped = true
+        window.clearTimeout(first)
+      }
+    }, [])
+    return (
+      <Phone>
+        <AccessProvider businessId={bizId}>
+          <div ref={frame}>
+            <Header kicker="Pest M8 Pest Control" title="Payments" />
+            <PaymentsView
+              business={{ _id: (opts.biz ?? 'biz_pay') as never, timezone: TZ }}
+              tab={shown.tab}
+              month={shown.month}
+              onTab={(next) => setShown((was) => ({ ...was, tab: next }))}
+              onMonth={(next) => setShown((was) => ({ ...was, month: next }))}
+              onOpenJob={() => {}}
+            />
+          </div>
+        </AccessProvider>
+      </Phone>
+    )
+  }
+}
+
+const PaymentsOwing = paymentsPage('owing')
+const PaymentsToBill = paymentsPage('toBill')
+const PaymentsPaid = paymentsPage('paid')
+const PaymentsEmpty = paymentsPage('owing', { biz: 'biz_pay_empty' })
+const PaymentsPaidEmpty = paymentsPage('paid', { biz: 'biz_pay_empty' })
+const PaymentsHidden = paymentsPage('toBill', { biz: 'biz_pay_hidden' })
+const PaymentsPaidHidden = paymentsPage('paid', { biz: 'biz_pay_hidden' })
+const PaymentsCountsFrom = paymentsPage('owing', { press: 'Count them' })
+const PaymentsHanded = paymentsPage('owing', { press: 'Mark handed over' })
+
+const PaymentAskSpecimen = payment('pay_ask')
+const PaymentCash = payment('pay_ask', { press: ['Cash'] })
+const PaymentInvoice = payment('pay_ask', { press: ['Invoice'] })
+const PaymentOther = payment('pay_ask', { press: ['Other', 'Transfer'] })
+const PaymentNoCharge = payment('pay_ask', { press: ['Other', 'No charge'] })
+const PaymentBusiness = payment('pay_ask', { kind: 'business' })
+const PaymentRecorded = payment('pay_recorded', { status: 'paid', ask: 'none' })
+const PaymentNoChargeDone = payment('pay_nocharge', {
+  status: 'paid',
+  ask: 'none',
+})
+const PaymentInvoiced = payment('pay_invoiced', {
+  status: 'invoiced',
+  ask: 'onTap',
+})
+const PaymentInvoicedOpen = payment('pay_invoiced', {
+  status: 'invoiced',
+  ask: 'onTap',
+  press: ['Record a payment', 'Transfer'],
+})
+const PaymentPart = payment('pay_part', { status: 'invoiced', ask: 'onTap' })
+const PaymentPartOpen = payment('pay_part', {
+  status: 'invoiced',
+  ask: 'onTap',
+  press: ['Record a payment', 'Cash'],
+})
+const PaymentHandOver = payment('pay_handover', { status: 'paid', ask: 'none' })
+const PaymentHanded = payment('pay_handed', { status: 'paid', ask: 'none' })
+const PaymentHandOverSheet = payment('pay_recorded', {
+  status: 'paid',
+  ask: 'none',
+  press: ['Mark to hand over'],
+})
+const PaymentTwo = payment('pay_two', { status: 'paid', ask: 'none' })
+const PaymentOver = payment('pay_over', { status: 'paid', ask: 'none' })
+const PaymentHidden = payment('pay_hidden', { press: ['Cash'] })
+const PaymentHiddenDone = payment('pay_hidden_done', {
+  status: 'paid',
+  ask: 'none',
+})
+const PaymentNoPrice = payment('pay_noprice')
+// A booking still ahead: a deposit behind a tap, then the form without
+// Invoice or No charge.
+const PaymentDeposit = payment('pay_ask', { ask: 'none', canDeposit: true })
+const PaymentDepositOpen = payment('pay_ask', {
+  ask: 'none',
+  canDeposit: true,
+  press: ['Record a deposit', 'Transfer'],
+})
+const PaymentLoading = payment('pay_loading')
+/**
+ * The sheet opened again with a payment still out: the save a second tap
+ * must not repeat. Never answered, so it stays out.
+ */
+function PaymentStillSaving() {
+  const client = useQueryClient()
+  useEffect(() => {
+    void client
+      .getMutationCache()
+      .build(client, {
+        mutationKey: paymentSaveKey('pay_ask'),
+        mutationFn: () => new Promise(() => {}),
+      })
+      .execute(undefined)
+  }, [client])
+  return <PaymentAskSpecimen />
+}
+function PaymentNoSignal() {
+  return (
+    <NoSignal>
+      <PaymentCash />
+    </NoSignal>
+  )
+}
+
+/** One card for each thing the price's line can say. */
+function JobCardsPayment() {
+  return (
+    <Phone>
+      <Header kicker="Friday 26 September" title="Schedule" />
+      <div className="flex flex-col gap-3 p-4">
+        {PAYMENT_JOBS.map((job) => (
+          <JobCard
+            key={job._id}
+            job={job as never}
+            timezone={TZ}
+            onOpen={() => {}}
+            hideTechnician
+          />
+        ))}
+      </div>
+    </Phone>
+  )
+}
+
 /** A job for three services, with a note. */
 const JobDetailServices = jobDetail('j1')
 /** A business job with a contact person and no site contact. */
@@ -1411,6 +1645,36 @@ function SignClient() {
   )
 }
 
+/** A report photo, drawn rather than shipped: the annotator's stand-in. */
+const ANNOTATE_PHOTO =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 640 480"><rect width="640" height="480" fill="#c9b79c"/><rect y="360" width="640" height="120" fill="#8a7a63"/><path d="M180 120 l40 60 l-30 50 l50 70" stroke="#5b4a35" stroke-width="6" fill="none"/></svg>',
+  )
+
+/** The photo annotator over a photo, ready to be drawn on. */
+function Annotate() {
+  return (
+    <AnnotationEditor
+      imageUrl={ANNOTATE_PHOTO}
+      onSave={() => {}}
+      onCancel={() => {}}
+    />
+  )
+}
+
+/** The photo annotator when the photo did not load on either try
+ * (`editableImage.ts`): it says so, and offers Try again. */
+function AnnotateLoadFailed() {
+  return (
+    <AnnotationEditor
+      imageUrl="/__harness/no-such-photo.jpg"
+      onSave={() => {}}
+      onCancel={() => {}}
+    />
+  )
+}
+
 /** The technician's own slot on the form, with a saved signature: one tap
  * signs with it, or they draw instead. */
 function SignRowSaved() {
@@ -1611,6 +1875,7 @@ function Filters() {
             'booked',
             'completed',
             'invoiced',
+            'paid',
             'cancelled',
           ].map((s) => (
             <StatusPill key={s} status={s} />
@@ -3284,7 +3549,7 @@ function ReportsFiltered() {
  */
 function JobsFiltered() {
   const [filters, setFilters] = useState<{
-    status?: 'pending' | 'booked' | 'completed' | 'invoiced' | 'cancelled'
+    status?: JobListFilterChange['status']
     staff?: string
     sort?: 'visit'
   }>({ status: 'completed', staff: 'm_kev', sort: 'visit' })
@@ -4325,6 +4590,43 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   jobcards: JobCards,
   'jobcard-weather': JobCardWeather,
   jobdetail: JobDetail,
+  'jobcards-payment': JobCardsPayment,
+  'jobdetail-paid': jobDetail('jp1'),
+  'jobdetail-completed': jobDetail('jp3'),
+  'payment-ask': PaymentAskSpecimen,
+  'payment-cash': PaymentCash,
+  'payment-invoice': PaymentInvoice,
+  'payment-other': PaymentOther,
+  'payment-nocharge': PaymentNoCharge,
+  'payment-business': PaymentBusiness,
+  'payment-recorded': PaymentRecorded,
+  'payment-nocharge-done': PaymentNoChargeDone,
+  'payment-invoiced': PaymentInvoiced,
+  'payment-invoiced-open': PaymentInvoicedOpen,
+  'payment-part': PaymentPart,
+  'payment-part-open': PaymentPartOpen,
+  'payment-handover': PaymentHandOver,
+  'payment-handed': PaymentHanded,
+  'payment-handover-sheet': PaymentHandOverSheet,
+  'payment-two': PaymentTwo,
+  'payment-over': PaymentOver,
+  'payment-hidden': PaymentHidden,
+  'payment-hidden-done': PaymentHiddenDone,
+  'payment-noprice': PaymentNoPrice,
+  'payment-deposit': PaymentDeposit,
+  'payment-deposit-open': PaymentDepositOpen,
+  'payment-loading': PaymentLoading,
+  'payment-nosignal': PaymentNoSignal,
+  'payment-stillsaving': PaymentStillSaving,
+  'payments-owing': PaymentsOwing,
+  'payments-tobill': PaymentsToBill,
+  'payments-paid': PaymentsPaid,
+  'payments-empty': PaymentsEmpty,
+  'payments-paid-empty': PaymentsPaidEmpty,
+  'payments-hidden': PaymentsHidden,
+  'payments-paid-hidden': PaymentsPaidHidden,
+  'payments-countsfrom': PaymentsCountsFrom,
+  'payments-handed': PaymentsHanded,
   newjob: NewJob,
   'newjob-no-signal': NewJobNoSignal,
   'newjob-kept-no-signal': NewJobKeptNoSignal,
@@ -4412,6 +4714,8 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'schedule-recurring': scheduleRecurring(false),
   'schedule-recurring-date': scheduleRecurring(true),
   sign: Sign,
+  annotate: Annotate,
+  'annotate-load-failed': AnnotateLoadFailed,
   'sign-client': SignClient,
   'sign-row-saved': SignRowSaved,
   'sign-row-waiting': SignRowWaiting,

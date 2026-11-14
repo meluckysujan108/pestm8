@@ -11,9 +11,9 @@ import { startOfDayInZone } from './lib/dates'
 import type { Doc, Id } from './_generated/dataModel'
 
 /**
- * `analytics.report` and `analytics.uninvoiced` — what the Analytics page
- * reads. Every date is given, never today's, so these answer the same at any
- * hour (CI runs at all of them).
+ * `analytics.report`, `analytics.breakdowns` and `analytics.paperwork` — what
+ * the Analytics page reads. Every date is given, never today's, so these
+ * answer the same at any hour (CI runs at all of them).
  */
 
 const PERTH = 'Australia/Perth'
@@ -286,42 +286,6 @@ describe('who sees what', () => {
   })
 })
 
-describe('awaiting invoice, by age', () => {
-  test('bands finished work by how long it has waited, oldest listed first', async () => {
-    const s = await setup()
-    await job(s, '2026-11-10', 'completed', 10000)
-    await job(s, '2026-11-01', 'completed', 20000)
-    await job(s, '2026-10-20', 'completed', 30000)
-    const oldest = await job(s, '2026-08-01', 'completed', 40000, {
-      jobNumber: 7,
-    })
-    await job(s, '2026-11-09', 'invoiced', 99000)
-
-    const r = await s.owner.as.query(api.analytics.uninvoiced, {
-      businessId: s.businessId,
-      today: TODAY,
-    })
-    expect(r?.count).toBe(4)
-    expect(r?.value).toBe(100000)
-    expect(r?.bands).toEqual([
-      { key: 'week', count: 1, value: 10000 },
-      { key: 'fortnight', count: 1, value: 20000 },
-      { key: 'month', count: 1, value: 30000 },
-      { key: 'older', count: 1, value: 40000 },
-    ])
-    expect(r?.jobs[0]).toMatchObject({
-      jobId: oldest,
-      jobNumber: 7,
-      client: 'J. Nguyen',
-      suburb: 'Bayswater',
-      price: 40000,
-      dayKey: '2026-08-01',
-      days: 102,
-    })
-    expect(r?.more).toBe(false)
-  })
-})
-
 describe('where the work came from', () => {
   async function secondSite(s: Setup) {
     return s.t.run(async (ctx) => {
@@ -329,9 +293,10 @@ describe('where the work came from', () => {
         businessId: s.businessId,
         kind: 'business',
         name: 'Harbour Café',
-        // First put on the books inside the range: a new client.
-        createdAt: noon('2026-10-20'),
-        updatedAt: noon('2026-10-20'),
+        // On the books for years, and never worked for until the range: a
+        // new client is one whose first job is in it, whatever their record.
+        createdAt: 0,
+        updatedAt: 0,
       })
       return ctx.db.insert('properties', {
         businessId: s.businessId,
@@ -340,7 +305,7 @@ describe('where the work came from', () => {
         suburb: 'Fremantle',
         state: 'WA',
         postcode: '6160',
-        createdAt: noon('2026-10-20'),
+        createdAt: 0,
       })
     })
   }
@@ -408,6 +373,31 @@ describe('where the work came from', () => {
     const r = await breakdowns(s, { service: 'rodents' })
     expect(r?.completed).toBe(1)
     expect(r?.areas.map((a) => a.suburb)).toEqual(['Fremantle'])
+  })
+
+  test('a cancelled job before the range does not make a client a returning one, and a suburb in capitals is the same suburb', async () => {
+    const s = await setup()
+    const shouting = await s.t.run(async (ctx) => {
+      const property = await ctx.db.get(s.propertyId)
+      return ctx.db.insert('properties', {
+        businessId: s.businessId,
+        clientId: property!.clientId,
+        addressLine: '14 Wattle Street',
+        suburb: 'BAYSWATER',
+        state: 'WA',
+        postcode: '6053',
+        createdAt: 0,
+      })
+    })
+    await job(s, '2026-09-01', 'cancelled', 20000)
+    await job(s, '2026-11-01', 'completed', 20000, { propertyId: shouting })
+    await job(s, '2026-11-02', 'completed', 30000)
+
+    const r = await breakdowns(s)
+    expect(r?.clients).toMatchObject({ served: 1, new: 1, newJobs: 2 })
+    expect(r?.areas).toEqual([
+      { suburb: 'Bayswater', completed: 2, revenue: 50000 },
+    ])
   })
 
   test('what repeats is valued by the year, and its finished visits counted', async () => {
@@ -536,5 +526,84 @@ describe('paperwork', () => {
       suburb: 'Bayswater',
       dayKey: '2026-11-01',
     })
+  })
+})
+
+describe('how you were paid', () => {
+  function paid(
+    s: Setup,
+    jobId: Id<'jobs'>,
+    dayKey: string,
+    method: Doc<'payments'>['method'],
+    amount: number,
+    more: Partial<Doc<'payments'>> = {},
+  ) {
+    return s.t.run((ctx) =>
+      ctx.db.insert('payments', {
+        businessId: s.businessId,
+        jobId,
+        method,
+        amount,
+        receivedAt: noon(dayKey),
+        recordedBy: s.ownerMembershipId,
+        recordedAt: noon(dayKey),
+        ...more,
+      }),
+    )
+  }
+
+  test('totals each method for money received in the range, most first', async () => {
+    const s = await setup()
+    // Done long before the range, paid within it: the payment's day counts.
+    const old = await job(s, '2026-08-01', 'invoiced', 30000)
+    const recent = await job(s, '2026-11-01', 'completed', 50000)
+    await paid(s, old, '2026-11-02', 'bankTransfer', 30000)
+    await paid(s, recent, '2026-11-01', 'cash', 20000, { deposit: true })
+    await paid(s, recent, '2026-11-03', 'cash', 5000)
+    // Not money, taken back, or outside the range: in none of it.
+    await paid(s, recent, '2026-11-03', 'noCharge', 0)
+    await paid(s, recent, '2026-11-04', 'card', 9900, { removedAt: 1 })
+    await paid(s, recent, '2026-10-12', 'cheque', 7700)
+
+    const r = await s.owner.as.query(api.analytics.payments, {
+      businessId: s.businessId,
+      ...RANGE,
+    })
+    expect(r).toEqual({
+      pricesHidden: false,
+      count: 3,
+      value: 55000,
+      methods: [
+        { method: 'bankTransfer', count: 1, value: 30000 },
+        { method: 'cash', count: 2, value: 25000 },
+      ],
+      more: false,
+    })
+  })
+
+  test('a subcontractor gets payments on their own jobs only', async () => {
+    const s = await setup()
+    const sam = await createActor(s.t, { email: 'sam@coastal.test' })
+    const samId = await joinBusiness(
+      s.t,
+      s.owner,
+      sam,
+      s.businessId,
+      'subcontractor',
+    )
+    const theirs = await job(s, '2026-11-01', 'completed', 20000, {
+      assignedMembershipId: samId,
+    })
+    const owners = await job(s, '2026-11-02', 'completed', 30000)
+    await paid(s, theirs, '2026-11-01', 'cash', 20000)
+    await paid(s, owners, '2026-11-02', 'card', 30000)
+
+    const r = await sam.as.query(api.analytics.payments, {
+      businessId: s.businessId,
+      ...RANGE,
+    })
+    expect(r?.count).toBe(1)
+    expect(r?.methods.map((m) => m.method)).toEqual(['cash'])
+    if (r?.pricesHidden) expect(r.value).toBeNull()
   })
 })
