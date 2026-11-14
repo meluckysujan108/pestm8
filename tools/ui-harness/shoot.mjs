@@ -1510,6 +1510,7 @@ const PLAN = {
     before: async (p) => p.waitForTimeout(700),
   },
   client: { before: async (p) => p.waitForTimeout(900) },
+  'client-owing': { before: async (p) => p.waitForTimeout(900) },
   'client-scrolled': {
     spec: 'client',
     before: async (p) => {

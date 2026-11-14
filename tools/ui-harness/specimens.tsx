@@ -1425,9 +1425,10 @@ function TimesSample({
   )
 }
 
-function Client() {
+function Client({ owes = false }: { owes?: boolean } = {}) {
   state.technician = false
   state.actingAs = false
+  state.clientOwes = owes
   return (
     <Phone>
       {/* The sheet's Xero line asks who is looking (Release 3). */}
@@ -1445,6 +1446,12 @@ function Client() {
       </AccessProvider>
     </Phone>
   )
+}
+
+/** The same client owing money: their Jobs tab opens on What they owe,
+ * two bills (one part paid) and a job done with a deposit on it. */
+function ClientOwingSpecimen() {
+  return <Client owes />
 }
 
 /** The busy commercial client (busyFixtures.ts). */
@@ -4572,6 +4579,7 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'jobdetail-no-signal': JobDetailNoSignal,
   'jobdetail-loading': JobDetailLoading,
   client: Client,
+  'client-owing': ClientOwingSpecimen,
   clientbusy: ClientBusy,
   jobdetailbusy: JobDetailBusy,
   recurringbusy: RecurringBusy,
