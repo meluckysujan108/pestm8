@@ -125,9 +125,6 @@ export async function allocateJobNumber(
  * Reads in a window, filtered to what this member may see. A subcontractor
  * without canViewAllJobs never has another person's job loaded at all, rather
  * than having it loaded and hidden in the UI (§6.5).
- *
- * Exported for `analytics.ts`, which needs the exact same scoped range scan
- * rather than a second implementation of the same scope-branching logic.
  */
 export async function jobsInRange(
   ctx: QueryCtx,

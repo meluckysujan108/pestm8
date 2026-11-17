@@ -6,6 +6,7 @@ import {
   createBusiness,
   joinBusiness,
   testApp,
+  daysAroundNow,
 } from '../test/harness'
 import {
   assertStatusChange,
@@ -768,11 +769,11 @@ describe('giving a job away', () => {
     await pay(s, given, { method: 'noCharge', complete: true })
     await pay(s, earned, { complete: true })
 
-    const overview = await s.owner.as.query(api.analytics.overview, {
+    const report = await s.owner.as.query(api.analytics.report, {
       businessId: s.businessId,
-      months: 3,
+      ...daysAroundNow(),
     })
-    expect(overview?.revenueByMonth.at(-1)?.value).toBe(PRICE)
+    expect(report?.totals.revenue).toBe(PRICE)
     const dashboard = await s.owner.as.query(api.dashboard.summary, {
       businessId: s.businessId,
     })
@@ -788,11 +789,11 @@ describe('giving a job away', () => {
     await pay(s, jobId, { method: 'noCharge', complete: true })
     expect(await statusOf(s, jobId)).toBe('paid')
 
-    const overview = await s.owner.as.query(api.analytics.overview, {
+    const report = await s.owner.as.query(api.analytics.report, {
       businessId: s.businessId,
-      months: 3,
+      ...daysAroundNow(),
     })
-    expect(overview?.revenueByMonth.at(-1)?.value).toBe(5000)
+    expect(report?.totals.revenue).toBe(5000)
   })
 
   test('taken back, the job earned its price again', async () => {
@@ -805,11 +806,11 @@ describe('giving a job away', () => {
     })
     await takeBack(s, jobId, paymentId)
 
-    const overview = await s.owner.as.query(api.analytics.overview, {
+    const report = await s.owner.as.query(api.analytics.report, {
       businessId: s.businessId,
-      months: 3,
+      ...daysAroundNow(),
     })
-    expect(overview?.revenueByMonth.at(-1)?.value).toBe(PRICE)
+    expect(report?.totals.revenue).toBe(PRICE)
   })
 })
 
@@ -1197,11 +1198,11 @@ describe('the owner’s figures', () => {
     const jobId = await insertJob(s)
     await s.t.run((ctx) => ctx.db.patch(jobId, { scheduledAt: Date.now() }))
     await pay(s, jobId, { complete: true })
-    const overview = await s.owner.as.query(api.analytics.overview, {
+    const report = await s.owner.as.query(api.analytics.report, {
       businessId: s.businessId,
-      months: 3,
+      ...daysAroundNow(),
     })
-    expect(overview?.revenueByMonth.at(-1)?.value).toBe(PRICE)
+    expect(report?.totals.revenue).toBe(PRICE)
   })
 })
 

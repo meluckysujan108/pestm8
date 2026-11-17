@@ -4,6 +4,7 @@ import betterAuthTest from '@convex-dev/better-auth/test'
 import prosemirrorSyncTest from '@convex-dev/prosemirror-sync/test'
 import schema from '../convex/schema'
 import { MEMBER_COLOURS } from '../convex/lib/colours'
+import { addDaysToKey, dayKeyOf } from '../convex/lib/dates'
 import { keepZone } from '../convex/zoneWeeks'
 import { api, components } from '../convex/_generated/api'
 import type { Id } from '../convex/_generated/dataModel'
@@ -232,4 +233,23 @@ export async function joinBusiness(
   )
   if (!membership) throw new Error(`${invitee.email} did not join`)
   return membership._id
+}
+
+/**
+ * The days either side of now, as `analytics.report` takes them: a range
+ * that holds a job booked for "now", whichever side of the business's
+ * midnight the test runs, with today's key beside it. A test that books
+ * relative to the clock asks about a range relative to it too.
+ */
+export function daysAroundNow(
+  back = 2,
+  ahead = 2,
+  timezone = 'Australia/Perth',
+): { from: string; to: string; today: string } {
+  const today = dayKeyOf(Date.now(), timezone)
+  return {
+    from: addDaysToKey(today, -back),
+    to: addDaysToKey(today, ahead),
+    today,
+  }
 }
