@@ -1782,6 +1782,117 @@ describe('what a client owes', () => {
   })
 })
 
+describe('the ways the owner offers', () => {
+  const offer = (
+    s: Setup,
+    method: 'cash' | 'card' | 'bankTransfer' | 'cheque' | 'other',
+    offered: boolean,
+    as: TestActor = s.owner,
+  ) =>
+    as.as.mutation(api.payments.setMethodOffered, {
+      businessId: s.businessId,
+      method,
+      offered,
+    })
+  const nameMachine = (s: Setup, name: string, as: TestActor = s.owner) =>
+    as.as.mutation(api.payments.setCardMachine, {
+      businessId: s.businessId,
+      name,
+    })
+  const settings = (s: Setup, as: TestActor = s.owner) =>
+    as.as.query(api.payments.methodSettings, { businessId: s.businessId })
+  const stored = (s: Setup) => s.t.run((ctx) => ctx.db.get(s.businessId))
+
+  test('every way is offered until the owner says otherwise', async () => {
+    const s = await setup()
+    const jobId = await insertJob(s, { status: 'completed' })
+    const everything = {
+      methods: ['cash', 'card', 'bankTransfer', 'cheque', 'other'],
+      cardMachine: null,
+    }
+    expect(await settings(s)).toEqual(everything)
+    expect((await moneyOn(s, jobId))?.offered).toEqual(everything)
+  })
+
+  test('one turned off leaves the job sheet, and back on returns it', async () => {
+    const s = await setup()
+    const jobId = await insertJob(s, { status: 'completed' })
+    await offer(s, 'cheque', false)
+    await offer(s, 'cash', false)
+    // Twice is the same as once.
+    await offer(s, 'cash', false)
+
+    expect((await moneyOn(s, jobId))?.offered.methods).toEqual([
+      'card',
+      'bankTransfer',
+      'other',
+    ])
+    expect((await stored(s))?.paymentMethodsOff).toEqual(['cash', 'cheque'])
+
+    await offer(s, 'cash', true)
+    await offer(s, 'cheque', true)
+    expect((await settings(s))?.methods).toEqual([
+      'cash',
+      'card',
+      'bankTransfer',
+      'cheque',
+      'other',
+    ])
+    // Nothing left off is the field gone, not an empty list.
+    expect((await stored(s))?.paymentMethodsOff).toBeUndefined()
+  })
+
+  test('a way turned off still records, and its payments keep it', async () => {
+    const s = await setup()
+    const jobId = await insertJob(s, { status: 'completed' })
+    await pay(s, jobId, { method: 'cheque', amount: 10000 })
+    await offer(s, 'cheque', false)
+    // A sheet opened before the change still sends what it was given.
+    await pay(s, jobId, { method: 'cheque' })
+
+    const money = await moneyOn(s, jobId)
+    expect(money?.payments.map((p) => p.method)).toEqual(['cheque', 'cheque'])
+    expect(await statusOf(s, jobId)).toBe('paid')
+  })
+
+  test('the last way to be paid stays on', async () => {
+    const s = await setup()
+    for (const method of ['cash', 'card', 'bankTransfer', 'cheque'] as const) {
+      await offer(s, method, false)
+    }
+    await expect(offer(s, 'other', false)).rejects.toThrow('LAST_METHOD')
+    expect((await settings(s))?.methods).toEqual(['other'])
+  })
+
+  test('the card machine is named, tidied, and cleared by leaving it blank', async () => {
+    const s = await setup()
+    const jobId = await insertJob(s, { status: 'completed' })
+    await nameMachine(s, '  Square   Terminal ')
+    expect((await moneyOn(s, jobId))?.offered.cardMachine).toBe(
+      'Square Terminal',
+    )
+    await expect(nameMachine(s, 'x'.repeat(31))).rejects.toThrow('TOO_LONG')
+    expect((await settings(s))?.cardMachine).toBe('Square Terminal')
+
+    await nameMachine(s, '   ')
+    expect((await settings(s))?.cardMachine).toBeNull()
+    expect((await stored(s))?.cardMachine).toBeUndefined()
+  })
+
+  test('only the owner changes them', async () => {
+    const s = await setup()
+    const { sam, jobId } = await withSubcontractor(s, { prices: true })
+    await expect(offer(s, 'cash', false, sam)).rejects.toThrow('NO_ACCESS')
+    await expect(nameMachine(s, 'Tyro', sam)).rejects.toThrow('NO_ACCESS')
+    await expect(settings(s, sam)).rejects.toThrow('NO_ACCESS')
+    // What the owner offers still reaches their job sheet.
+    await offer(s, 'cheque', false)
+    expect((await moneyOn(s, jobId, sam))?.offered.methods).not.toContain(
+      'cheque',
+    )
+  })
+})
+
 describe('money in, by month', () => {
   const month = (
     s: Setup,

@@ -171,6 +171,10 @@ export const rq = {
   /** The job types as the owner edits them, with their counts — owner only. */
   jobTypesManage: (businessId: B) =>
     convexQuery(api.jobTypes.manage, { businessId }),
+  /** The ways of being paid the job sheet offers, and the card machine's
+   * name (Settings → Payments) — owner only. */
+  paymentMethods: (businessId: B) =>
+    convexQuery(api.payments.methodSettings, { businessId }),
   /** Xero, as this person may see it: whether the deployment is set up for
    * it, the business's connection (owner only) and their own (`xero.ts`).
    * Anyone may ask; it answers with what is theirs to see. */

@@ -120,6 +120,7 @@ import { JobTimeFields, useJobTimes } from '#/components/schedule/JobTimeFields'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { RecycleBinList } from '#/components/settings/RecycleBin'
 import { JobTypesSection } from '#/components/settings/JobTypesSection'
+import { PaymentMethodsSection } from '#/components/settings/PaymentMethodsSection'
 import { ReportSettingsForm } from '#/components/settings/ReportSettingsForm'
 import { BusinessSection } from '#/components/settings/BusinessSection'
 import { LicenceFields } from '#/components/settings/LicenceFields'
@@ -581,6 +582,9 @@ const PaymentDepositOpen = payment('pay_ask', {
   press: ['Record a deposit', 'Transfer'],
 })
 const PaymentLoading = payment('pay_loading')
+// What the owner offers: no cheques, and Card naming their machine.
+const PaymentOffered = payment('pay_square')
+const PaymentOfferedOther = payment('pay_square', { press: ['Other'] })
 /**
  * The sheet opened again with a payment still out: the save a second tap
  * must not repeat. Never answered, so it stays out.
@@ -3983,6 +3987,36 @@ function JobTypes() {
   )
 }
 
+/**
+ * Settings → Payments: cheques turned off and the machine named, or (`one`)
+ * the last way left on, whose switch can't go.
+ */
+function PaymentSettings({ one = false }: { one?: boolean } = {}) {
+  state.oneMethodLeft = one
+  return (
+    <Phone>
+      <header className="chrome-blur sticky top-0 z-30 border-b border-hairline px-4 pb-3 pt-3">
+        <BackLink
+          to="/$businessSlug/settings"
+          params={{ businessSlug: 'demo' }}
+        >
+          Settings
+        </BackLink>
+        <h1 className="truncate text-page-title text-ink">Payments</h1>
+      </header>
+      <AccessProvider businessId={bizId}>
+        <SettingsBody>
+          <PaymentMethodsSection businessId={bizId} />
+        </SettingsBody>
+      </AccessProvider>
+    </Phone>
+  )
+}
+
+function PaymentSettingsOne() {
+  return <PaymentSettings one />
+}
+
 function RecycleBin() {
   return (
     <Phone>
@@ -4581,6 +4615,8 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'team-member': TeamMember,
   'team-member-xero': TeamMemberXero,
   jobtypes: JobTypes,
+  'settings-payments': PaymentSettings,
+  'settings-payments-one': PaymentSettingsOne,
   install: Install,
   'install-settings': InstallSettingsPage,
   'install-card': InstallCardSpecimen,
@@ -4601,6 +4637,8 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'jobdetail-paid': jobDetail('jp1'),
   'jobdetail-completed': jobDetail('jp3'),
   'payment-ask': PaymentAskSpecimen,
+  'payment-offered': PaymentOffered,
+  'payment-offered-other': PaymentOfferedOther,
   'payment-cash': PaymentCash,
   'payment-invoice': PaymentInvoice,
   'payment-other': PaymentOther,

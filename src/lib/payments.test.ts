@@ -27,6 +27,7 @@ import {
   toBillCaption,
 } from './payments'
 import type { PaymentMethod } from './payments'
+import type { OfferableMethod } from '../../convex/lib/paymentLimits'
 
 /** The words the job sheet's Payment section and a job's card use. */
 
@@ -111,6 +112,82 @@ describe('the choices', () => {
       'cheque',
       'other',
     ])
+  })
+})
+
+describe('the choices the owner offers', () => {
+  const offering = (
+    methods: ReadonlyArray<OfferableMethod>,
+    cardMachine: string | null = null,
+  ) => ({ methods, cardMachine })
+  const tiles = (
+    offered: ReturnType<typeof offering>,
+    billed = false,
+    deposit = false,
+  ) => paymentTiles(billed, deposit, offered)
+
+  test('a way turned off has no tile, and Invoice always stays', () => {
+    const noCash = offering(['card', 'bankTransfer', 'cheque', 'other'])
+    expect(tiles(noCash).map(({ tile }) => tile)).toEqual([
+      'card',
+      'invoice',
+      'other',
+    ])
+    const cashOnly = offering(['cash'])
+    expect(tiles(cashOnly).map(({ tile }) => tile)).toEqual([
+      'cash',
+      'invoice',
+      'other',
+    ])
+    // No charge is all Other holds then.
+    expect(otherMethods(false, false, cashOnly)).toEqual([
+      { value: 'noCharge', label: 'No charge' },
+    ])
+    expect(tiles(cashOnly).find(({ tile }) => tile === 'other')?.line).toBe(
+      'No charge',
+    )
+  })
+
+  test('Card names the machine', () => {
+    const square = offering(['cash', 'card'], 'Square')
+    expect(tiles(square).find(({ tile }) => tile === 'card')?.line).toBe(
+      'Square',
+    )
+  })
+
+  test('Other says only what it holds', () => {
+    const noCheque = offering(['cash', 'card', 'bankTransfer', 'other'])
+    expect(tiles(noCheque).find(({ tile }) => tile === 'other')?.line).toBe(
+      'Transfer, no charge',
+    )
+    const noTransfer = offering(['cash', 'card', 'cheque', 'other'])
+    expect(otherMethods(false, false, noTransfer).map((o) => o.value)).toEqual([
+      'cheque',
+      'other',
+      'noCharge',
+    ])
+    expect(
+      tiles(noTransfer, true).map(({ tile }) => tile),
+      'billed, with no transfer offered',
+    ).toEqual(['cash', 'card', 'other'])
+  })
+
+  test('a deposit with nothing under Other has no Other', () => {
+    const noOthers = offering(['cash', 'card', 'bankTransfer'])
+    expect(tiles(noOthers, false, true).map(({ tile }) => tile)).toEqual([
+      'cash',
+      'card',
+      'bankTransfer',
+    ])
+    const otherOnly = offering(['cash', 'other'])
+    expect(
+      tiles(otherOnly, false, true).find(({ tile }) => tile === 'other')?.line,
+    ).toBe('Anything else')
+    expect(
+      tiles(offering(['cheque']), false, true).find(
+        ({ tile }) => tile === 'other',
+      )?.line,
+    ).toBe('Cheque')
   })
 })
 

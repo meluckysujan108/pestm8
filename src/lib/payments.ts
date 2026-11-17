@@ -16,6 +16,8 @@ import {
 } from './format'
 import { firstName } from './jobPeople'
 import { dayKeyOf } from '../../convex/lib/dates'
+import { EVERY_METHOD } from '../../convex/lib/paymentLimits'
+import type { PaymentsOffered } from '../../convex/lib/paymentLimits'
 import type { Doc } from '../../convex/_generated/dataModel'
 
 export type PaymentMethod = Doc<'payments'>['method']
@@ -66,44 +68,96 @@ export type OtherMethod = Extract<
  * Once it has been billed, Invoice has been answered, and what is most likely
  * still to come is the transfer it asked for. A deposit is money taken before
  * the work, so it has no Invoice either, and nothing to give away for free.
+ * Only the ways the owner offers (Settings → Payments) have a tile, and Card
+ * names their machine where they have said what it is.
  */
 export function paymentTiles(
   billed: boolean,
   deposit = false,
+  offered: PaymentsOffered = EVERY_METHOD,
 ): ReadonlyArray<{
   tile: PaymentTile
   title: string
   line: string
 }> {
+  const on = new Set(offered.methods)
   const later = billed || deposit
+  const others = otherMethods(billed, deposit, offered)
   return [
-    { tile: 'cash', title: 'Cash', line: 'Paid now' },
-    { tile: 'card', title: 'Card', line: 'EFTPOS machine' },
-    later
-      ? { tile: 'bankTransfer', title: 'Transfer', line: 'Bank transfer' }
-      : { tile: 'invoice', title: 'Invoice', line: 'Pays later' },
-    {
-      tile: 'other',
-      title: 'Other',
-      line: deposit
-        ? 'Cheque or other'
-        : billed
-          ? 'Cheque, no charge'
-          : 'Transfer, cheque, no charge',
-    },
+    ...(on.has('cash')
+      ? [{ tile: 'cash' as const, title: 'Cash', line: 'Paid now' }]
+      : []),
+    ...(on.has('card')
+      ? [
+          {
+            tile: 'card' as const,
+            title: 'Card',
+            line: offered.cardMachine ?? 'EFTPOS machine',
+          },
+        ]
+      : []),
+    ...(!later
+      ? [{ tile: 'invoice' as const, title: 'Invoice', line: 'Pays later' }]
+      : on.has('bankTransfer')
+        ? [
+            {
+              tile: 'bankTransfer' as const,
+              title: 'Transfer',
+              line: 'Bank transfer',
+            },
+          ]
+        : []),
+    ...(others.length > 0
+      ? [
+          {
+            tile: 'other' as const,
+            title: 'Other',
+            line: otherLine(
+              others.map(({ value }) => value),
+              deposit,
+            ),
+          },
+        ]
+      : []),
   ]
 }
 
+/** What Other holds, in a sentence, without repeating its own name. */
+function otherLine(held: ReadonlyArray<OtherMethod>, deposit: boolean) {
+  if (deposit) {
+    if (!held.includes('cheque')) return 'Anything else'
+    return held.includes('other') ? 'Cheque or other' : 'Cheque'
+  }
+  const words = held.flatMap((method) =>
+    method === 'other' ? [] : [OTHER_WORD[method]],
+  )
+  const line = words.join(', ')
+  return line === ''
+    ? 'Anything else'
+    : line.charAt(0).toUpperCase() + line.slice(1)
+}
+
+const OTHER_WORD: Record<Exclude<OtherMethod, 'other'>, string> = {
+  bankTransfer: 'transfer',
+  cheque: 'cheque',
+  noCharge: 'no charge',
+}
+
+/** Under Other, the ways offered that have no tile of their own. */
 export function otherMethods(
   billed: boolean,
   deposit = false,
+  offered: PaymentsOffered = EVERY_METHOD,
 ): Array<{ value: OtherMethod; label: string }> {
+  const on = new Set(offered.methods)
   return [
-    ...(billed || deposit
+    ...(billed || deposit || !on.has('bankTransfer')
       ? []
       : [{ value: 'bankTransfer' as const, label: 'Transfer' }]),
-    { value: 'cheque' as const, label: 'Cheque' },
-    { value: 'other' as const, label: 'Other' },
+    ...(on.has('cheque')
+      ? [{ value: 'cheque' as const, label: 'Cheque' }]
+      : []),
+    ...(on.has('other') ? [{ value: 'other' as const, label: 'Other' }] : []),
     ...(deposit ? [] : [{ value: 'noCharge' as const, label: 'No charge' }]),
   ]
 }
