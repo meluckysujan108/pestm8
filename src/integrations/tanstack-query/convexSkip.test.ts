@@ -142,8 +142,32 @@ beforeAll(async () => {
   vi.unstubAllGlobals()
 })
 
+/** A fixed wait: for a timer the test set to run out, or to show that
+ * nothing more happens. An answer from the server is waited for with
+ * `answered`. */
 const settle = (ms = 10) => new Promise((resolve) => setTimeout(resolve, ms))
 const server = () => ServerSocket.open.at(-1)!
+
+/**
+ * Until the observer's query has heard back from the server: its answer, or
+ * its refusal. No fixed `settle()` can promise that. A first answer is two
+ * timers away (the socket opening, then the server's reply, which is only
+ * scheduled once the socket is open), so a loaded machine that stalls past
+ * 10 ms runs the socket's timer and the settle's in one go, and the reply
+ * lands after the test has moved on. That made the `keepPreviousData` test
+ * below fail once in a full run (17 Nov 2026).
+ */
+function answered(observer: QueryObserver) {
+  const heard = () => observer.getCurrentQuery().state.status !== 'pending'
+  return new Promise<void>((resolve) => {
+    if (heard()) return resolve()
+    const unsubscribe = observer.subscribe(() => {
+      if (!heard()) return
+      unsubscribe()
+      resolve()
+    })
+  })
+}
 
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => {
@@ -220,7 +244,7 @@ describe('switching a Convex query off', () => {
       }),
       enabled: false,
     })
-    await settle()
+    await answered(observer)
 
     expect(server().asked()).toEqual([
       ME,
@@ -253,7 +277,7 @@ describe('a skipped query whose condition changes', () => {
     await settle()
 
     rerender(observer, linkedJob(jobId))
-    await settle()
+    await answered(observer)
 
     expect(server().asked()).toEqual([
       ME,
@@ -275,7 +299,7 @@ describe('a skipped query whose condition changes', () => {
       gcTime: 100,
     })
     const observer = mount(queryClient, lastVisit(true))
-    await settle()
+    await answered(observer)
     expect(observer.getCurrentResult().data).toEqual({
       answer: 'reports:lastAtProperty',
     })
@@ -294,7 +318,7 @@ describe('a skipped query whose condition changes', () => {
   it('comes back from the cache, without asking again, when it turns on within its gcTime', async () => {
     const queryClient = connect()
     const observer = mount(queryClient, linkedJob(jobId))
-    await settle()
+    await answered(observer)
 
     rerender(observer, linkedJob(undefined))
     await settle()
@@ -318,7 +342,7 @@ describe('a skipped query whose condition changes', () => {
       placeholderData: keepPreviousData,
     })
     const observer = mount(queryClient, joins(true))
-    await settle()
+    await answered(observer)
 
     rerender(observer, joins(false))
     await settle()
