@@ -12,7 +12,7 @@ import { ReportLine } from '#/components/reports/ReportRows'
 import { SeeAllReports } from '#/components/reports/InlineReports'
 import { VisitRow } from '#/components/schedule/VisitRow'
 import { OutboxVisits } from '#/components/clients/OutboxVisits'
-import { ClientOwing, ClientOwingFailed, useOwedHeld } from './ClientOwing'
+import { ClientOwing, ClientOwingFailed, useOwedGate } from './ClientOwing'
 import { personLabel } from '#/lib/assignees'
 import { byYear, clientOverview } from '#/lib/clientJobs'
 import { formatJobDate } from '#/lib/format'
@@ -131,22 +131,18 @@ export function ClientJobsTab({
   // Their visits and services carry the request id a phone booked them
   // under (`clients.summary`), so one whose job is here before this tab
   // hears it went is drawn once, as its job (latchSlots.ts).
-  // The tab waits for what they owe as well as their jobs: drawn first, it
-  // would otherwise arrive after them and push the visits down under a thumb.
-  // But not while the line is down (with keeping on): what they owe isn't
-  // kept on the phone, so it might not come until signal does, and waiting
-  // for it would hide their jobs, the bookings on this phone with them,
-  // though their jobs are here (the sheet asks for both as it opens, so
-  // that is rare: the line dropping between the two answers). The tab draws
-  // without it then, and it stays out until the tab is next opened, however
-  // soon it comes (`useOwedHeld`).
+  // The tab waits for what they owe as well as their jobs, but not while
+  // the line is down with keeping on: what they owe isn't kept on the phone
+  // (`useOwedGate`). The sheet asks for both as it opens, so the tab is
+  // seldom drawn without it: the line has to drop between the two answers.
   const lineDown = useLineDown()
-  const owedIn = owedQuery.data !== undefined || owedQuery.isError
-  const owedSettled = owedIn || (OUTBOX_ENABLED && lineDown !== null)
   const settled = useOutboxSettled()
-  const drawsJobs =
-    summary !== undefined && summary !== null && settled && owedSettled
-  const owedHeld = useOwedHeld(drawsJobs, owedIn)
+  const owed = useOwedGate({
+    jobsIn: summary !== undefined && summary !== null && settled,
+    owedIn: owedQuery.data !== undefined || owedQuery.isError,
+    waitsOut: OUTBOX_ENABLED && lineDown !== null,
+  })
+  const drawsJobs = owed.draws
   const unsent = useOutboxList({
     businessId,
     rows: latchRowsOf(summary),
@@ -252,7 +248,7 @@ export function ClientJobsTab({
   return (
     <>
       {/* Above the site choice: it is the whole client's, at every site. */}
-      {owedHeld ? null : owedQuery.isError ? (
+      {!owed.owedShown ? null : owedQuery.isError ? (
         <ClientOwingFailed onRetry={() => void owedQuery.refetch()} />
       ) : (
         owedQuery.data && (
