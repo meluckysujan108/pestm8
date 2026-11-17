@@ -12,6 +12,7 @@ import { ReportLine } from '#/components/reports/ReportRows'
 import { SeeAllReports } from '#/components/reports/InlineReports'
 import { VisitRow } from '#/components/schedule/VisitRow'
 import { OutboxVisits } from '#/components/clients/OutboxVisits'
+import { ClientOwing, ClientOwingFailed } from './ClientOwing'
 import { personLabel } from '#/lib/assignees'
 import { byYear, clientOverview } from '#/lib/clientJobs'
 import { formatJobDate } from '#/lib/format'
@@ -98,6 +99,10 @@ export function ClientJobsTab({
   const reportsQuery = useQuery(
     convexQuery(api.clients.visitReports, { businessId, clientId }),
   )
+  // What they owe, first on the tab (ClientOwing).
+  const owedQuery = useQuery(
+    convexQuery(api.payments.forClient, { businessId, clientId }),
+  )
   const { data: roster } = useQuery(
     convexQuery(api.memberships.listForBusiness, { businessId }),
   )
@@ -124,8 +129,12 @@ export function ClientJobsTab({
   // Their visits and services carry the request id a phone booked them
   // under (`clients.summary`), so one whose job is here before this tab
   // hears it went is drawn once, as its job (latchSlots.ts).
+  // The tab waits for what they owe as well as their jobs: drawn first, it
+  // would otherwise arrive after them and push the visits down under a thumb.
+  const owedSettled = owedQuery.data !== undefined || owedQuery.isError
   const settled = useOutboxSettled()
-  const drawsJobs = summary !== undefined && summary !== null && settled
+  const drawsJobs =
+    summary !== undefined && summary !== null && settled && owedSettled
   const unsent = useOutboxList({
     businessId,
     rows: latchRowsOf(summary),
@@ -230,6 +239,19 @@ export function ClientJobsTab({
 
   return (
     <>
+      {/* Above the site choice: it is the whole client's, at every site. */}
+      {owedQuery.isError ? (
+        <ClientOwingFailed onRetry={() => void owedQuery.refetch()} />
+      ) : (
+        owedQuery.data && (
+          <ClientOwing
+            owed={owedQuery.data}
+            businessSlug={businessSlug}
+            timezone={timezone}
+          />
+        )
+      )}
+
       {many && (
         <label className="mt-6 block">
           <span className="section-label mb-2 block">Site</span>

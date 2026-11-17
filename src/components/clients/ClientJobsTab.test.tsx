@@ -178,6 +178,15 @@ function render(summary: Summary, reports: Array<InlineReport> = []) {
     convexQuery(api.memberships.listForBusiness, { businessId: B }).queryKey,
     [],
   )
+  // What they owe (#172), which the tab waits for too: nothing to show, as
+  // for someone who doesn't see prices, so the tab draws as before it.
+  queryClient.setQueryData(convexQuery(api.payments.forClient, args).queryKey, {
+    pricesHidden: true,
+    owing: null,
+    toBill: null,
+    rows: [],
+    more: false,
+  })
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
       <ClientJobsTab

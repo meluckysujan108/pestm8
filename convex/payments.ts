@@ -26,6 +26,7 @@ import {
 } from './lib/jobStatus'
 import {
   MAX_PAYMENTS_ON_A_JOB,
+  billedAt,
   counts,
   countsFromOf,
   moneyFigures,
@@ -35,6 +36,7 @@ import {
   paymentsOfJob,
 } from './lib/payments'
 import { checkClientRequestId } from './lib/clientRequest'
+import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { recordOnBehalf } from './lib/audit'
 import { writeAttribution } from './lib/capabilities'
 import { hidePrices, redactTotal } from './lib/prices'
@@ -786,6 +788,137 @@ export const outstanding = query({
       }),
     )
     return { rows, more, pricesHidden: hidden }
+  },
+})
+
+/** Most of a client's sites read for their sheet, as `clients.summary` reads
+ * them (none has come close). */
+const CLIENT_SITES = 50
+
+/**
+ * Most of one client's billed or finished jobs looked at for their sheet: far
+ * more than any client waits on. Each costs a read for its payments and maybe
+ * one more for whether the caller may see it, well inside a query's reads.
+ */
+const CLIENT_JOBS_READ = 500
+
+/** Most of those jobs the sheet lists, Owing first. */
+export const CLIENT_ROWS = 50
+
+/**
+ * What one client owes, for their sheet: Owing (billed, less what has come
+ * in) and To bill (done, not yet billed, less any deposit), with the jobs
+ * behind them, oldest first. Counted as the Payments page counts them
+ * (`moneyFigures`): work from the day the business counts from, and nothing
+ * in the Recycle bin.
+ *
+ * Over the jobs the caller may open (`scope`, not the list's view): a client's
+ * sheet is one record, as their history is. Somebody who cannot see prices is
+ * told nothing, not even how many: one job beside a hidden total is its price.
+ */
+export const forClient = query({
+  args: { businessId: v.id('businesses'), clientId: v.id('clients') },
+  handler: async (ctx, { businessId, clientId }) => {
+    const env = await requireActor(ctx, businessId)
+    const client = unbinned(await ctx.db.get(clientId))
+    if (!client || client.businessId !== businessId) return null
+    if (!inClientScope(await visibleClientIds(ctx, env), clientId)) return null
+    const business = await ctx.db.get(businessId)
+    if (!business) return null
+    if (hidePrices(env.caps)) {
+      return {
+        pricesHidden: true as const,
+        owing: null,
+        toBill: null,
+        rows: [],
+        more: false,
+      }
+    }
+    const from = countsFromOf(business)
+
+    const sites = (
+      await ctx.db
+        .query('properties')
+        .withIndex('by_client', (q) => q.eq('clientId', clientId))
+        .filter((q) => q.eq(q.field('deletedAt'), undefined))
+        .take(CLIENT_SITES)
+    ).filter((site) => site.businessId === businessId)
+
+    // Only the jobs waiting on money: years of paid visits cost nothing.
+    let more = false
+    const waiting: Array<Doc<'jobs'>> = []
+    for (const site of sites) {
+      const room = CLIENT_JOBS_READ - waiting.length
+      if (room <= 0) {
+        more = true
+        break
+      }
+      const found = await ctx.db
+        .query('jobs')
+        .withIndex('by_property', (q) => q.eq('propertyId', site._id))
+        .filter((q) =>
+          q.and(
+            q.eq(q.field('deletedAt'), undefined),
+            q.or(
+              q.eq(q.field('status'), 'completed'),
+              q.eq(q.field('status'), 'invoiced'),
+            ),
+          ),
+        )
+        .take(room + 1)
+      if (found.length > room) more = true
+      waiting.push(...found.slice(0, room))
+    }
+
+    const counted: Array<Doc<'jobs'>> = []
+    for (const job of waiting) {
+      if (job.businessId !== businessId || !counts(job, from)) continue
+      if (await jobInScope(ctx, env.scope, job)) counted.push(job)
+    }
+    const balances = await Promise.all(
+      counted.map(async (job) => {
+        const money = await moneyOnJob(ctx, job._id)
+        return { job, paid: money.paid, owed: owingOn(job.price, money) }
+      }),
+    )
+    const doneAt = (job: Doc<'jobs'>) => job.completedAt ?? job.scheduledAt
+    const owing = balances
+      .filter(({ job }) => job.status === 'invoiced')
+      .sort((a, b) => billedAt(a.job) - billedAt(b.job))
+    const toBill = balances
+      .filter(({ job }) => job.status === 'completed')
+      .sort((a, b) => doneAt(a.job) - doneAt(b.job))
+    const total = (list: typeof balances) =>
+      list.reduce((sum, { owed }) => sum + owed, 0)
+    const listed = [
+      ...owing.map((balance) => ({ ...balance, list: 'owing' as const })),
+      ...toBill.map((balance) => ({ ...balance, list: 'toBill' as const })),
+    ]
+
+    return {
+      pricesHidden: false as const,
+      owing: {
+        count: owing.length,
+        value: total(owing),
+        // How long the oldest bill has waited, for "billed 34 days ago".
+        since: owing.length > 0 ? billedAt(owing[0].job) : null,
+      },
+      toBill: { count: toBill.length, value: total(toBill) },
+      rows: listed.slice(0, CLIENT_ROWS).map(({ job, paid, owed, list }) => ({
+        _id: job._id,
+        list,
+        jobNumber: job.jobNumber ?? null,
+        jobType: job.jobType,
+        scheduledAt: job.scheduledAt,
+        completedAt: job.completedAt ?? null,
+        invoicedAt: job.invoicedAt ?? null,
+        price: job.price,
+        paid,
+        owed,
+      })),
+      // Some not listed, or not read at all.
+      more: more || listed.length > CLIENT_ROWS,
+    }
   },
 })
 

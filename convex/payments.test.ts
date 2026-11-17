@@ -1617,6 +1617,170 @@ describe('the lists to chase', () => {
   })
 })
 
+describe('what a client owes', () => {
+  const clientOf = async (s: Setup) =>
+    (await s.t.run((ctx) => ctx.db.get(s.propertyId)))!.clientId
+  const owed = async (s: Setup, as: TestActor = s.owner) =>
+    as.as.query(api.payments.forClient, {
+      businessId: s.businessId,
+      clientId: await clientOf(s),
+    })
+
+  test('Owing then To bill, oldest first, with what is left on each', async () => {
+    const s = await setup()
+    const newer = await insertJob(s, {
+      status: 'invoiced',
+      invoicedAt: Date.now() - 5 * DAY,
+      scheduledAt: Date.now() - 6 * DAY,
+    })
+    const older = await insertJob(s, {
+      status: 'invoiced',
+      invoicedAt: Date.now() - 20 * DAY,
+      scheduledAt: Date.now() - 21 * DAY,
+    })
+    const done = await insertJob(s, {
+      status: 'completed',
+      completedAt: Date.now() - DAY,
+      scheduledAt: Date.now() - DAY,
+    })
+    await insertJob(s, { status: 'paid' })
+    await insertJob(s, { status: 'booked' })
+    await pay(s, newer, { amount: 5000 })
+
+    const r = await owed(s)
+    expect(r?.pricesHidden).toBe(false)
+    expect(r?.owing).toEqual({
+      count: 2,
+      value: PRICE + (PRICE - 5000),
+      since: (await jobOf(s, older))!.invoicedAt,
+    })
+    expect(r?.toBill).toEqual({ count: 1, value: PRICE })
+    expect(r?.rows.map((row) => [row._id, row.list])).toEqual([
+      [older, 'owing'],
+      [newer, 'owing'],
+      [done, 'toBill'],
+    ])
+    expect(r?.rows[1]).toMatchObject({
+      price: PRICE,
+      paid: 5000,
+      owed: PRICE - 5000,
+    })
+    expect(r?.more).toBe(false)
+  })
+
+  test('a deposit comes off what is left to bill', async () => {
+    const s = await setup()
+    const jobId = await insertJob(s)
+    await pay(s, jobId, { amount: 5000 })
+    await s.t.run((ctx) =>
+      ctx.db.patch(jobId, { status: 'completed', completedAt: Date.now() }),
+    )
+    const r = await owed(s)
+    expect(r?.toBill).toEqual({ count: 1, value: PRICE - 5000 })
+    expect(r?.owing).toMatchObject({ count: 0, value: 0, since: null })
+  })
+
+  test('only their own jobs, at every site of theirs', async () => {
+    const s = await setup()
+    const clientId = await clientOf(s)
+    const { other, secondSite } = await s.t.run(async (ctx) => {
+      const otherClient = await ctx.db.insert('clients', {
+        businessId: s.businessId,
+        kind: 'person',
+        name: 'M. Rossi',
+        createdAt: 0,
+        updatedAt: 0,
+      })
+      const site = (suburb: string, owner: Id<'clients'>) =>
+        ctx.db.insert('properties', {
+          businessId: s.businessId,
+          clientId: owner,
+          addressLine: '3 Banksia Road',
+          suburb,
+          state: 'WA',
+          postcode: '6000',
+          createdAt: 0,
+        })
+      return {
+        other: await site('Morley', otherClient),
+        secondSite: await site('Inglewood', clientId),
+      }
+    })
+    const theirs = await insertJob(s, { status: 'invoiced', invoicedAt: 1 })
+    const atSecond = await insertJob(s, { status: 'completed' })
+    await s.t.run((ctx) => ctx.db.patch(atSecond, { propertyId: secondSite }))
+    const notTheirs = await insertJob(s, { status: 'invoiced', invoicedAt: 1 })
+    await s.t.run((ctx) => ctx.db.patch(notTheirs, { propertyId: other }))
+
+    expect((await owed(s))?.rows.map((row) => row._id)).toEqual([
+      theirs,
+      atSecond,
+    ])
+  })
+
+  test('leaves out older work, as the figures do', async () => {
+    const s = await setup()
+    await insertJob(s, {
+      status: 'invoiced',
+      invoicedAt: Date.now() - 40 * DAY,
+      completedAt: Date.now() - 40 * DAY,
+      scheduledAt: Date.now() - 40 * DAY,
+    })
+    const counted = await insertJob(s, { status: 'completed' })
+    await countFromAgo(s, 10)
+    const r = await owed(s)
+    expect(r?.rows.map((row) => row._id)).toEqual([counted])
+    expect(r?.owing?.count).toBe(0)
+  })
+
+  test('not a job in the Recycle bin', async () => {
+    const s = await setup()
+    const jobId = await insertJob(s, { status: 'completed' })
+    await s.owner.as.mutation(api.bin.deleteJob, {
+      businessId: s.businessId,
+      jobId,
+    })
+    expect((await owed(s))?.toBill).toEqual({ count: 0, value: 0 })
+  })
+
+  test('a subcontractor sees what is owed on their own jobs', async () => {
+    const s = await setup()
+    const { sam, jobId } = await withSubcontractor(s, { prices: true })
+    await s.t.run((ctx) => ctx.db.patch(jobId, { status: 'completed' }))
+    await insertJob(s, { status: 'invoiced', invoicedAt: 1 })
+
+    const r = await owed(s, sam)
+    expect(r?.rows.map((row) => row._id)).toEqual([jobId])
+    expect(r?.owing?.count).toBe(0)
+  })
+
+  test('nothing at all, not even a count, where prices are hidden', async () => {
+    const s = await setup()
+    const { sam, jobId } = await withSubcontractor(s)
+    await s.t.run((ctx) => ctx.db.patch(jobId, { status: 'completed' }))
+    expect(await owed(s, sam)).toEqual({
+      pricesHidden: true,
+      owing: null,
+      toBill: null,
+      rows: [],
+      more: false,
+    })
+  })
+
+  test('no other business’s client', async () => {
+    const s = await setup()
+    await insertJob(s, { status: 'invoiced', invoicedAt: 1 })
+    const kim = await createActor(s.t, { email: 'kim@harbour.test' })
+    const harbour = await createBusiness(s.t, kim, 'Harbour Pest')
+    expect(
+      await kim.as.query(api.payments.forClient, {
+        businessId: harbour.businessId,
+        clientId: await clientOf(s),
+      }),
+    ).toBeNull()
+  })
+})
+
 describe('money in, by month', () => {
   const month = (
     s: Setup,
