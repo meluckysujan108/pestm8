@@ -16,6 +16,7 @@ import {
   createActor,
   createBusiness,
   testApp,
+  daysAroundNow,
 } from '../../test/harness'
 import type { Id } from '../_generated/dataModel'
 import type { TestActor, TestApp } from '../../test/harness'
@@ -1721,19 +1722,23 @@ describe('someone who cannot see prices', () => {
   })
 
   /**
-   * The aggregate is the leak the row-level redaction misses. A month with one
+   * The aggregate is the leak the row-level redaction misses. A range with one
    * completed job makes the revenue total that job's price, to the cent — and
-   * the window was caller-supplied, so anyone could arrange that condition.
+   * the range is the caller's to choose, down to a single day, so anyone can
+   * arrange that condition. No money comes back at all.
    */
-  test('cannot read the price back out of the month’s revenue', async () => {
+  test('cannot read the price back out of a range’s revenue', async () => {
     const f = await priced()
-    const overview = await f.priya.as.query(api.analytics.overview, {
+    const report = await f.priya.as.query(api.analytics.report, {
       businessId: f.businessId,
-      months: 1,
+      ...daysAroundNow(30, 30),
     })
-    expect(overview?.pricesHidden).toBe(true)
-    for (const month of overview?.revenueByMonth ?? []) {
-      expect(month.value).toBeNull()
+    expect(report?.pricesHidden).toBe(true)
+    expect(report?.totals.revenue).toBeNull()
+    expect(report?.totals.averageJob).toBeNull()
+    expect(report?.bookedAhead.value).toBeNull()
+    for (const point of report?.series ?? []) {
+      expect(point.revenue).toBeNull()
     }
   })
 

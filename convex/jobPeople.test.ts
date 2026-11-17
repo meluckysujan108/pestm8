@@ -1,7 +1,12 @@
 /// <reference types="vite/client" />
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { api } from './_generated/api'
-import { createActor, createBusiness, testApp } from '../test/harness'
+import {
+  createActor,
+  createBusiness,
+  daysAroundNow,
+  testApp,
+} from '../test/harness'
 import { MAX_ALSO_GOING } from './lib/jobPeople'
 import type { Id } from './_generated/dataModel'
 import type { TestActor, TestApp } from '../test/harness'
@@ -417,12 +422,14 @@ describe('what comes with the job', () => {
   test('counts in the technician workload for each person, and the job once', async () => {
     const s = await setup()
     await book(s, { alsoGoing: [s.kevinId], when: Date.now() - 2 * HOUR })
-    const overview = await s.owner.as.query(api.analytics.overview, {
+    const report = await s.owner.as.query(api.analytics.report, {
       businessId: s.businessId,
+      ...daysAroundNow(),
     })
-    const load = overview!.technicianLoad
+    const load = report!.people
     expect(load.find((r) => r.membershipId === s.ownerId)?.count).toBe(1)
     expect(load.find((r) => r.membershipId === s.kevinId)?.count).toBe(1)
+    expect(report!.totals.booked).toBe(1)
   })
 })
 

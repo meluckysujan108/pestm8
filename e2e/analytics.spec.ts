@@ -7,18 +7,18 @@ import {
   signUpActor,
   uniqueEmail,
 } from './fixtures'
+import { addDaysToKey, dayKeyOf } from '../convex/lib/dates'
 
 /**
- * `analytics.overview` — the historical-trend query behind the Analytics
- * page's charts. Money/status semantics deliberately mirror
- * `dashboard.summary`'s: a `pending` job hasn't happened yet and must not
- * inflate revenue. Only `completed` is exercised here; `invoiced` counts the
- * same way (convex/analytics.ts).
+ * `analytics.report` — the query behind the Analytics page's figures, asked
+ * directly. Money and status mean what they mean on the dashboard: a
+ * `pending` job hasn't happened yet and must not inflate revenue. Only
+ * `completed` is exercised here; `invoiced` and `paid` count the same way
+ * (convex/analytics.ts). `analyticsPage.spec.ts` drives the page itself.
  *
  * Day 15 at noon, in every job below: comfortably clear of both ends of the
  * calendar month in any timezone the test runner and the business
- * (`Australia/Perth`) could disagree by, so which month a job lands in is
- * never ambiguous.
+ * (`Australia/Perth`) could disagree by.
  */
 function midMonth(monthsAgo: number): number {
   const d = new Date()
@@ -28,8 +28,26 @@ function midMonth(monthsAgo: number): number {
   return d.getTime()
 }
 
-test('revenue counts only completed jobs, excludes pending, and buckets by month', async () => {
-  const owner = await signUpActor(uniqueEmail('analytics-owner'), FIXTURE_PASSWORD, 'Terence')
+/**
+ * A range wide enough to hold last month's 15th and this month's, whichever
+ * side of the 15th today is: ninety days back to forty ahead. The totals over
+ * it don't depend on where a month or a day turns over.
+ */
+function wideRange() {
+  const today = dayKeyOf(Date.now(), 'Australia/Perth')
+  return {
+    from: addDaysToKey(today, -90),
+    to: addDaysToKey(today, 40),
+    today,
+  }
+}
+
+test('revenue counts only completed jobs and leaves out pending ones', async () => {
+  const owner = await signUpActor(
+    uniqueEmail('analytics-owner'),
+    FIXTURE_PASSWORD,
+    'Terence',
+  )
 
   const { businessId } = await owner.client.mutation(api.businesses.create, {
     name: `Analytics Co ${Date.now()}`,
@@ -44,10 +62,16 @@ test('revenue counts only completed jobs, excludes pending, and buckets by month
     state: 'WA',
     postcode: '6053',
   })
-  const members = await owner.client.query(api.memberships.listForBusiness, { businessId })
+  const members = await owner.client.query(api.memberships.listForBusiness, {
+    businessId,
+  })
   const ownerMembershipId = members.find((m) => m.role === 'owner')!._id
 
-  async function bookJob(price: number, scheduledAt: number, complete: boolean) {
+  async function bookJob(
+    price: number,
+    scheduledAt: number,
+    complete: boolean,
+  ) {
     const jobId = await owner.client.mutation(api.jobs.create, {
       businessId,
       propertyId,
@@ -57,35 +81,35 @@ test('revenue counts only completed jobs, excludes pending, and buckets by month
       scheduledAt,
       durationMinutes: 60,
     })
-    if (complete) await owner.client.mutation(api.jobs.complete, { businessId, jobId })
+    if (complete)
+      await owner.client.mutation(api.jobs.complete, { businessId, jobId })
     return jobId
   }
 
   // This month: one completed (counts), one still pending (must not count).
   await bookJob(20000, midMonth(0), true)
   await bookJob(50000, midMonth(0), false)
-  // Last month: one completed, a different month bucket.
+  // Last month: one completed.
   await bookJob(15000, midMonth(1), true)
 
-  const overview = await owner.client.query(api.analytics.overview, { businessId })
-  expect(overview?.scope).toBe('business')
-
-  const thisMonthKey = overview!.months.at(-1)
-  const lastMonthKey = overview!.months.at(-2)
-
-  const thisMonthRevenue = overview!.revenueByMonth.find((r) => r.month === thisMonthKey)
-  const lastMonthRevenue = overview!.revenueByMonth.find((r) => r.month === lastMonthKey)
-  expect(thisMonthRevenue?.value).toBe(20000) // not 70000 — the pending job is excluded
-  expect(lastMonthRevenue?.value).toBe(15000)
-
-  const thisMonthVolume = overview!.volumeByMonth.find((r) => r.month === thisMonthKey)
-  expect(thisMonthVolume?.value).toBe(2) // volume counts both, unlike revenue
-
-  // A job booked by hand starts `pending` (convex/lib/jobStatus.ts).
-  const pending = overview!.statusBreakdown.find((s) => s.status === 'pending')
-  const completed = overview!.statusBreakdown.find((s) => s.status === 'completed')
-  expect(pending?.count).toBe(1)
-  expect(completed?.count).toBe(2)
+  const report = await owner.client.query(api.analytics.report, {
+    businessId,
+    ...wideRange(),
+    compare: 'none',
+  })
+  expect(report?.scope).toBe('business')
+  expect(report?.totals).toMatchObject({
+    // Not 85000: the pending job is booked, and earns nothing yet.
+    revenue: 35000,
+    completed: 2,
+    booked: 3,
+    cancelled: 0,
+  })
+  // Every dollar is in the chart's points, and nowhere twice.
+  expect(
+    report!.series.reduce((sum, point) => sum + (point.revenue ?? 0), 0),
+  ).toBe(35000)
+  expect(report?.comparison).toBeNull()
 })
 
 test('a subcontractor without canViewAllJobs sees only their own jobs reflected', async () => {
@@ -103,52 +127,54 @@ test('a subcontractor without canViewAllJobs sees only their own jobs reflected'
     durationMinutes: 45,
   })
 
-  const ownerView = await s.owner.client.query(api.analytics.overview, {
-    businessId: s.businessId,
-  })
-  const subView = await s.sub.client.query(api.analytics.overview, {
-    businessId: s.businessId,
-  })
+  const args = { businessId: s.businessId, ...wideRange() }
+  const ownerView = await s.owner.client.query(api.analytics.report, args)
+  const subView = await s.sub.client.query(api.analytics.report, args)
 
   expect(ownerView?.scope).toBe('business')
   expect(subView?.scope).toBe('assignee')
 
-  // Totals across the whole window, not a single month bucket — the
-  // fixture's own job (assigned to the owner) uses `Date.now()` while this
-  // test's job uses a fixed mid-month timestamp, and comparing per-month
-  // volumes risks the two landing in different month buckets right at a
-  // month boundary (the same class of tenant-timezone-vs-runner-clock bug
-  // already hit once in this codebase's calendar tests). The 6-month window
-  // itself has no such edge.
-  const totalVolume = (o: NonNullable<typeof ownerView>) =>
-    o.volumeByMonth.reduce((sum, r) => sum + r.value, 0)
-
-  // Owner sees both their own fixture job (Termite Inspection) and the
+  // The owner sees both their own fixture job (Termite Inspection) and the
   // sub's (Ants); the sub sees only their own.
-  expect(ownerView!.typeBreakdown.map((t) => t.jobType).sort()).toEqual(
-    ['Ants', 'Termite Inspection'].sort(),
-  )
-  expect(subView!.typeBreakdown.map((t) => t.jobType)).toEqual(['Ants'])
-  expect(totalVolume(subView!)).toBe(1)
-  expect(totalVolume(ownerView!)).toBeGreaterThan(totalVolume(subView!))
+  expect(ownerView!.services.map((service) => service.name).sort()).toEqual([
+    'Ants',
+    'Termite Inspection',
+  ])
+  expect(subView!.services.map((service) => service.name)).toEqual(['Ants'])
+  expect(subView!.totals.booked).toBe(1)
+  expect(ownerView!.totals.booked).toBeGreaterThan(subView!.totals.booked)
 
-  // A workload comparison of one person is meaningless — the UI hides the
-  // chart entirely for an assignee-scoped caller (see AnalyticsCharts.tsx),
-  // but the data itself still only ever contains the caller's own row.
-  expect(subView!.technicianLoad.every((t) => t.membershipId === s.subMembershipId)).toBe(true)
+  // Nobody to choose between in a list that is one person's already: the
+  // technician filter is the whole business's only.
+  expect(subView!.people).toEqual([])
+  expect(ownerView!.people.map((person) => person.membershipId)).toContain(
+    s.subMembershipId,
+  )
 })
 
 test('a non-member is rejected', async () => {
-  const owner = await signUpActor(uniqueEmail('analytics-private'), FIXTURE_PASSWORD, 'Terence')
+  const owner = await signUpActor(
+    uniqueEmail('analytics-private'),
+    FIXTURE_PASSWORD,
+    'Terence',
+  )
   const { businessId } = await owner.client.mutation(api.businesses.create, {
     name: `Private Co ${Date.now()}`,
     state: 'WA',
     timezone: 'Australia/Perth',
   })
 
-  const outsider = await signUpActor(uniqueEmail('analytics-outsider'), FIXTURE_PASSWORD, 'Outsider')
+  const outsider = await signUpActor(
+    uniqueEmail('analytics-outsider'),
+    FIXTURE_PASSWORD,
+    'Outsider',
+  )
   await expectRejected(
-    () => outsider.client.query(api.analytics.overview, { businessId }),
+    () =>
+      outsider.client.query(api.analytics.report, {
+        businessId,
+        ...wideRange(),
+      }),
     'NO_ACCESS',
   )
 })
