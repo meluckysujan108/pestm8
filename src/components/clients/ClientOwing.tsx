@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
 import { dayKeyOf } from '../../../convex/lib/dates'
@@ -15,6 +16,19 @@ type OwedRow = Extract<ClientOwed, { pricesHidden: false }>['rows'][number]
 
 /** The section's name: what an owner on the phone to them wants to know. */
 export const CLIENT_OWING_LABEL = 'What they owe'
+
+/**
+ * Whether what they owe stays off their Jobs tab for now: it wasn't in
+ * (`owedIn`: answered, or failed) as the tab first drew their jobs, which
+ * doesn't wait for it while the line is down (ClientJobsTab). Drawn when it
+ * comes, it would push their jobs down under a thumb, so it waits for the
+ * tab's next opening. Decided as the tab first `draws`, then kept.
+ */
+export function useOwedHeld(draws: boolean, owedIn: boolean): boolean {
+  const [late, setLate] = useState<boolean | null>(null)
+  if (late === null && draws) setLate(!owedIn)
+  return late ?? !owedIn
+}
 
 /**
  * What a client owes, first on their Jobs tab: Owing and To bill as the

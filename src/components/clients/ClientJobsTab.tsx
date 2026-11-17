@@ -12,7 +12,7 @@ import { ReportLine } from '#/components/reports/ReportRows'
 import { SeeAllReports } from '#/components/reports/InlineReports'
 import { VisitRow } from '#/components/schedule/VisitRow'
 import { OutboxVisits } from '#/components/clients/OutboxVisits'
-import { ClientOwing, ClientOwingFailed } from './ClientOwing'
+import { ClientOwing, ClientOwingFailed, useOwedHeld } from './ClientOwing'
 import { personLabel } from '#/lib/assignees'
 import { byYear, clientOverview } from '#/lib/clientJobs'
 import { formatJobDate } from '#/lib/format'
@@ -20,7 +20,9 @@ import { useBusinessDay } from '#/lib/useBusinessDay'
 import { useHydrated } from '#/lib/useHydrated'
 import { reportsByVisit } from '#/lib/jobHistory'
 import { bookedForClient } from '#/lib/outbox/outboxList'
+import { OUTBOX_ENABLED } from '#/lib/outbox/outboxSet'
 import { useOutboxList, useOutboxSettled } from '#/lib/outbox/useOutbox'
+import { useLineDown } from '#/lib/offline/useLineDown'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 import type { ReactNode } from 'react'
 import type { FunctionReturnType } from 'convex/server'
@@ -131,10 +133,20 @@ export function ClientJobsTab({
   // hears it went is drawn once, as its job (latchSlots.ts).
   // The tab waits for what they owe as well as their jobs: drawn first, it
   // would otherwise arrive after them and push the visits down under a thumb.
-  const owedSettled = owedQuery.data !== undefined || owedQuery.isError
+  // But not while the line is down (with keeping on): what they owe isn't
+  // kept on the phone, so it might not come until signal does, and waiting
+  // for it would hide their jobs, the bookings on this phone with them,
+  // though their jobs are here (the sheet asks for both as it opens, so
+  // that is rare: the line dropping between the two answers). The tab draws
+  // without it then, and it stays out until the tab is next opened, however
+  // soon it comes (`useOwedHeld`).
+  const lineDown = useLineDown()
+  const owedIn = owedQuery.data !== undefined || owedQuery.isError
+  const owedSettled = owedIn || (OUTBOX_ENABLED && lineDown !== null)
   const settled = useOutboxSettled()
   const drawsJobs =
     summary !== undefined && summary !== null && settled && owedSettled
+  const owedHeld = useOwedHeld(drawsJobs, owedIn)
   const unsent = useOutboxList({
     businessId,
     rows: latchRowsOf(summary),
@@ -240,7 +252,7 @@ export function ClientJobsTab({
   return (
     <>
       {/* Above the site choice: it is the whole client's, at every site. */}
-      {owedQuery.isError ? (
+      {owedHeld ? null : owedQuery.isError ? (
         <ClientOwingFailed onRetry={() => void owedQuery.refetch()} />
       ) : (
         owedQuery.data && (

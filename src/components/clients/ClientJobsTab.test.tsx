@@ -8,6 +8,9 @@ import { outboxRow } from '#/lib/outbox/outboxRow'
 import { bookingFor, itemFor } from '#/lib/outbox/outboxStore.fixtures'
 import { ClientJobsTab } from './ClientJobsTab'
 import type * as ReactRouter from '@tanstack/react-router'
+import type * as OutboxSet from '#/lib/outbox/outboxSet'
+import type * as LineDownModule from '#/lib/offline/useLineDown'
+import type { ClientOwed } from './ClientOwing'
 import type { ReactNode } from 'react'
 import type { FunctionReturnType } from 'convex/server'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -52,6 +55,23 @@ vi.mock('#/lib/outbox/useOutbox', () => ({
   useOutboxList: (at: { rows: ReadonlyArray<LatchRow> }) =>
     phone.draw === null ? phone.list : phone.draw(at),
   useOutboxSettled: () => true,
+}))
+// Keeping switched on or off (a build's VITE_PESTM8_OUTBOX), as this run's
+// build has it unless a test says; and the line, up unless a test says.
+const build = vi.hoisted(() => ({ keeping: null as boolean | null }))
+vi.mock('#/lib/outbox/outboxSet', async (importOriginal) => {
+  const real = await importOriginal<typeof OutboxSet>()
+  return {
+    ...real,
+    get OUTBOX_ENABLED() {
+      return build.keeping ?? real.OUTBOX_ENABLED
+    },
+  }
+})
+const line = vi.hoisted(() => ({ down: null as 'no-signal' | null }))
+vi.mock('#/lib/offline/useLineDown', async (importOriginal) => ({
+  ...(await importOriginal<typeof LineDownModule>()),
+  useLineDown: () => line.down,
 }))
 
 const TZ = 'Australia/Perth'
@@ -160,7 +180,25 @@ function drawThrough(items: Array<OutboxItem>) {
   }
 }
 
-function render(summary: Summary, reports: Array<InlineReport> = []) {
+/** What they owe, for someone who doesn't see prices: nothing drawn. */
+const PRICES_HIDDEN: ClientOwed = {
+  pricesHidden: true,
+  owing: null,
+  toBill: null,
+  rows: [],
+  more: false,
+}
+
+function render(
+  summary: Summary,
+  reports: Array<InlineReport> = [],
+  {
+    owed = PRICES_HIDDEN,
+  }: {
+    /** What they owe as the tab has it: null, not answered (yet). */
+    owed?: ClientOwed | null
+  } = {},
+) {
   // The answers are here already; a fetch would never come back.
   const queryClient = new QueryClient({
     defaultOptions: { queries: { queryFn: () => new Promise(() => {}) } },
@@ -178,15 +216,15 @@ function render(summary: Summary, reports: Array<InlineReport> = []) {
     convexQuery(api.memberships.listForBusiness, { businessId: B }).queryKey,
     [],
   )
-  // What they owe (#172), which the tab waits for too: nothing to show, as
-  // for someone who doesn't see prices, so the tab draws as before it.
-  queryClient.setQueryData(convexQuery(api.payments.forClient, args).queryKey, {
-    pricesHidden: true,
-    owing: null,
-    toBill: null,
-    rows: [],
-    more: false,
-  })
+  // What they owe (#172), which the tab waits for too: unless a test says,
+  // nothing to show, as for someone who doesn't see prices, so the tab
+  // draws as before it.
+  if (owed !== null) {
+    queryClient.setQueryData(
+      convexQuery(api.payments.forClient, args).queryKey,
+      owed,
+    )
+  }
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
       <ClientJobsTab
@@ -220,6 +258,8 @@ afterEach(() => {
   vi.useRealTimers()
   phone.list = null
   phone.draw = null
+  build.keeping = null
+  line.down = null
 })
 
 describe('a client’s Jobs tab with bookings on this phone', () => {
@@ -409,5 +449,84 @@ describe('a booking whose job is here before this tab hears it went (sent from a
     )
     expect(said).not.toContain('Recurring services')
     expect(said).toContain('1 job not sent yet')
+  })
+})
+
+describe('what they owe, which the tab waits for, isn’t kept on the phone: with the line down, the tab draws without it (keeping on)', () => {
+  /** $120 owing on one job, billed a week ago. */
+  const OWING: ClientOwed = {
+    pricesHidden: false,
+    owing: { count: 1, value: 120, since: NOW - 7 * DAY },
+    toBill: { count: 0, value: 0 },
+    rows: [
+      {
+        _id: 'o9' as Id<'jobs'>,
+        list: 'owing',
+        jobNumber: 90,
+        jobType: 'General Pest Control',
+        scheduledAt: NOW - 8 * DAY,
+        completedAt: NOW - 8 * DAY,
+        invoicedAt: NOW - 7 * DAY,
+        price: 120,
+        paid: 0,
+        owed: 120,
+      },
+    ],
+    more: false,
+  } as unknown as ClientOwed
+
+  function waitingBooking() {
+    const waiting = itemFor(
+      'u1',
+      { booking: bookingFor({ scheduledAt: NOW + 3 * DAY }) },
+      NOW,
+    )
+    phone.list = listOf([{ item: waiting, real: null }])
+  }
+
+  test('not answered, the line down: their jobs and the booking on this phone, with nothing of what they owe', () => {
+    build.keeping = true
+    line.down = 'no-signal'
+    waitingBooking()
+    const said = text(
+      render(summaryOf({ visits: [visit('o1', NOW + 7 * DAY)] }), [], {
+        owed: null,
+      }),
+    )
+    expect(said).not.toContain('Loading their jobs')
+    expect(said).toContain('1 job not sent yet')
+    expect(said).toContain('Coming up')
+    expect(said).not.toContain('What they owe')
+  })
+
+  test('not answered, the line up: the tab waits for it, as ever', () => {
+    build.keeping = true
+    waitingBooking()
+    const said = text(render(summaryOf(), [], { owed: null }))
+    expect(said).toContain('Loading their jobs')
+    expect(said).not.toContain('1 job not sent yet')
+  })
+
+  test('keeping off: the tab waits for it with the line down too, as on main', () => {
+    build.keeping = false
+    line.down = 'no-signal'
+    waitingBooking()
+    const said = text(render(summaryOf(), [], { owed: null }))
+    expect(said).toContain('Loading their jobs')
+  })
+
+  test('answered before the line went: drawn above their jobs, as ever', () => {
+    build.keeping = true
+    line.down = 'no-signal'
+    phone.list = listOf([])
+    const said = text(
+      render(summaryOf({ visits: [visit('o1', NOW + 7 * DAY)] }), [], {
+        owed: OWING,
+      }),
+    )
+    expect(said).toContain('What they owe')
+    expect(said.indexOf('What they owe')).toBeLessThan(
+      said.indexOf('Coming up'),
+    )
   })
 })

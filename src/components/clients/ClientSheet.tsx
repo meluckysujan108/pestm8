@@ -391,6 +391,11 @@ function ClientBody({
   // opens, so the row is there when Details is chosen rather than arriving
   // under a thumb. Nothing where Xero isn't set up (`ClientXeroLines`).
   useQuery(rq.xeroClientLines(businessId, clientId))
+  // What they owe, for Jobs: asked for as the sheet opens, as their jobs are
+  // (ClientAtAGlance). The tab waits for both, and what they owe isn't kept
+  // on the phone: asked for only once Jobs is chosen, it could be missing,
+  // with the line down, while their jobs are here (ClientJobsTab).
+  useQuery(convexQuery(api.payments.forClient, { businessId, clientId }))
   const hydrated = useHydrated()
   const queryClient = useQueryClient()
 
