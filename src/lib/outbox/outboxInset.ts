@@ -6,7 +6,9 @@ import {
   MAY_HAVE_GONE_FINDS,
   PAUSED_HOLD_MS,
   isReadable,
+  sessionEndUnanswered,
 } from './outboxSet'
+import { goesOnlyAfterALook, preSendProblem } from './outboxRules'
 import type { OutboxItem } from './outboxItem'
 import type { HeldReason } from './sender'
 
@@ -53,9 +55,69 @@ export const NEWER_BUILD_SENT_WORDS =
 export const EDITED_ELSEWHERE_WORDS =
   'Not sent yet — it’s being changed in another PestM8 tab or window.'
 
+/**
+ * Waiting, but the phone stops it before it goes (`goesOnlyAfterALook`):
+ * why, by `preSendProblem`'s reason, and what to do. Send is offered once
+ * PestM8 could send it, when the sender says it needs a look, which it says
+ * only once every gate lets it (sender.ts `stepItem`): so Send waits on
+ * what holds it now (`held`), named here, never on signal it may have.
+ * Edit, then Book, is the look as well, and the sheet has Edit now (one
+ * made on a site another booking makes has none, only Discard).
+ */
+export function needsALookWords(facts: InsetFacts, now: number): string {
+  const { item, timezone, todayKey } = facts
+  if (preSendProblem(item, now) === 'FIRST_VISIT_PAST') {
+    const first = item.booking.scheduledAt
+    return `Not sent yet — its first visit, ${formatJobDate(dayKeyOf(first, timezone), todayKey)} at ${formatTime(first, timezone)}, went by before it was sent. Edit it to change the start date.`
+  }
+  // STALE: its session ended, or it has waited STALE_AFTER_MS (three days).
+  const why = sessionEndUnanswered(item)
+    ? 'Not sent yet — you’ve signed in again since it was saved, so it won’t go by itself.'
+    : 'Not sent yet — it’s waited more than three days, so it won’t go by itself.'
+  const or = 'local' in item.booking.property ? 'or discard it' : 'or edit it'
+  const at = (time: number) => when(time, timezone, todayKey)
+  switch (facts.held) {
+    case 'parent':
+      return `${why} Send it once the first booking for ${facts.parentClient ?? 'its client'} is sent, ${or}.`
+    case 'switched':
+    case 'switched-hold':
+      return `${why} Send it when you’re back in your own account, ${or}.`
+    case 'two-step':
+      return `${why} Send it once two-step sign-in is set up, ${or}.`
+    case 'other-person':
+      return `${why} Send it once nobody else is signed in to PestM8 in another tab, ${or}.`
+    case 'retry':
+      return `${why} PestM8 couldn’t take it just now. Send it after ${at(item.retryAt ?? now)}, ${or}.`
+    case 'hold': {
+      const paused = pausedUntil(item)
+      return paused !== null
+        ? `${why} PestM8 has paused sending from phones until ${at(paused)}. Send it then, ${or}.`
+        : `${why} Send it once PestM8 has checked your sign-in, ${or}.`
+    }
+    case 'access':
+      return `${why} Send it once PestM8 has checked your sign-in, ${or}.`
+    case 'line':
+      return `${why} Send it when you have signal, ${or}.`
+    default:
+      // Nothing named holds it: with the line live, the sender says it needs
+      // a look at its next step (OUTBOX_TICK_MS at most).
+      return facts.lineLive
+        ? `${why} Send it in a moment, ${or}.`
+        : `${why} Send it when you have signal, ${or}.`
+  }
+}
+
 /** A hold this long can only be the server's pause (PAUSED_HOLD_MS): every
  * other hold is five minutes at most. */
 const PAUSE_LIKE_MS = PAUSED_HOLD_MS - 5 * 60_000
+
+/** Until when PestM8 has paused sending from phones, where its hold
+ * (`holdUntil`) is that pause; null for a shorter one (a sign-in check). */
+function pausedUntil(item: OutboxItem): number | null {
+  const until = item.holdUntil ?? 0
+  const from = item.lastAttemptAt ?? item.updatedAt
+  return until - from >= PAUSE_LIKE_MS ? until : null
+}
 
 /** "9:42am", or "Mon 20 Oct at 9:42am" on another day. */
 function when(at: number, timezone: string, todayKey: string): string {
@@ -125,8 +187,18 @@ export function outboxInset(
   if (facts.editingHere) {
     return words('Not sent yet — it goes once the change is booked.')
   }
-  if (editedElsewhere(item, facts.now ?? Date.now(), facts.tab)) {
+  const now = facts.now ?? Date.now()
+  if (editedElsewhere(item, now, facts.tab)) {
     return words(EDITED_ELSEWHERE_WORDS)
+  }
+  // Waited three days, its session ended, or a Recurring Job's first visit
+  // gone by: the phone stops it before it goes, whatever the signal, and
+  // the sender says so only once it could send it (`goesOnlyAfterALook`).
+  // With the line down, or a hold, that is not yet, so this says why, what
+  // to do, and what Send waits on, rather than that it goes once that
+  // lets it. An Edit's Book counts as the look.
+  if (goesOnlyAfterALook(item, now)) {
+    return words(needsALookWords(facts, now))
   }
   switch (facts.held) {
     case 'newer-build':
@@ -151,11 +223,10 @@ export function outboxInset(
         `Not sent yet — PestM8 couldn’t take it just now. It tries again at ${when(item.retryAt ?? Date.now(), timezone, todayKey)}.`,
       )
     case 'hold': {
-      const until = item.holdUntil ?? 0
-      const from = item.lastAttemptAt ?? item.updatedAt
+      const paused = pausedUntil(item)
       return words(
-        until - from >= PAUSE_LIKE_MS
-          ? `Not sent yet — PestM8 has paused sending from phones. It tries again at ${when(until, timezone, todayKey)}.`
+        paused !== null
+          ? `Not sent yet — PestM8 has paused sending from phones. It tries again at ${when(paused, timezone, todayKey)}.`
           : 'Not sent yet — it goes once PestM8 has checked your sign-in.',
       )
     }

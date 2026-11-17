@@ -872,6 +872,10 @@ export const summary = query({
         assignedMembershipId: r.assignedMembershipId,
         anchorDate: r.anchorDate,
         lastTaken: lastTaken.get(r._id),
+        // The id a phone booked it under, so the sheet draws a booking
+        // still on that phone as this service, never beside it, before
+        // the phone has heard it went (src/lib/outbox/latchSlots.ts).
+        clientRequestId: r.clientRequestId,
       })),
       visits: visits.map((j) => ({
         _id: j._id,
@@ -883,6 +887,8 @@ export const summary = query({
         recurrenceId: j.recurrenceId,
         occurrenceAt: j.occurrenceAt,
         assignedMembershipId: j.assignedMembershipId,
+        // As the service's: a series' visits never carry one.
+        clientRequestId: j.clientRequestId,
       })),
       // Some property's history was longer than was read: the sheet says
       // its oldest visits are not all shown.

@@ -121,11 +121,14 @@ export class OutboxModel {
    */
   readonly landingHere = new Set<string>()
   /**
-   * The bookings New Job kept in this tab this page load: the person's own
-   * doing, just now, so a day's list may put them on screen where it would
-   * put nothing else in after it has drawn (lib/outbox/latchSlots.ts).
+   * The bookings New Job kept, or an Edit booked, in this tab this page
+   * load, each with when it last was: the person's own doing, so a day's
+   * list may put them on screen where it would put nothing else in after
+   * it has drawn (lib/outbox/latchSlots.ts), and a list of every day one
+   * done since it drew (outboxList.ts). The sender's changes since (sending,
+   * held, refused) are none of the person's doing, and leave this as it is.
    */
-  readonly keptHere = new Set<string>()
+  readonly keptHere = new Map<string, number>()
   // Bookings whose New Job sheet in this tab is still deciding what became
   // of them (`deciding`), and those it closed on their job
   // (`answeredOnScreen`).
@@ -291,7 +294,7 @@ export class OutboxModel {
   /** A booking New Job kept in this tab, in memory from now. */
   private took(item: OutboxItem): void {
     this.items.set(item.localId, item)
-    this.keptHere.add(item.localId)
+    this.keptHere.set(item.localId, Date.now())
     this.version++
     this.notify()
     this.post()
@@ -303,11 +306,11 @@ export class OutboxModel {
    * A booking an Edit of this tab's has just booked in its own place
    * (itemActions.ts `replaceItem`): the person's own doing, just now, as a
    * keep is, so a day already drawn may put it on screen on its new day
-   * (`keptHere`), as the Week View, which has that day up already, must.
+   * (`keptHere`), as the Week View, which has that day up already, must;
+   * and noted as done now, however long ago this tab kept it.
    */
   bookedHere(localId: string): void {
-    if (this.keptHere.has(localId)) return
-    this.keptHere.add(localId)
+    this.keptHere.set(localId, Date.now())
     this.notify()
   }
 

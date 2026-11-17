@@ -1,10 +1,16 @@
-import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
+import {
+  Link,
+  createFileRoute,
+  useNavigate,
+  useRouter,
+} from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { z } from 'zod'
 import { api } from '../../../../convex/_generated/api'
 import { JobCard } from '#/components/schedule/JobCard'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
+import { OutboxGroup } from '#/components/schedule/OutboxGroup'
 import {
   EMPTY_ACTION_CLASS,
   EmptyState,
@@ -16,7 +22,11 @@ import { CardCells, ListPending } from '#/components/shell/Pending'
 import { parseJobListStatus } from '#/lib/scheduleFilters'
 import { JOB_LIST_SORTS } from '#/lib/jobViews'
 import type { JobListStatus } from '#/lib/routeQueries'
-import { useAccess, useCan } from '#/lib/access'
+import type { JobRow } from '#/components/schedule/JobCard'
+import type { LatchRow } from '#/lib/outbox/latchSlots'
+import { useAccess, useActing, useCan, useViewMode } from '#/lib/access'
+import { jobTabShows } from '#/lib/outbox/outboxList'
+import { useFirstDrawOffer, useOutboxList } from '#/lib/outbox/useOutbox'
 import {
   JOBS_PAGE,
   jobsFirstPage,
@@ -180,9 +190,58 @@ function JobListPage() {
   const listedJobs = listed.data?.jobs ?? []
   const whole =
     source === 'legacy' ? legacyList(listedJobs, { status, sort }) : listedJobs
-  const revealed = useRevealMore(whole, JOBS_PAGE, resetKey)
+
+  // The bookings on this phone, not sent yet, in a group of their own above
+  // the list (plan part 2c §9.8): under "All statuses" only (a booking has
+  // no status yet), and for the person chosen or "Just my jobs", those they
+  // lead or are also going on (`jobTabShows`). Above the list, so they come
+  // on only as the page first draws, reached in the app (never on a full
+  // page load, nor with Back or Forward: `useFirstDrawOffer`), at a
+  // filter's redraw, or booked here since; each keeps its slot until the
+  // next redraw, drawing its job once the list has it, kept out of the list
+  // meanwhile. Counts and the caption stay the server's.
+  const router = useRouter()
+  const offered = useFirstDrawOffer(router.state.location.state.__TSR_key)
+  const mode = useViewMode()
+  const acting = useActing()
+  const listRows: ReadonlyArray<JobRow & LatchRow> = paging ? paged.rows : whole
+  const unsent = useOutboxList({
+    businessId: business._id,
+    rows: listRows,
+    redrawKey: `${resetKey}:${mode ?? ''}:${acting.membershipId}`,
+    draws: true,
+    offered,
+    shows: jobTabShows({
+      status,
+      person,
+      mine: mode === 'mine' ? acting.membershipId : null,
+    }),
+  })
+  // Revealed from the list as it draws, the jobs the slots draw left out:
+  // one that comes in at the top as its booking is sent takes no card of
+  // the revealed, so the last stays and "Show more jobs" doesn't move up.
+  const revealable =
+    unsent.hidden.size === 0
+      ? whole
+      : whole.filter((job) => !unsent.hidden.has(job._id))
+  const revealed = useRevealMore(revealable, JOBS_PAGE, resetKey)
 
   const rows = paging ? paged.rows : revealed.visible
+
+  const unsentDay = {
+    slots: unsent.slots.map((slot) => ({
+      ...slot,
+      row: slot.real ?? slot.card,
+    })),
+    hidden: unsent.hidden,
+    heading: unsent.heading,
+    lineLive: unsent.lineLive,
+  }
+  const unsentDrawn = unsentDay.slots.length > 0
+  const shownRows =
+    unsent.hidden.size === 0
+      ? rows
+      : rows.filter((job) => !unsent.hidden.has(job._id))
 
   const view = jobListView(
     paging
@@ -229,7 +288,11 @@ function JobListPage() {
   // own now, read from the server, so changing the filter asks once more —
   // only for days it has not asked about, and the forecasts it shares with
   // the last list stay on screen meanwhile (`useWeather`).
-  const weather = useJobsWeather(business, paging ? paged.rows : listedJobs)
+  // The bookings' too, so a card's strip is there before its job is.
+  const weather = useJobsWeather(business, [
+    ...(paging ? paged.rows : listedJobs),
+    ...unsentDay.slots.map((slot) => slot.row),
+  ])
 
   // Opening a job and closing it change the address in place (`replace`),
   // and a replaced entry is a new history key — which the router would
@@ -239,6 +302,12 @@ function JobListPage() {
   const openJob = (id: string) =>
     navigate({
       search: (prev) => ({ ...prev, jobId: id, outboxId: undefined }),
+      replace: true,
+      resetScroll: false,
+    })
+  const openItem = (localId: string) =>
+    navigate({
+      search: (prev) => ({ ...prev, jobId: undefined, outboxId: localId }),
       replace: true,
       resetScroll: false,
     })
@@ -287,6 +356,16 @@ function JobListPage() {
           </Link>
         )}
 
+        <OutboxGroup
+          day={unsentDay}
+          timezone={business.timezone}
+          onOpenItem={openItem}
+          onOpenJob={openJob}
+          weatherOf={weather.cellFor}
+          grid="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch xl:grid-cols-3"
+          className="mb-6"
+        />
+
         {view === 'pending' ? (
           <ListPending label="Loading jobs" count={3} columns={3} size="job" />
         ) : view === 'failed' ? (
@@ -295,41 +374,46 @@ function JobListPage() {
             onRetry={paging ? paged.retry : () => void listed.refetch()}
           />
         ) : view === 'empty' ? (
-          <EmptyState
-            title="No jobs yet"
-            body="Jobs you book appear here, newest first."
-            action={
-              // Jobs are booked on the schedule; this opens New Job there.
-              <Link
-                to="/$businessSlug/schedule"
-                params={{ businessSlug: business.slug }}
-                search={{ newJob: true }}
-                className={EMPTY_ACTION_CLASS}
-              >
-                Book a job
-              </Link>
-            }
-          />
+          // With bookings on the phone above, "No jobs yet" would be untrue.
+          !unsentDrawn && (
+            <EmptyState
+              title="No jobs yet"
+              body="Jobs you book appear here, newest first."
+              action={
+                // Jobs are booked on the schedule; this opens New Job there.
+                <Link
+                  to="/$businessSlug/schedule"
+                  params={{ businessSlug: business.slug }}
+                  search={{ newJob: true }}
+                  className={EMPTY_ACTION_CLASS}
+                >
+                  Book a job
+                </Link>
+              }
+            />
+          )
         ) : view === 'noMatches' ? (
-          <NoMatches
-            hint="No jobs match these filters."
-            clearLabel="Clear filters"
-            onClear={() =>
-              // The order stays: it hides nothing.
-              navigate({
-                search: (prev) => ({
-                  ...prev,
-                  status: undefined,
-                  staff: undefined,
-                }),
-                replace: true,
-              })
-            }
-          />
+          !unsentDrawn && (
+            <NoMatches
+              hint="No jobs match these filters."
+              clearLabel="Clear filters"
+              onClear={() =>
+                // The order stays: it hides nothing.
+                navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    status: undefined,
+                    staff: undefined,
+                  }),
+                  replace: true,
+                })
+              }
+            />
+          )
         ) : (
           <>
             <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch xl:grid-cols-3">
-              {rows.map((job) => (
+              {shownRows.map((job) => (
                 <JobCard
                   key={job._id}
                   job={job}
@@ -354,7 +438,10 @@ function JobListPage() {
             />
           </>
         )}
-        {weather.showsAny(rows) && <WeatherCredit className="mt-4" />}
+        {weather.showsAny([
+          ...unsentDay.slots.map((slot) => slot.row),
+          ...rows,
+        ]) && <WeatherCredit className="mt-4" />}
       </section>
 
       <JobDetailSheet

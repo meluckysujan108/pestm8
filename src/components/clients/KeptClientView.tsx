@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
-import { WifiOff } from 'lucide-react'
+import { Plus, WifiOff } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { DetailRow, DetailRows } from '#/components/primitives/DetailRow'
+import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 import {
   ClientStatusPill,
   TagChips,
@@ -157,8 +158,10 @@ export function useKeptClient(
  * site with Map and its site contact.
  * Their jobs, notes, contacts and Xero aren't kept, and each says it opens
  * when there is signal (Xero only where the live sheet would have a row for
- * it). Nothing here changes anything: no Edit, no status to change, no site
- * to add.
+ * it); under Jobs, their bookings on this phone not sent yet (`unsent`).
+ * Nothing here changes anything: no Edit, no status to change, no site to
+ * add. With `onBook`, Book a job, as the live sheet has it, for a booking
+ * kept on the phone (lib/outbox/).
  *
  * Drawn in the sheet's own scrolling body, the one the live sheet is drawn
  * in (ClientSheet.tsx, `useHandOverBody`), which keeps its scroll and its
@@ -183,6 +186,8 @@ export function KeptClientView({
   timezone,
   xero = false,
   email,
+  unsent,
+  onBook,
 }: {
   client: DirectoryClient
   /** Their sites, oldest first, as the client list has them. */
@@ -198,6 +203,15 @@ export function KeptClientView({
   /** Theirs, from the client list or a day's row (`useKeptClient`): Email
    * beside Call and Text, as on the live sheet. */
   email?: string
+  /** Their bookings on this phone, not sent yet (`OutboxVisits`), under the
+   * Jobs row: none where there are none. */
+  unsent?: ReactNode
+  /** Opens New Job for them, as the live sheet's Book a job does: none
+   * with the outbox off (`OUTBOX_ENABLED`). Where one can't be kept just
+   * now (switched in, no Web Locks, the phone's storage not answering), New
+   * Job sends it straight, held only while PestM8 stays open, and says so,
+   * as it does from the live sheet. */
+  onBook?: () => void
 }) {
   useShowsKept(true)
   // Drawn only in the browser, with the line down, so the phone's clock
@@ -256,6 +270,19 @@ export function KeptClientView({
         {keptJobInset(down, formatUpdated(asOf, timezone, todayKey))}
       </p>
 
+      {/* As the live sheet has it, but for a client with no site, who has
+          nowhere to book to. */}
+      {onBook && sites.length > 0 && (
+        <button
+          type="button"
+          onClick={onBook}
+          className={`${SECONDARY_BUTTON_COMPACT} mt-3 flex w-full items-center justify-center gap-2`}
+        >
+          <Plus size={16} strokeWidth={2.2} />
+          Book a job for this client
+        </button>
+      )}
+
       <Section label="Properties">
         {sites.length === 0 ? (
           <p className="text-body text-muted">No properties yet</p>
@@ -304,7 +331,7 @@ export function KeptClientView({
           {client.kind === 'business' && (
             <DetailRow label="Contacts" value={<OpensWithSignal />} />
           )}
-          <DetailRow label="Jobs" value={<OpensWithSignal />} />
+          <DetailRow label="Jobs" value={<OpensWithSignal />} below={unsent} />
           <DetailRow label="Notes" value={<OpensWithSignal />} />
           {xero && <DetailRow label="Xero" value={<OpensWithSignal />} />}
         </DetailRows>

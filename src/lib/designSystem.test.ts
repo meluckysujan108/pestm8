@@ -203,6 +203,7 @@ describe('the guide names every shared utility and component', () => {
     'schedule/OutboxGroup.tsx',
     'schedule/ScheduleNotKept.tsx',
     'clients/KeptClientView.tsx',
+    'clients/OutboxVisits.tsx',
     'settings/ConfirmDialog.tsx',
     'settings/ui.tsx',
     'signature/SignaturePad.tsx',

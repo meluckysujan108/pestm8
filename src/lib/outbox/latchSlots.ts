@@ -25,12 +25,27 @@ import type { OutboxChip } from './outboxRules'
  *   slot on screen as its answer comes waits ROW_WAIT_MS for its job first:
  *   the answer is heard before the day's list has drawn the job it made.
  *   One of another day than the one shown goes as soon as it is sent: its
- *   day may never come live here.
+ *   day may never come live here. A list of every day (`dayShown` null: the
+ *   Job tab, a client's jobs), whose group sits above more of it, keeps the
+ *   slot saying "Sent" until the next redraw instead, as its going would
+ *   move what is under it; and one sent before it came on never comes.
  * - **Never twice:** a booking whose job is in the list is never also drawn
  *   as itself. The server's answer counts from the moment it is heard
  *   (`answeredView`), and a job carries the booking's request id
- *   (`clientRequestId`), so this holds whichever comes first: the answer,
- *   the phone's storage, or the day's list.
+ *   (`clientRequestId`: a day's list, the Job tab, a client's jobs), so
+ *   this holds whichever comes first: the answer, the phone's storage, or
+ *   the list. A Recurring Job's visits never carry it; a client's jobs
+ *   have their series' (`seriesRequestId`, from `clients.summary`'s
+ *   services), so there it holds too. Not quite for a Recurring Job in a
+ *   day's list or the Job tab, whose visits say nothing of the booking:
+ *   one whose visit the list has before this tab knows it went is drawn
+ *   beside it until this tab hears the answer (its series and first
+ *   visit, `firstJobId`) or the phone's storage has it as sent: one sent
+ *   from another tab, one left "Sending…" by a page since closed (settled
+ *   no sooner than half a minute after it went), or one New Job sent
+ *   straight and couldn't take off the phone, which needs a look until it
+ *   is sent again (the same request id: nothing more is booked) or
+ *   discarded.
  * - **A booking not on screen yet** comes onto it only where that moves
  *   nothing a thumb may be on (`mayAdd`): never in place of an empty day's
  *   "This day is clear." or a filter's "No matches" once those have been on
@@ -79,6 +94,14 @@ export type LatchRow = {
   /** The booking's request id, on a job it made (a series' visits never
    * carry it). */
   clientRequestId?: string
+  /** On a series' visit, the request id its series was booked under, where
+   * the list knows it: a client's jobs, from their services
+   * (`clients.summary`). A day's list and the Job tab don't. */
+  seriesRequestId?: string
+  /** When it is booked for, and which of its series' visits it is: which
+   * visit of a Recurring Job a list of every day draws (`realRowOf`). */
+  scheduledAt?: number
+  occurrenceAt?: number
 }
 
 /** What one slot draws. */
@@ -113,10 +136,12 @@ export type LatchInput<TRow extends LatchRow = LatchRow> = {
   /** The day's list, as the server has it: what a sent booking became. */
   rows: ReadonlyArray<TRow>
   redrawKey: string
-  dayShown: string
+  /** The day the list shows; null for a list of every day (the Job tab, a
+   * client's jobs), which has no day to wait for. */
+  dayShown: string | null
   timezone: string
   /** Whether the day is live on this connection: what isn't in it by now
-   * isn't coming. */
+   * isn't coming. Unread for a list of every day. */
   dayLive: boolean
   now: number
   /** Whether a booking not on screen may be put there now (see the top). */
@@ -141,8 +166,8 @@ export type DrawSource = {
   /** Not while its New Job sheet is still deciding, nor once that sheet
    * closed on its job (`OutboxModel.mayDraw`). */
   mayDraw: (localId: string) => boolean
-  /** Booked in this tab just now (`OutboxModel.keptHere`). */
-  keptHere: ReadonlySet<string>
+  /** Booked in this tab this page load, and when (`OutboxModel.keptHere`). */
+  keptHere: ReadonlyMap<string, number>
 }
 
 /**
@@ -232,28 +257,76 @@ export function answeredView(
 
 /**
  * The job a booking made, if the list has it: once sent, the job it was
- * answered with, a Recurring Job by its series on the booking's day
- * (`recurrenceId`) or its first visit (`firstJobId`); and, sent or not, a
- * job carrying its request id (`clientRequestId`), made by a send whose
- * answer the phone hasn't had yet, here or in another tab.
+ * answered with, a Recurring Job by its first visit (`seriesRowOf`); and,
+ * sent or not, a job carrying its request id (`clientRequestId`), or a
+ * Recurring Job's visit whose series carries it (`seriesRequestId`), made
+ * by a send whose answer the phone hasn't had yet, here or in another tab.
  */
 export function realRowOf<TRow extends LatchRow>(
   item: OutboxItem,
   rows: ReadonlyArray<TRow>,
 ): TRow | null {
   const made = item.state === 'sent' ? item.result : null
-  const series = item.kind === 'series'
+  if (item.kind === 'series') {
+    return made === null
+      ? bookedVisitOf(
+          item,
+          rows.filter((row) => row.seriesRequestId === item.requestId),
+        )
+      : seriesRowOf(item, made, rows)
+  }
   return (
     rows.find(
       (row) =>
-        (made !== null &&
-          (series
-            ? row.recurrenceId === made.id ||
-              (made.firstJobId !== undefined && row._id === made.firstJobId)
-            : row._id === made.id)) ||
-        (!series && row.clientRequestId === item.requestId),
+        (made !== null && row._id === made.id) ||
+        row.clientRequestId === item.requestId,
     ) ?? null
   )
+}
+
+/**
+ * A sent Recurring Job's visit in the list: its first visit, the one the
+ * person booked, whatever order the list is in and however many of the
+ * series' visits it holds. A client's jobs (`clients.summary`) have every
+ * visit the engine has booked ahead, latest first, so the first of them
+ * would be six months out. The visit the server named (`firstJobId`);
+ * else, of the series' (`recurrenceId`), the one at the booking's time
+ * (where the series' first visit is booked, `occurrenceAt` kept however it
+ * is moved), else the first after it (a series begun in the past starts
+ * at its first visit projected), else the earliest. A day's list has one
+ * at most.
+ */
+function seriesRowOf<TRow extends LatchRow>(
+  item: OutboxItem,
+  made: NonNullable<OutboxItem['result']>,
+  rows: ReadonlyArray<TRow>,
+): TRow | null {
+  const named =
+    made.firstJobId === undefined
+      ? undefined
+      : rows.find((row) => row._id === made.firstJobId)
+  if (named !== undefined) return named
+  return bookedVisitOf(
+    item,
+    rows.filter((row) => row.recurrenceId === made.id),
+  )
+}
+
+/** Of a series' visits, the one booked: see `seriesRowOf`. */
+function bookedVisitOf<TRow extends LatchRow>(
+  item: OutboxItem,
+  visits: ReadonlyArray<TRow>,
+): TRow | null {
+  if (visits.length <= 1) return visits.at(0) ?? null
+  const anchor = item.booking.scheduledAt
+  const booked = visits.find(
+    (row) => row.occurrenceAt === anchor || row.scheduledAt === anchor,
+  )
+  if (booked !== undefined) return booked
+  const at = (row: TRow) =>
+    row.occurrenceAt ?? row.scheduledAt ?? Number.POSITIVE_INFINITY
+  const inOrder = [...visits].sort((a, b) => at(a) - at(b))
+  return inOrder.find((row) => at(row) >= anchor) ?? inOrder[0]
 }
 
 /** Where a booking sorts among those put on screen together: by when it is
@@ -333,7 +406,13 @@ export function latchSlots<TRow extends LatchRow>(
         chip: chipFor(item),
       }
     }
-    // Sent, and nothing to draw it as yet.
+    // Sent, and nothing to draw it as yet. In a list of every day, its slot
+    // says so until the next redraw, its going moving what is under it.
+    if (input.dayShown === null) {
+      return onScreen
+        ? { key, localId: item.localId, item, real: null, chip: 'sent' }
+        : null
+    }
     if (bookingDay(item, input.timezone) !== input.dayShown) return null
     if (input.dayLive) {
       const until =

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
 import { dayKeyOf } from '../../../convex/lib/dates'
@@ -15,6 +16,42 @@ type OwedRow = Extract<ClientOwed, { pricesHidden: false }>['rows'][number]
 
 /** The section's name: what an owner on the phone to them wants to know. */
 export const CLIENT_OWING_LABEL = 'What they owe'
+
+/**
+ * When a client's Jobs tab draws, and whether what they owe is on it. The
+ * tab waits for what they owe as well as their jobs (`jobsIn`): drawn
+ * first, it would otherwise arrive after them and push them down under a
+ * thumb. But not while the line is down with keeping on (`waitsOut`): what
+ * they owe isn't kept on the phone, so it might not come until signal does,
+ * and waiting would hide their jobs and the bookings on this phone with
+ * them. Which it was is decided as the tab first draws, and kept: drawn
+ * without what they owe, the tab stays drawn when the line comes back
+ * before the answer does, and what they owe stays off until the tab is
+ * next opened, however soon it comes. Drawn with it, the tab waits as it
+ * always has, keeping off (where `waitsOut` is never true) as on `main`.
+ */
+export function useOwedGate({
+  jobsIn,
+  owedIn,
+  waitsOut,
+}: {
+  /** Their jobs, and the bookings on this phone, are in. */
+  jobsIn: boolean
+  /** What they owe is in: answered, or failed. */
+  owedIn: boolean
+  /** Keeping is on and the line is down (`useLineDown`). */
+  waitsOut: boolean
+}): { draws: boolean; owedShown: boolean } {
+  const [late, setLate] = useState<boolean | null>(null)
+  const drawsNow = jobsIn && (owedIn || waitsOut)
+  if (late === null && drawsNow) setLate(!owedIn)
+  // As it will be decided, in the render that decides it.
+  const decided = late ?? (drawsNow ? !owedIn : null)
+  return {
+    draws: jobsIn && (owedIn || waitsOut || decided === true),
+    owedShown: decided === false,
+  }
+}
 
 /**
  * What a client owes, first on their Jobs tab: Owing and To bill as the

@@ -1245,6 +1245,234 @@ test('a Recurring Job of another day needing a look, opened from today’s group
   expect(await jobsFor(s, 'Arthur Wellard', perthDay(2))).toHaveLength(1)
 })
 
+// ── The Job tab and the client sheet (plan part 2c, PR 2c-H) ──────────────
+//
+// The bookings on the phone in the lists of every day: the Job tab's group
+// above its list, and a client's in their Jobs tab's "Coming up" and under
+// the Jobs row of their sheet kept on the phone, which has Book a job too.
+
+/** The Job tab's group of bookings not sent yet, by its heading: a section
+ * of the page, under its h1, where a day's is under the day's h2. */
+const jobTabHeading = (page: Page, name: string | RegExp) =>
+  page.getByRole('heading', { level: 2, name })
+
+/** A client sheet's Jobs tab section, by its heading. */
+const clientSection = (sheet: Locator, heading: string | RegExp) =>
+  sheet.locator('section').filter({
+    has: sheet.page().getByRole('heading', { level: 3, name: heading }),
+  })
+
+/** The client list's sheet for Arthur Wellard, opened from its card. */
+async function openArthur(page: Page): Promise<Locator> {
+  const sheet = page.getByRole('dialog')
+  await clickUntil(
+    page.getByRole('button', { name: /Arthur Wellard/ }).first(),
+    () =>
+      expect(
+        sheet.getByRole('heading', { name: 'Arthur Wellard', exact: true }),
+      ).toBeVisible({ timeout: 3_000 }),
+  )
+  return sheet
+}
+
+/** How far below the client's "Coming up" heading their one row of
+ * General Pest Control starts, or null while either isn't there. Never
+ * throws, for `expect.poll`. */
+async function rowInComingUp(sheet: Locator): Promise<number | null> {
+  const box = (locator: Locator) =>
+    locator.boundingBox({ timeout: 1_000 }).catch(() => null)
+  const comingUp = clientSection(sheet, 'Coming up')
+  const top = await box(comingUp.getByRole('heading', { level: 3 }))
+  const row = await box(
+    comingUp.getByRole('link', { name: /General Pest Control/ }),
+  )
+  return top && row ? row.y - top.y : null
+}
+
+test('booked from a client’s sheet with no signal: their Jobs tab shows it in “Coming up”, and once back the same row becomes the job', async ({
+  page,
+  context,
+}) => {
+  skipNearPerthMidnight('New Job books today, read before the booking')
+  const day = perthDay(0)
+  const s = await business('outbox-client-sheet')
+  await signInViaUi(page, s.owner.email)
+  await readyOffline(page, s.slug, day)
+  await page.goto(`/${s.slug}/clients`)
+  const sheet = await openArthur(page)
+  const jobsTab = sheet.getByRole('tab', { name: 'Jobs' })
+  await expect(jobsTab).toBeEnabled()
+  await expect(
+    clientSection(sheet, 'Coming up').getByText('Nothing booked.'),
+  ).toBeVisible()
+  // On another tab, so the booking is what brings Jobs back.
+  await sheet.getByRole('tab', { name: 'Details' }).click()
+  await expect(jobsTab).toHaveAttribute('aria-selected', 'false')
+
+  let before: number | null = null
+  await context.setOffline(true)
+  try {
+    await sheet
+      .getByRole('button', { name: 'Book a job for this client' })
+      .click()
+    const newJob = page.getByRole('dialog').filter({ hasText: 'New job' })
+    await expect(newJob.getByRole('button', { name: 'Book job' })).toBeEnabled()
+    await expect(
+      newJob.getByRole('button', { name: 'Property' }),
+    ).toContainText('Arthur Wellard')
+    await chooseJobTypes(page, newJob, ['General Pest Control'])
+    await newJob.getByRole('button', { name: 'Book job' }).click()
+    await expect(newJob).toHaveCount(0)
+    await expect.poll(() => bookingsOnPhone(page)).toHaveLength(1)
+
+    // Kept, so the sheet is on their Jobs, where it is in "Coming up".
+    await expect(jobsTab).toHaveAttribute('aria-selected', 'true')
+    const comingUp = clientSection(sheet, 'Coming up')
+    await expect(
+      comingUp.getByRole('heading', { level: 4, name: '1 job not sent yet' }),
+    ).toBeVisible()
+    await expect(
+      comingUp.getByRole('link', { name: /General Pest Control/ }),
+    ).toContainText('Not sent yet')
+    // In "Nothing booked."'s place.
+    await expect(comingUp.getByText('Nothing booked.')).toHaveCount(0)
+    before = await rowInComingUp(sheet)
+    expect(before).not.toBeNull()
+  } finally {
+    await context.setOffline(false)
+  }
+
+  // Back: the row becomes the job, Pending, where it was.
+  const comingUp = clientSection(sheet, 'Coming up')
+  const row = comingUp.getByRole('link', { name: /General Pest Control/ })
+  await expect(row).toContainText('Pending', { timeout: 30_000 })
+  await expect(row).not.toContainText('Not sent yet')
+  await expect(row).toHaveCount(1)
+  await expect(
+    comingUp.getByRole('heading', { level: 4, name: 'Sent' }),
+  ).toBeVisible()
+  await expect.poll(() => rowInComingUp(sheet)).toBeCloseTo(before!, 1)
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(1)
+})
+
+test('booked with no signal, then the Job tab reached in the app: its group shows the booking above the list, keeps it through an Edit to another day there, and once back draws the job, listed once', async ({
+  page,
+  context,
+}) => {
+  skipNearPerthMidnight('booked today, then moved to tomorrow')
+  const day = perthDay(0)
+  const tomorrow = perthDay(1)
+  const s = await business('outbox-job-tab')
+  await signInViaUi(page, s.owner.email)
+  await readyOffline(page, s.slug, day)
+
+  const dock = page.getByRole('navigation', { name: 'Tabs' })
+  const jobsLink = page.getByRole('dialog').getByRole('link', { name: 'Jobs' })
+  await context.setOffline(true)
+  try {
+    await bookArthurOffline(page)
+    // The Job tab isn't one of the dock's four on a phone: More has it.
+    await clickUntil(dock.getByRole('button', { name: 'More' }), () =>
+      expect(jobsLink).toBeVisible({ timeout: 2_000 }),
+    )
+    await jobsLink.click()
+    await expect(page).toHaveURL(new RegExp(`/${s.slug}/job$`))
+    await expect(jobTabHeading(page, '1 job not sent yet')).toBeVisible()
+    await expect(card(page, 'Arthur Wellard')).toContainText('Not sent yet')
+    // The list itself isn't kept on the phone: it waits under the group.
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Loading jobs' }),
+    ).toBeVisible()
+
+    // Booked again on this screen, on another day (Edit picks the date):
+    // still in the group once its sheet closes, as of every day.
+    const sheet = await openItem(page, 'Arthur Wellard')
+    await sheet.getByRole('button', { name: 'Edit' }).click()
+    const edit = editSheet(page)
+    await expect(edit.getByRole('button', { name: 'Book job' })).toBeEnabled()
+    await edit.getByLabel('Date').fill(tomorrow)
+    await edit.getByRole('button', { name: 'Book job' }).click()
+    await expect(editSheet(page)).toHaveCount(0)
+    await expect(sheet).toContainText('Not sent yet')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(jobTabHeading(page, '1 job not sent yet')).toBeVisible()
+    await expect(card(page, 'Arthur Wellard')).toContainText('Not sent yet')
+  } finally {
+    await context.setOffline(false)
+  }
+
+  const arthur = card(page, 'Arthur Wellard')
+  await expect(arthur).toContainText('Pending', { timeout: 30_000 })
+  await expect(arthur).toContainText(/#\d+/)
+  await expect(arthur).not.toContainText('Not sent yet')
+  await expect(jobTabHeading(page, 'Sent')).toBeVisible()
+  // In its slot, never in the list as well.
+  await expect(
+    page.getByRole('button', { name: /Arthur Wellard/ }),
+  ).toHaveCount(1)
+  expect(await jobsFor(s, 'Arthur Wellard', tomorrow)).toHaveLength(1)
+  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(0)
+})
+
+test('with the line down, the client sheet kept on the phone has Book a job, which opens New Job on their site and lists the booking under Jobs', async ({
+  page,
+  context,
+}) => {
+  skipNearPerthMidnight('New Job books today, read before the booking')
+  const day = perthDay(0)
+  const s = await business('outbox-kept-client')
+  await signInViaUi(page, s.owner.email)
+  await readyOffline(page, s.slug, day)
+
+  await context.setOffline(true)
+  try {
+    // In the app, as a phone with no signal gets there.
+    await page
+      .getByRole('navigation', { name: 'Tabs' })
+      .getByRole('link', { name: 'Clients', exact: true })
+      .click()
+    await expect(
+      page.getByRole('heading', { name: 'Clients', level: 1 }),
+    ).toBeVisible()
+    const sheet = await openArthur(page)
+    await expect(
+      sheet.getByText(
+        /^No signal — showing the copy kept on this phone, updated \S.*\. Editing needs signal\.$/,
+      ),
+    ).toBeVisible()
+
+    await sheet
+      .getByRole('button', { name: 'Book a job for this client' })
+      .click()
+    const newJob = page.getByRole('dialog').filter({ hasText: 'New job' })
+    await expect(newJob.getByRole('button', { name: 'Book job' })).toBeEnabled()
+    await expect(
+      newJob.getByRole('button', { name: 'Property' }),
+    ).toContainText('Arthur Wellard')
+    await chooseJobTypes(page, newJob, ['General Pest Control'])
+    await newJob.getByRole('button', { name: 'Book job' }).click()
+    await expect(newJob).toHaveCount(0)
+    await expect.poll(() => bookingsOnPhone(page)).toHaveLength(1)
+
+    // Under their Jobs row, whose own line stays.
+    await expect(
+      sheet.getByRole('heading', { level: 4, name: '1 job not sent yet' }),
+    ).toBeVisible()
+    await expect(
+      sheet.getByRole('link', { name: /General Pest Control/ }),
+    ).toContainText('Not sent yet')
+    await expect(sheet.getByText('Opens when you have signal.')).toHaveCount(2)
+  } finally {
+    await context.setOffline(false)
+  }
+
+  // Back: booked once.
+  await expect
+    .poll(() => jobsFor(s, 'Arthur Wellard', day), { timeout: 30_000 })
+    .toHaveLength(1)
+})
+
 // ── Leaving, and where else they are said (plan part 2c, PR 2c-F) ─────────
 //
 // Signing out and switching business ask first about the bookings on the

@@ -61,6 +61,8 @@ function draw(
     storageTrouble: false,
     timezone: TZ,
     todayKey: '2026-10-27',
+    // A minute after it was saved: not yet kept so long it needs a look.
+    now: SAVED + 60_000,
     ...extra,
   }
   return renderToStaticMarkup(
@@ -256,6 +258,37 @@ describe('today’s group, with one saved by a newer PestM8 (D13)', () => {
     expect(html).toContain('A job saved by a newer PestM8')
     expect(html).toContain('Not sent yet')
     expect(html).not.toContain('Saved by a newer PestM8.')
+  })
+})
+
+describe('the group’s heading, by what it is a section of', () => {
+  function heading(dayShown: string | undefined) {
+    const html = renderToStaticMarkup(
+      <OutboxGroup
+        day={{
+          slots: [],
+          foreign: [itemFor('u1', { v: 2 }, SAVED)],
+          hidden: new Set(),
+          heading: '1 job not sent yet',
+          lineLive: false,
+        }}
+        timezone={TZ}
+        dayShown={dayShown}
+        onOpenItem={() => {}}
+        onOpenJob={() => {}}
+        weatherOf={() => ({ status: 'outOfWindow' })}
+        grid=""
+      />,
+    )
+    return /<(h\d)[^>]*>1 job not sent yet<\/h\d>/.exec(html)?.[1]
+  }
+
+  test('a day’s, under the day’s own h2: an h3', () => {
+    expect(heading('2026-10-27')).toBe('h3')
+  })
+
+  test('the Job tab’s, with no day (a list of every day), under only the page’s h1: an h2', () => {
+    expect(heading(undefined)).toBe('h2')
   })
 })
 
