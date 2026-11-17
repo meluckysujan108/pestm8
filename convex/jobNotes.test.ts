@@ -1,7 +1,12 @@
 /// <reference types="vite/client" />
 import { describe, expect, test, vi } from 'vitest'
 import { api, internal } from './_generated/api'
-import { createActor, createBusiness, testApp } from '../test/harness'
+import {
+  createActor,
+  createBusiness,
+  daysAroundNow,
+  testApp,
+} from '../test/harness'
 import { MAX_JOB_NOTES_LENGTH } from './lib/jobNotes'
 import type { Id } from './_generated/dataModel'
 import type { TestActor, TestApp } from '../test/harness'
@@ -526,23 +531,22 @@ describe('a job for several services', () => {
 
   test('counts once under each of its services in the analytics', async () => {
     const s = await setup()
-    // Now, not tomorrow: the window ends with this month, and on its last
-    // day tomorrow is outside it.
     const now = Date.now()
     await book(s, {
       jobType: 'General Pest Control, Rodents',
       scheduledAt: now,
     })
     await book(s, { jobType: 'General Pest Control', scheduledAt: now })
-    const overview = await s.owner.as.query(api.analytics.overview, {
+    const report = await s.owner.as.query(api.analytics.report, {
       businessId: s.businessId,
+      ...daysAroundNow(),
     })
-    expect(overview?.typeBreakdown).toEqual(
+    expect(report?.services).toEqual(
       expect.arrayContaining([
-        { jobType: 'General Pest Control', count: 2 },
-        { jobType: 'Rodents', count: 1 },
+        { name: 'General Pest Control', count: 2 },
+        { name: 'Rodents', count: 1 },
       ]),
     )
-    expect(overview?.typeBreakdown).toHaveLength(2)
+    expect(report?.services).toHaveLength(2)
   })
 })
