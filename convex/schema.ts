@@ -127,6 +127,15 @@ export const paymentMethod = v.union(
   v.literal('noCharge'),
 )
 
+/** The ways of being paid a business may switch off (Settings → Payments). */
+export const offerablePaymentMethod = v.union(
+  v.literal('cash'),
+  v.literal('card'),
+  v.literal('bankTransfer'),
+  v.literal('cheque'),
+  v.literal('other'),
+)
+
 export const reportTemplate = v.union(
   v.literal('treatmentRecord'),
   v.literal('timberPestInspection'),
@@ -554,6 +563,16 @@ export default defineSchema({
      * kept apart so the migration never takes back the owner's choice.
      */
     paymentsFrom: v.optional(v.number()),
+    /**
+     * The ways of being paid the job sheet no longer offers (Settings →
+     * Payments). Absent offers every one, as before there was a choice. A way
+     * turned off is only not offered any more: payments already taken that way
+     * keep it, and turning it back on brings it back as it was. Invoice and No
+     * charge are not here: they record how a job is settled, not money taken.
+     */
+    paymentMethodsOff: v.optional(v.array(offerablePaymentMethod)),
+    /** What its EFTPOS machine is called ("Square"), shown under Card. */
+    cardMachine: v.optional(v.string()),
     /**
      * How far the owner has got through set-up (src/routes/onboarding.tsx),
      * so a home-screen app that reloads half-way — iOS does, after a trip to

@@ -42,7 +42,18 @@ const handOver = {
   canTick: true,
 }
 
-const STATES: Record<string, typeof base> = {
+/** What a business offers when it has said (Settings → Payments). */
+type Offered = { methods: Array<string>; cardMachine: string | null }
+
+const STATES: Record<string, typeof base & { offered?: Offered }> = {
+  // No cheques, nothing else, and the machine named.
+  pay_square: {
+    ...base,
+    offered: {
+      methods: ['cash', 'card', 'bankTransfer'],
+      cardMachine: 'Square',
+    },
+  },
   pay_ask: {
     ...base,
     lastTime: { method: 'card', receivedAt: NOW - 180 * 86_400_000 },

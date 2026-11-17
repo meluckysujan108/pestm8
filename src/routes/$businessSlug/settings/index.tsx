@@ -22,6 +22,7 @@ import {
   Trash2,
   User,
   Users,
+  Wallet,
 } from 'lucide-react'
 import { z } from 'zod'
 import { api } from '../../../../convex/_generated/api'
@@ -400,6 +401,15 @@ function SettingsHub() {
               <JobTypesRow
                 businessId={business._id}
                 businessSlug={businessSlug}
+              />
+            )}
+            {canManageBusiness && (
+              <SettingsLinkRow
+                to="/$businessSlug/settings/payments"
+                params={{ businessSlug }}
+                icon={Wallet}
+                tint="amber"
+                title="Payments"
               />
             )}
             {showReportsRow && (

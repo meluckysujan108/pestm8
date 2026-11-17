@@ -630,6 +630,18 @@ const PLAN = {
     },
   },
   // Settings → Job types: the list, then what was typed into jobs.
+  'settings-payments': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'settings-payments-one': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  // The job sheet's question as the owner set it: no cheques, the machine
+  // named under Card, then Other opened.
+  'payment-offered': { before: async (p) => p.waitForTimeout(600) },
+  'payment-offered-other': { before: async (p) => p.waitForTimeout(900) },
   jobtypes: { full: true, before: async (p) => p.waitForTimeout(500) },
   // A service opened and renamed: the sheet says what the rename touches.
   'jobtypes-edit': {

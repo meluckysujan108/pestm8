@@ -35,13 +35,19 @@ import {
   normaliseReference,
   paymentsOfJob,
 } from './lib/payments'
+import {
+  EVERY_METHOD,
+  MAX_CARD_MACHINE_LENGTH,
+  OFFERABLE_METHODS,
+  paymentsOffered,
+} from './lib/paymentLimits'
 import { checkClientRequestId } from './lib/clientRequest'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { recordOnBehalf } from './lib/audit'
 import { writeAttribution } from './lib/capabilities'
 import { hidePrices, redactTotal } from './lib/prices'
 import { isDayKey } from './lib/siteWork'
-import { paymentMethod } from './schema'
+import { offerablePaymentMethod, paymentMethod } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { MembershipFacts } from './lib/capabilities'
@@ -503,6 +509,7 @@ export const forJob = query({
     const hidden = hidePrices(env.caps)
     const canEdit = await mayEditThisJob(ctx, env.actor, job)
     const money = moneyOf(rows)
+    const business = await ctx.db.get(businessId)
 
     const toWire = (row: Doc<'payments'>) => ({
       _id: row._id,
@@ -551,6 +558,8 @@ export const forJob = query({
         job.status === 'paid' || job.status === 'cancelled'
           ? null
           : await paidLastTime(ctx, env.scope, job),
+      // The ways the owner offers (Settings → Payments), for the question.
+      offered: business ? paymentsOffered(business) : EVERY_METHOD,
     }
   },
 })
@@ -654,6 +663,87 @@ export const setCountsFrom = mutation({
       entityType: 'businesses',
       entityId: businessId,
       meta: { fields: ['paymentsFrom'], day },
+    })
+  },
+})
+
+/**
+ * Settings → Payments: the ways the job sheet offers, and what the card
+ * machine is called. The owner's, as the business's other settings are.
+ */
+export const methodSettings = query({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    requireCapability(await requireActor(ctx, businessId), 'business.manage')
+    const business = await ctx.db.get(businessId)
+    if (!business) return null
+    return paymentsOffered(business)
+  },
+})
+
+/**
+ * Offers a way of being paid on the job sheet, or stops offering it. Only
+ * the question changes: payments already taken that way keep it, and
+ * `record` still takes it, so one sent from a sheet opened before the change
+ * is not lost. One way must stay, or nothing could say money came in.
+ */
+export const setMethodOffered = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    method: offerablePaymentMethod,
+    offered: v.boolean(),
+  },
+  handler: async (ctx, { businessId, method, offered }) => {
+    const env = await requireWriteActor(ctx, businessId)
+    requireCapability(env, 'business.manage')
+    const business = await ctx.db.get(businessId)
+    if (!business) throw new ConvexError('NOT_FOUND')
+
+    const off = new Set(business.paymentMethodsOff ?? [])
+    if (offered !== off.has(method)) return
+    if (offered) off.delete(method)
+    else off.add(method)
+    if (off.size === OFFERABLE_METHODS.length) {
+      throw new ConvexError('LAST_METHOD')
+    }
+
+    const next = OFFERABLE_METHODS.filter((m) => off.has(m))
+    await ctx.db.patch(businessId, {
+      paymentMethodsOff: next.length > 0 ? next : undefined,
+    })
+    await recordOnBehalf(ctx, writeAttribution(env.actor), {
+      businessId,
+      action: 'business.update',
+      entityType: 'businesses',
+      entityId: businessId,
+      meta: { fields: ['paymentMethodsOff'], method, offered },
+    })
+  },
+})
+
+/** Names the card machine ("Square"); blank goes back to "EFTPOS machine". */
+export const setCardMachine = mutation({
+  args: { businessId: v.id('businesses'), name: v.string() },
+  handler: async (ctx, { businessId, name }) => {
+    const env = await requireWriteActor(ctx, businessId)
+    requireCapability(env, 'business.manage')
+    const business = await ctx.db.get(businessId)
+    if (!business) throw new ConvexError('NOT_FOUND')
+
+    const words = name.trim().replace(/\s+/g, ' ')
+    if (words.length > MAX_CARD_MACHINE_LENGTH) {
+      throw new ConvexError('TOO_LONG')
+    }
+    const next = words === '' ? undefined : words
+    if (next === business.cardMachine) return
+
+    await ctx.db.patch(businessId, { cardMachine: next })
+    await recordOnBehalf(ctx, writeAttribution(env.actor), {
+      businessId,
+      action: 'business.update',
+      entityType: 'businesses',
+      entityId: businessId,
+      meta: { fields: ['cardMachine'] },
     })
   },
 })

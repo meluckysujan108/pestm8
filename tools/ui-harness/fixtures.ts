@@ -250,6 +250,8 @@ export const state = {
   noClientEdits: false,
   /** The client's sheet says they owe money (`payments:forClient`). */
   clientOwes: false,
+  /** Settings → Payments with one way left on (`payments:methodSettings`). */
+  oneMethodLeft: false,
 }
 
 /**
@@ -1068,6 +1070,15 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   'payments:paidIn': (args: { businessId: string; month?: string }) =>
     paymentsPaidIn({ ...args, dayKeyOf: (ts) => dayKeyOf(ts, TZ) }),
   'payments:forClient': () => clientOwed(),
+  // Settings → Payments: cheques turned off and the machine named, or one
+  // way left, whose switch is locked.
+  'payments:methodSettings': () =>
+    state.oneMethodLeft
+      ? { methods: ['cash'], cardMachine: null }
+      : {
+          methods: ['cash', 'card', 'bankTransfer', 'other'],
+          cardMachine: 'Square',
+        },
   'payments:forJob': (args: { jobId: string }) =>
     paymentsForJob({
       jobId:
