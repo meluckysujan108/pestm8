@@ -25,10 +25,17 @@ import {
  *
  * While the record is still there, also what the phone needs next: the site
  * it is at (for a site, itself), and a Recurring Job's first visit, the job
- * the phone's card for it becomes. Neither once it is wiped. The site is
- * where the booking is now, read from the row, not a record of the one it
- * made: if the office has moved it to another client's site since, that is
- * the site this names.
+ * the phone's card for it becomes. Neither once it is wiped. For a job or a
+ * series, the site is where the booking is now, read from the row, not a
+ * record of the one it made: if the office has moved it to another client's
+ * site since, that is the site this names.
+ *
+ * A booking that added a client or a site stamped that site with its own id
+ * (properties.ts `resolvePropertyId`), so kind 'site' with a booking's id
+ * names the site the booking made, wherever the booking is now: what a
+ * second booking kept behind it on the phone goes to. Null for a booking
+ * made before that (or one that booked at a site already there); the phone
+ * then asks for the booking itself and goes where it is.
  */
 export const find = query({
   args: {

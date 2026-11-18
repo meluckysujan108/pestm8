@@ -185,6 +185,63 @@ export function parentOf(booking: BookingArgs): string | undefined {
   return 'local' in booking.property ? booking.property.local : undefined
 }
 
+/**
+ * Whether a booking not sent yet waits on `item` for its site (2c-I): while
+ * one does, `item` stays on the phone once sent, wherever else a sent one
+ * goes (the page load's sweep, ten minutes after it was sent), for the site
+ * it made to be asked for by its request id.
+ */
+export function waitedOn(
+  item: Pick<OutboxItem, 'localId'>,
+  all: ReadonlyArray<OutboxItem>,
+): boolean {
+  return all.some(
+    (other) => other.dependsOn === item.localId && other.state !== 'sent',
+  )
+}
+
+/**
+ * A card's whose and where: what a booking made on a client or site another
+ * booking on the phone makes (2c-I) shows of that one's, and is rewritten
+ * with whenever that one is changed. Who is going stays its own.
+ */
+const SITE_KEYS = [
+  'clientName',
+  'clientKind',
+  'clientNumber',
+  'clientPhone',
+  'clientEmail',
+  'contactPersonName',
+  'contactPersonPhone',
+  'siteContactName',
+  'siteContactPhone',
+  'addressLine',
+  'suburb',
+  'postcode',
+  'propertyState',
+] as const satisfies ReadonlyArray<keyof OutboxDisplay>
+
+/** `display`, showing `parent`'s whose and where (`SITE_KEYS`). */
+export function withSiteOf(
+  display: OutboxDisplay,
+  parent: OutboxDisplay,
+): OutboxDisplay {
+  const out: Record<string, unknown> = { ...display }
+  for (const key of SITE_KEYS) {
+    if (parent[key] === undefined) delete out[key]
+    else out[key] = parent[key]
+  }
+  return out as OutboxDisplay
+}
+
+/** Whether `display` already shows `parent`'s whose and where. */
+export function showsSiteOf(
+  display: OutboxDisplay,
+  parent: OutboxDisplay,
+): boolean {
+  return SITE_KEYS.every((key) => display[key] === parent[key])
+}
+
 /** A booking, as an item not sent yet. */
 export function itemFromBooking(
   booking: BookingArgs,

@@ -281,7 +281,8 @@ export const create = mutation({
      * which each visit at the address already shows.
      */
     notes: v.optional(v.string()),
-    // As jobs.create's: on the series only, never on its visits.
+    // As jobs.create's: on the series and a site it makes, never on its
+    // visits.
     clientRequestId: clientRequestIdArg,
     // As jobs.create's (lib/outboxGuards.ts). Never stored.
     asMembership: asMembershipArg,
@@ -391,7 +392,13 @@ export const create = mutation({
       },
     )
 
-    const propertyId = await resolvePropertyId(ctx, args.businessId, target)
+    // As jobs.create's: a site this series adds carries its id.
+    const propertyId = await resolvePropertyId(
+      ctx,
+      args.businessId,
+      target,
+      requestId,
+    )
     // As jobs.create's: read before the lead is made active.
     const matched = await matchedOn(ctx, checked.applied, propertyId, {
       madeSite: existingPropertyId === undefined,

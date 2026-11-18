@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { logConnection } from '#/lib/connectionLog'
 import { FakeIndexedDb } from './fakeIndexedDb.fixtures'
+import { FakeLockManager } from './fakeLocks.fixtures'
 import { OUTBOX_V } from './outboxItem'
+import { offerLock, takeLock } from './outboxLocks'
 import {
   EDIT_LEASE_MS,
   PEEK_RETRY_MS,
@@ -40,6 +42,7 @@ import {
   replaceChange,
   resultChange,
   retryOutbox,
+  sentBeforeThisLoad,
   setOutboxBackendForTests,
   stillKept,
   tombstoned,
@@ -326,6 +329,33 @@ describe('opening the database', () => {
     expect(await idbOutboxBackend.peek()).toEqual({ owner: null, items: [] })
   })
 
+  test('IndexedDB rewrites the bookings made on one with it, in the same transaction (2c-I)', async () => {
+    const claimed = await idbOutboxBackend.claim(personOf('u1'), NOW)
+    if (claimed === 'error') throw new Error('claim failed')
+    const epoch = claimed.owner.epoch
+    const parent = itemFor('u1', { editing: { tab: 't1', until: NOW + 5 } })
+    const child = itemFor('u1', {
+      booking: bookingFor({ property: { local: parent.localId } }),
+      dependsOn: parent.localId,
+      display: { ...DISPLAY, assigneeName: 'Priya' },
+    })
+    const elsewhere = { ...DISPLAY, clientName: 'Jane Nguyen-Hall' }
+    for (const item of [parent, child]) {
+      expect(await idbOutboxBackend.keep(epoch, item)).toBe('kept')
+    }
+    await idbOutboxBackend.update(
+      epoch,
+      parent.localId,
+      replaceChange('t1', { booking: parent.booking, display: elsewhere }, NOW),
+    )
+    const read = await idbOutboxBackend.peek()
+    const after =
+      read === 'error'
+        ? undefined
+        : read.items.find((item) => item.localId === child.localId)
+    expect(after?.display).toEqual({ ...elsewhere, assigneeName: 'Priya' })
+  })
+
   test('a change that throws is an error, and writes nothing', async () => {
     const claimed = await idbOutboxBackend.claim(personOf('u1'), NOW)
     if (claimed === 'error') throw new Error('claim failed')
@@ -513,6 +543,67 @@ describe('keeping a booking', () => {
       expect(backend.items.get(item.localId)?.state).toBe(state)
     },
   )
+
+  test('made on another booking, only one level deep: never on one gone from the phone, someone else’s, or itself made on another, nor on itself (2c-I)', async () => {
+    // Two tabs: New Job open in one with Jane's booking picked, while the
+    // other puts Jane's onto Q's client, or discards it. Book there is
+    // refused, never kept two levels deep or on nothing.
+    const q = itemFor('u1')
+    const jane = itemFor('u1', {
+      booking: bookingFor({ property: { local: q.localId } }),
+      dependsOn: q.localId,
+    })
+    const sent = itemFor('u1', { state: 'sent', sentAt: NOW })
+    const theirs = itemFor('u2')
+    const backend = await outboxOf('u1', [q, jane, sent, theirs])
+    const epoch = backend.owner?.epoch ?? ''
+    const on = (local: string, extra: Partial<OutboxItem> = {}) =>
+      itemFor('u1', {
+        booking: bookingFor({ property: { local } }),
+        dependsOn: local,
+        ...extra,
+      })
+
+    expect(await backend.keep(epoch, on(jane.localId))).toBe('refused')
+    expect(await backend.keep(epoch, on('local-gone'))).toBe('refused')
+    expect(await backend.keep(epoch, on(theirs.localId))).toBe('refused')
+    const self = on('local-self', { localId: 'local-self' })
+    expect(await backend.keep(epoch, self)).toBe('refused')
+    expect(backend.items.size).toBe(4)
+    // One level: on one not sent yet, or on one sent while the form was
+    // open, it is kept.
+    const onQ = on(q.localId)
+    expect(await backend.keep(epoch, onQ)).toBe('kept')
+    expect(await backend.keep(epoch, on(sent.localId))).toBe('kept')
+    // The same draft kept again onto another, while one is made on it.
+    const onOnQ = on(onQ.localId)
+    backend.items.set(onOnQ.localId, structuredClone(onOnQ))
+    expect(await backend.keep(epoch, { ...onQ, dependsOn: sent.localId })).toBe(
+      'refused',
+    )
+  })
+
+  test('made on another booking, checked in the keep’s own transaction in IndexedDB too (2c-I)', async () => {
+    vi.stubGlobal('indexedDB', new FakeIndexedDb())
+    const claimed = await idbOutboxBackend.claim(personOf('u1'), NOW)
+    if (claimed === 'error') throw new Error('claim failed')
+    const epoch = claimed.owner.epoch
+    const q = itemFor('u1')
+    const on = (local: string) =>
+      itemFor('u1', {
+        booking: bookingFor({ property: { local } }),
+        dependsOn: local,
+      })
+    expect(await idbOutboxBackend.keep(epoch, q)).toBe('kept')
+    const jane = on(q.localId)
+    expect(await idbOutboxBackend.keep(epoch, jane)).toBe('kept')
+    expect(await idbOutboxBackend.keep(epoch, on(jane.localId))).toBe('refused')
+    expect(await idbOutboxBackend.keep(epoch, on('local-gone'))).toBe('refused')
+    const read = await idbOutboxBackend.peek()
+    expect(read !== 'error' && read.items.map((i) => i.localId).sort()).toEqual(
+      [jane.localId, q.localId].sort(),
+    )
+  })
 
   test('never over the same key of someone else’s', async () => {
     const theirs = itemFor('u2')
@@ -1022,6 +1113,52 @@ describe('a change to an item', () => {
       expect(await none.change(replaceChange('t1', next, NOW))).toBe('refused')
     })
 
+    test('put on a client or site not sent yet, only one level deep: never on one made on another, nor on itself, nor while others are made on it (2c-I)', async () => {
+      // Two tabs, each with an Edit open on a new client's booking, each
+      // booking it on the other's at once: the first lands, the second is
+      // refused, so no ring is left that could never go.
+      const lease = { tab: 't1', until: NOW + 5 }
+      const first = itemFor('u1', { editing: lease })
+      const second = itemFor('u1', { editing: { ...lease, tab: 't2' } })
+      const elsewhere = itemFor('u1')
+      const backend = await outboxOf('u1', [first, second, elsewhere])
+      const epoch = backend.owner?.epoch ?? ''
+      const on = (local: string) => ({
+        booking: { ...next.booking, property: { local } },
+        display: next.display,
+      })
+      expect(
+        await backend.update(
+          epoch,
+          second.localId,
+          replaceChange('t2', on(first.localId), NOW),
+        ),
+      ).toMatchObject({ dependsOn: first.localId })
+      // On the one now made on it, or by the one others are made on.
+      expect(
+        await backend.update(
+          epoch,
+          first.localId,
+          replaceChange('t1', on(second.localId), NOW),
+        ),
+      ).toBe('refused')
+      expect(
+        await backend.update(
+          epoch,
+          first.localId,
+          replaceChange('t1', on(elsewhere.localId), NOW),
+        ),
+      ).toBe('refused')
+      expect(
+        await backend.update(
+          epoch,
+          first.localId,
+          replaceChange('t1', on(first.localId), NOW),
+        ),
+      ).toBe('refused')
+      expect(backend.items.get(first.localId)).toEqual(first)
+    })
+
     test.each(['sending', 'sent'] as const)(
       'refused once it is %s: sent while it was being changed',
       async (state) => {
@@ -1058,6 +1195,65 @@ describe('a change to an item', () => {
           ),
         ),
       ).toMatchObject({ dependsOn: 'local-9' })
+    })
+  })
+
+  describe('a booking others are made on, changed (2c-I)', () => {
+    const parent = itemFor('u1', { editing: { tab: 't1', until: NOW + 5 } })
+    const child = itemFor('u1', {
+      booking: bookingFor({ property: { local: parent.localId } }),
+      dependsOn: parent.localId,
+      display: { ...DISPLAY, assigneeName: 'Priya' },
+    })
+    const elsewhere = {
+      ...DISPLAY,
+      clientName: 'Jane Nguyen-Hall',
+      clientPhone: '0400 111 222',
+      addressLine: '9 Coode St',
+      suburb: 'Bayswater',
+      postcode: '6053',
+    }
+
+    test('rewrites their cards’ whose and where in the same transaction, never who is going', async () => {
+      const backend = await outboxOf('u1', [parent, child])
+      const result = await backend.update(
+        backend.owner?.epoch ?? '',
+        parent.localId,
+        replaceChange(
+          't1',
+          { booking: parent.booking, display: elsewhere },
+          NOW + 1,
+        ),
+      )
+      expect(result).toMatchObject({ display: elsewhere })
+      expect(backend.done).toEqual(['update'])
+      expect(backend.items.get(child.localId)).toEqual({
+        ...child,
+        display: { ...elsewhere, assigneeName: 'Priya' },
+        updatedAt: NOW + 1,
+      })
+    })
+
+    test('nothing more when what it shows is the same, nor for one already sent', async () => {
+      const sent = itemFor('u1', {
+        dependsOn: parent.localId,
+        state: 'sent',
+      })
+      const backend = await outboxOf('u1', [parent, child, sent])
+      await backend.update(
+        backend.owner?.epoch ?? '',
+        parent.localId,
+        replaceChange(
+          't1',
+          {
+            booking: parent.booking,
+            display: { ...DISPLAY, assigneeName: 'Sam' },
+          },
+          NOW + 1,
+        ),
+      )
+      expect(backend.items.get(child.localId)).toEqual(child)
+      expect(backend.items.get(sent.localId)).toEqual(sent)
     })
   })
 
@@ -1472,6 +1668,74 @@ describe('a page load', () => {
     expect(backend.done).not.toContain('claim')
   })
 
+  test('keeps one sent while a booking made on it isn’t yet, for the sender alone (2c-I)', async () => {
+    const parent = itemFor('u1', { state: 'sent', result: { id: 'job-1' } })
+    const child = itemFor('u1', { dependsOn: parent.localId })
+    const done = itemFor('u1', { state: 'sent', result: { id: 'job-2' } })
+    const doneChild = itemFor('u1', {
+      dependsOn: done.localId,
+      state: 'sent',
+    })
+    const backend = await outboxOf('u1', [parent, child, done, doneChild])
+    await pageFor(backend, 'u1')
+    expect([...backend.items.keys()].sort()).toEqual(
+      [parent.localId, child.localId].sort(),
+    )
+    // Handed out, for the sender to ask for the site it made…
+    const read = await peekOutbox()
+    expect(read !== 'error' && read.items.map((i) => i.localId).sort()).toEqual(
+      [parent.localId, child.localId].sort(),
+    )
+    // …and known as sent before this page load, which no screen draws.
+    expect(sentBeforeThisLoad(parent)).toBe(true)
+    expect(sentBeforeThisLoad(child)).toBe(false)
+    // One sent in this page load is drawn as it always was.
+    const later = itemFor('u1', { state: 'sent' })
+    expect(sentBeforeThisLoad(later)).toBe(false)
+  })
+
+  test('keeps one sent while an open New Job in another tab offers it, and deletes it as before once none does (2c-I)', async () => {
+    const newClient = {
+      newClient: {
+        clientName: 'Jane Nguyen',
+        kind: 'person' as const,
+        addressLine: '1 Hay St',
+        suburb: 'Perth',
+        state: 'WA',
+        postcode: '6000',
+      },
+    }
+    // Each made a client, as what New Job's picker offers does.
+    const offered = itemFor('u1', {
+      booking: bookingFor({ property: newClient }),
+      state: 'sent',
+      result: { id: 'job-1' },
+    })
+    const other = itemFor('u1', {
+      booking: bookingFor({ property: newClient }),
+      state: 'sent',
+      result: { id: 'job-2' },
+    })
+    const locks = new FakeLockManager()
+    vi.stubGlobal('navigator', { locks: locks.forTab('tab-b') })
+    const form = await takeLock(
+      locks.forTab('tab-a'),
+      offerLock(offered.localId),
+      { mode: 'shared' },
+    )
+    const backend = await outboxOf('u1', [offered, other])
+    await pageFor(backend, 'u1')
+    expect([...backend.items.keys()]).toEqual([offered.localId])
+    // No screen of this page load draws it: it was sent before it.
+    await peekOutbox()
+    expect(sentBeforeThisLoad(offered)).toBe(true)
+    form?.release()
+    await settled()
+    const next = await outboxOf('u1', [offered])
+    await pageFor(next, 'u1')
+    expect(next.items.size).toBe(0)
+  })
+
   test('keeps a person’s own, however long they have waited', async () => {
     const old = itemFor('u1', {}, 1)
     const backend = await outboxOf('u1', [old])
@@ -1822,6 +2086,22 @@ describe('what the sender adds', () => {
     expect(await phone.change(foreign.localId, forgetSentChange())).toBe(
       'refused',
     )
+  })
+
+  test('…decided in its own transaction: never while a booking made on it is unsent, kept in another tab since this one read the phone (2c-I)', async () => {
+    const sent = itemFor('u1', { state: 'sent', result: { id: 'job-1' } })
+    const phone = await phoneWith(sent)
+    // Kept elsewhere after the sender looked: its memory has none.
+    const made = itemFor('u1', {
+      booking: bookingFor({ property: { local: sent.localId } }),
+      dependsOn: sent.localId,
+    })
+    phone.backend.items.set(made.localId, structuredClone(made))
+    expect(await phone.change(sent.localId, forgetSentChange())).toBe('refused')
+    expect(phone.backend.items.has(sent.localId)).toBe(true)
+    // Once that one is sent too, it goes.
+    phone.backend.items.set(made.localId, { ...made, state: 'sent' })
+    expect(await phone.change(sent.localId, forgetSentChange())).toBe('deleted')
   })
 
   test('a fresh read has every change since in it, sent ones too, and becomes the page load’s', async () => {

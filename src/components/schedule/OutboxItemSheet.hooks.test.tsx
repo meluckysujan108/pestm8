@@ -81,6 +81,8 @@ vi.mock('#/lib/outbox/outbox', () => ({
     tab: 'tab-here',
     editingHere: new Set<string>(),
     get: () => undefined,
+    // Nothing booked after it on its client or site (2c-I).
+    all: () => [],
     answeredWith: () => undefined,
   },
 }))

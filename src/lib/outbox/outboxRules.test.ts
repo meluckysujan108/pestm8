@@ -310,6 +310,19 @@ describe('waited too long', () => {
     ).toBeNull()
   })
 
+  test('one made on a booking that goes only after a look does too, asked with every booking (2c-I)', () => {
+    const parent = itemFor('u1', { state: 'needsLook' }, NOW)
+    const child = itemFor('u1', { dependsOn: parent.localId }, NOW)
+    expect(goesOnlyAfterALook(child, NOW)).toBe(false)
+    expect(goesOnlyAfterALook(child, NOW, [parent, child])).toBe(true)
+    expect(
+      goesOnlyAfterALook(child, NOW, [{ ...parent, state: 'waiting' }, child]),
+    ).toBe(false)
+    expect(
+      goesOnlyAfterALook(child, NOW, [{ ...parent, state: 'sent' }, child]),
+    ).toBe(false)
+  })
+
   test('one still waiting that the phone will stop before it goes goes only after a look, as one needing a look does (`goesOnlyAfterALook`)', () => {
     // Waiting, with the line down: the sender hasn't been able to say so.
     const waiting = itemFor('u1', {}, NOW)
@@ -391,6 +404,19 @@ describe('which goes next', () => {
 
     const sent = { ...parent, state: 'sent' as const }
     expect(sendable([sent, child, other], ctx)).toEqual([child, other])
+  })
+
+  test('behind one waiting or being sent; held (`parent`) only behind one that goes only after a look (2c-I)', () => {
+    const parent = itemFor('u1', {}, NOW - 60_000)
+    const child = itemFor('u1', { dependsOn: parent.localId }, NOW - 30_000)
+    expect(skipReason(child, [parent, child], ctx)).toBe('behind')
+    const going = { ...parent, state: 'sending' as const }
+    expect(skipReason(child, [going, child], ctx)).toBe('behind')
+    // Waited three days: the phone stops it before it goes.
+    const stale = { ...parent, createdAt: NOW - 4 * DAY }
+    expect(skipReason(child, [stale, child], ctx)).toBe('parent')
+    const newer = { ...parent, v: OUTBOX_V + 1 }
+    expect(skipReason(child, [newer, child], ctx)).toBe('parent')
   })
 
   test('one whose parent has gone altogether is left to its send to say so', () => {

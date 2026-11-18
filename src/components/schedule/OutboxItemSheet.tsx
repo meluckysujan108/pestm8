@@ -51,6 +51,7 @@ import { chipFor } from '#/lib/outbox/outboxRules'
 import { bookingDay, outboxRow } from '#/lib/outbox/outboxRow'
 import { EDIT_RENEW_MS, FIND_WAIT_MS, isReadable } from '#/lib/outbox/outboxSet'
 import { outbox } from '#/lib/outbox/outbox'
+import { dependantsOf } from '#/lib/outbox/outboxStore'
 import { sender } from '#/lib/outbox/sender'
 import { pageItemDeps, useOutboxItem } from '#/lib/outbox/useOutbox'
 import { rq } from '#/lib/routeQueries'
@@ -562,7 +563,13 @@ export function OutboxItemBody({
     setAlert(DISCARD_REFUSALS[result])
   }
 
-  const dialog = discardDialog(item, confirm ?? footer?.discard ?? 'item')
+  // The bookings made on it, not sent yet, go with it (2c-I), and the
+  // dialog says so.
+  const dialog = discardDialog(
+    item,
+    confirm ?? footer?.discard ?? 'item',
+    dependantsOf(outbox.all(), localId).length,
+  )
   return (
     <OutboxItemView
       facts={facts}

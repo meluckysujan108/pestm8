@@ -1,18 +1,19 @@
+import { ConvexError } from 'convex/values'
 import { logConnection } from '#/lib/connectionLog'
-import { bookingCall, itemFromBooking } from './outboxItem'
+import { bookingCall, itemFromBooking, waitedOn } from './outboxItem'
 import { itemLock, takeLock } from './outboxLocks'
 import { codeOf } from './outboxRules'
-import { KEEP_WAIT_MS } from './outboxSet'
+import { KEEP_WAIT_MS, STORE_OP_MS } from './outboxSet'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type {
+  BookingArgs,
   BookingCall,
   BookingCallExtra,
   OutboxDisplay,
   OutboxItem,
-  SendableBooking,
 } from './outboxItem'
 import type { HeldLock, Locks } from './outboxLocks'
-import type { Change, StoreResult } from './outboxStore'
+import type { Change, ItemChange, StoreResult } from './outboxStore'
 import type { SendOutcome, Sender } from './sender'
 
 /**
@@ -42,7 +43,12 @@ import type { SendOutcome, Sender } from './sender'
  *    if this one never got to. Only if the phone's storage really fails to
  *    delete it does it stay, needing a look: shown, and never sent by
  *    itself (`leftOnPhoneChange`). If that fails too, the lock is held for
- *    the rest of the page's life, as for a keep that never lands.
+ *    the rest of the page's life, as for a keep that never lands. One made
+ *    on a client or site not sent yet (`BookFacts.local`), which can't go
+ *    straight, is waited on for the phone's own limit instead
+ *    (STORE_OP_MS), and refused if it isn't kept by then
+ *    (`UNSENT_NOT_KEPT`), given up on as above; the draft then takes new
+ *    ids (`renew`), so a press again keeps it afresh.
  * 3. **Sent**, once kept and shown kept, if the line is live: the sender's
  *    own send (`Sender.sendHeld`), which owns the wait for the answer,
  *    ANSWER_WAIT_MS at most. A job back closes the sheet; a refusal that
@@ -56,7 +62,10 @@ import type { SendOutcome, Sender } from './sender'
  *    or held), and the sheet takes it off the phone only if it is still
  *    open when it hears (`leftDropChange`), saying first that it isn't kept
  *    any more, and only once the screen shows that, so closing it asks
- *    first. What it shows then is what the phone's storage really did,
+ *    first. Never while a booking made on its client or site since (2c-I,
+ *    from another tab while it was being sent) waits on it: that one goes
+ *    after it, so it stays as the answer left it, and the sheet closes with
+ *    it kept. What it shows then is what the phone's storage really did,
  *    however long it takes to say ("Booking…" till then), not its answer
  *    for taking too long: deleted, the refusal is FormAlert's and the kill
  *    switch's booking goes straight; still on the phone, the sheet closes
@@ -98,6 +107,13 @@ export type Answer = { ok: unknown } | { error: unknown }
 export type BookFacts = {
   /** Whether the booking can be kept on the phone (`canKeepNow`). */
   canKeep: boolean
+  /**
+   * Made on a client or site another booking on the phone makes, not sent
+   * yet (2c-I, `{ local }`): it can only be kept, and goes once that one
+   * has. Never straight, which has no site to send; refused instead
+   * (`UNSENT_NOT_KEPT`) where it can't be kept.
+   */
+  local?: true
   /**
    * The draft keeps nothing more (`BookingDraft.keepable` false: a keep of
    * it took too long, or was discarded), so every straight call of it says
@@ -148,11 +164,30 @@ export type BookAction =
   | { done: 'refused'; error: unknown }
   | { done: 'discarded' }
 
+/** Why a booking made on a client or site not sent yet wasn't booked: the
+ * phone couldn't keep it, and it can't go straight (`BookFacts.local`). */
+export const UNSENT_NOT_KEPT = 'OUTBOX_UNSENT_NOT_KEPT'
+
+/** What New Job's FormAlert says of it: true whatever has become of the
+ * one it was booked on, which the picker row above it may say was sent
+ * ("Sent just now", "Sent") or is being sent, so never "not sent yet". */
+export const UNSENT_NOT_KEPT_COPY =
+  'Could not book this job: its client or site was booked on this phone, so it can only wait on this phone, and this phone can’t keep it now. Reload PestM8 and try again.'
+
 /**
  * The next step of a press of Book, from what is known so far (above): the
  * one place each of §3.2's rows is decided.
  */
 export function bookOutcome(facts: BookFacts): BookAction {
+  const next = outcomeOf(facts)
+  // Never straight for one made on a client or site not sent yet: nothing
+  // was made, and the sheet says why.
+  return facts.local && 'do' in next && next.do === 'direct'
+    ? { done: 'refused', error: new ConvexError(UNSENT_NOT_KEPT) }
+    : next
+}
+
+function outcomeOf(facts: BookFacts): BookAction {
   if (facts.direct) {
     const { answer, asMembership } = facts.direct
     if ('ok' in answer) return { done: 'sent', id: String(answer.ok) }
@@ -214,6 +249,9 @@ function afterSend(sent: SendOutcome, facts: BookFacts): BookAction {
         // Closed with it kept, the sheet said so as it went: it stays as
         // the answer left it, needing a look or held, never deleted (F1).
         if (facts.closed === 'kept') return { done: 'kept' }
+        // Held by the kill switch, one made on a client or site not sent
+        // yet stays so, to go once the pause is over: it can't go straight.
+        if (paused && facts.local) return { done: 'kept' }
         return { do: 'drop', left: sent.left, paused }
       }
       // Still on the phone after the sheet tried to take it off: never
@@ -241,7 +279,11 @@ function afterSend(sent: SendOutcome, facts: BookFacts): BookAction {
  * whatever an answer made of it (waiting to go again, held, needing a look,
  * or locked after an answer heard across a reconnect, which nothing will
  * send now), unless its job was made: a job made is on the server, in the
- * list, as a straight call already out could always make it.
+ * list, as a straight call already out could always make it. A booking made
+ * on it meanwhile (`waitedOn`) doesn't keep it, as it does an answer's
+ * (`leftDropChange`): this one was given up first (`giveUpKeep`), so from
+ * then no tab has it, nor the sender of the one made on it, which needs a
+ * look either way.
  */
 export function takeOffChange(): (item: OutboxItem) => Change {
   return (item) => (item.state === 'sent' ? 'abort' : 'delete')
@@ -273,11 +315,17 @@ export function leftOnPhoneChange(now: number): (item: OutboxItem) => Change {
 /**
  * The booking a refusal or the kill switch left on the phone
  * (`SendOutcome.left`), taken off it by the sheet still open on it: only as
- * that answer left it. Anyone's change since (an Edit, a Send) keeps it.
+ * that answer left it. Anyone's change since (an Edit, a Send) keeps it, and
+ * so does a booking made on its client or site since, not sent yet
+ * (`waitedOn`: picked in another tab's New Job while this one was being
+ * sent), which goes after it: taken off alone, it would leave that one on
+ * nothing, saying its client or site was deleted.
  */
-export function leftDropChange(left: OutboxItem): (item: OutboxItem) => Change {
-  return (item) =>
-    item.state === left.state && item.updatedAt === left.updatedAt
+export function leftDropChange(left: OutboxItem): ItemChange {
+  return (item, all) =>
+    item.state === left.state &&
+    item.updatedAt === left.updatedAt &&
+    !waitedOn(item, all)
       ? 'delete'
       : 'abort'
 }
@@ -377,7 +425,7 @@ export type BookingDeps = {
   change: (
     op: string,
     localId: string,
-    change: (item: OutboxItem) => Change,
+    change: ItemChange,
   ) => Promise<StoreResult<OutboxItem | 'deleted'>>
   /** While the sheet is still deciding what became of a booking, a day's
    * list doesn't draw it (`OutboxModel.deciding`). */
@@ -554,7 +602,7 @@ export class BookingSession {
    * working in someone else's account.
    */
   async book(
-    args: SendableBooking,
+    args: BookingArgs,
     draft: BookingDraft,
     who: BookingWho,
     checks: BookingChecks = {},
@@ -571,6 +619,7 @@ export class BookingSession {
     for (const handle of this.handles.splice(0)) handle.release()
     this.discarded = false
     const facts: BookFacts = {
+      ...('local' in args.property && { local: true as const }),
       canKeep:
         !straight &&
         canKeepNow({
@@ -623,6 +672,11 @@ export class BookingSession {
           if (next.done === 'refused') {
             // Nothing was made, and nothing of it is the person's booking.
             this.setPath(null)
+            // One made on a client or site not sent yet that the phone
+            // couldn't keep never went anywhere: the draft takes new ids,
+            // so Book again keeps it afresh, never under a key given up on
+            // (`giveUp`) whose booking may still be coming off the phone.
+            if (codeOf(next.error) === UNSENT_NOT_KEPT) draft.renew()
             throw next.error
           }
           // Closed on its job with signal: the day's list draws the job as
@@ -643,7 +697,7 @@ export class BookingSession {
           deps.deciding(localId, true)
           deciding = true
           const pressedAt = Date.now()
-          const keep = await this.keep(args, draft, who)
+          const keep = await this.keep(args, draft, who, facts.local === true)
           lock = keep.lock
           facts.keep = keep.result
           if (keep.result === 'kept') {
@@ -692,8 +746,9 @@ export class BookingSession {
             deps.forgetGivenUp(localId)
           } else {
             // Still on the phone, needing a look or held: the delete failed,
-            // or someone changed it first. Never FormAlert, nor a straight
-            // call, over a booking the phone holds.
+            // someone changed it first, or a booking made on it since waits
+            // on it. Never FormAlert, nor a straight call, over a booking
+            // the phone holds.
             facts.dropped = 'kept'
             logConnection('outbox-drop-kept', {
               result: typeof dropped === 'object' ? 'changed' : dropped,
@@ -718,11 +773,18 @@ export class BookingSession {
         // took it off the phone). Closing the sheet would lose it, so it
         // asks again.
         this.setPath('direct')
-        const call = bookingCall(args, {
-          clientRequestId: draft.requestId,
-          ...(next.asMembership && { asMembership: who.membershipId }),
-          ...checks,
-        })
+        const property = args.property
+        // Never for one made on a client or site not sent yet
+        // (`bookOutcome`): there is no site to send.
+        if ('local' in property) throw new ConvexError(UNSENT_NOT_KEPT)
+        const call = bookingCall(
+          { ...args, property },
+          {
+            clientRequestId: draft.requestId,
+            ...(next.asMembership && { asMembership: who.membershipId }),
+            ...checks,
+          },
+        )
         this.straightAsOwn = next.asMembership
         facts.direct = {
           answer: await answerOf(Promise.resolve().then(() => deps.call(call))),
@@ -757,11 +819,17 @@ export class BookingSession {
     this.sheet.path(path)
   }
 
-  /** The booking kept on the phone, under its lock, taken first. */
+  /**
+   * The booking kept on the phone, under its lock, taken first, within
+   * KEEP_WAIT_MS; one made on a client or site not sent yet (`local`),
+   * which has no straight call to fall back on, within the phone's own
+   * limit (STORE_OP_MS), so a slow phone keeps it rather than refusing it.
+   */
   private async keep(
-    args: SendableBooking,
+    args: BookingArgs,
     draft: BookingDraft,
     who: BookingWho,
+    local: boolean,
   ): Promise<{
     result: KeepResult | 'late'
     lock: HeldLock | null
@@ -814,7 +882,7 @@ export class BookingSession {
           return 'error' as const
         },
       )
-    const result = await within(KEEP_WAIT_MS, keeping)
+    const result = await within(local ? STORE_OP_MS : KEEP_WAIT_MS, keeping)
     logConnection('outbox-keep', { ms: Date.now() - started, result })
     if (result === 'kept') {
       this.hold(draft.localId)

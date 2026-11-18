@@ -238,13 +238,22 @@ export function preSendProblem(
  * (ConnectionNotice's line, SwitchBanner's, the switch question) counts
  * these with the ones needing a look, never as going once there's signal.
  */
-export function goesOnlyAfterALook(item: OutboxItem, now: number): boolean {
+export function goesOnlyAfterALook(
+  item: OutboxItem,
+  now: number,
+  /** Every booking on the phone: given, one made on a client or site
+   * another booking makes (2c-I) goes only after a look at that one too,
+   * when that one does. Left out, the booking alone is asked about. */
+  all?: ReadonlyArray<OutboxItem>,
+): boolean {
   if (item.state === 'needsLook') return true
-  return (
-    item.state === 'waiting' &&
-    isReadable(item) &&
-    preSendProblem(item, now) !== null
-  )
+  if (item.state !== 'waiting' || !isReadable(item)) return false
+  if (preSendProblem(item, now) !== null) return true
+  const parent =
+    all && item.dependsOn !== undefined
+      ? all.find((other) => other.localId === item.dependsOn)
+      : undefined
+  return parent !== undefined && goesOnlyAfterALook(parent, now)
 }
 
 // ── Which goes next ────────────────────────────────────────────────────────
@@ -258,11 +267,14 @@ export type SendContext = {
 /**
  * Why an item can't go now, by what it says itself: a newer build's; needs
  * a look or sent; being edited here or (lease not run out) in another tab;
- * backing off or held; or waiting on the item that makes its site. The gates
- * on who is signed in, the business and the line are the sender's.
+ * backing off or held; or waiting on the item that makes its site (2c-I):
+ * `behind` it while that one waits or is being sent, and goes once it has;
+ * `parent` while that one needs a look first (`goesOnlyAfterALook`), when
+ * it goes only once someone has looked at that one. The gates on who is
+ * signed in, the business and the line are the sender's.
  */
 export type SkipReason =
-  'foreign' | 'state' | 'editing' | 'retry' | 'hold' | 'parent'
+  'foreign' | 'state' | 'editing' | 'retry' | 'hold' | 'parent' | 'behind'
 
 export function skipReason(
   item: OutboxItem,
@@ -279,7 +291,11 @@ export function skipReason(
     // Gone altogether, it is the send's to say so (its site can't be
     // found); here, it waits only on one still to go.
     const parent = all.find((other) => other.localId === item.dependsOn)
-    if (parent && parent.state !== 'sent') return 'parent'
+    if (parent && parent.state !== 'sent') {
+      return !isReadable(parent) || goesOnlyAfterALook(parent, ctx.now)
+        ? 'parent'
+        : 'behind'
+    }
   }
   return null
 }

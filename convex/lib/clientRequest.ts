@@ -19,6 +19,20 @@ import type { MutationCtx, QueryCtx } from '../_generated/server'
  * and sent again for another kind makes that one, under the sender's own
  * rights, and never changes what the first answers.
  *
+ * One id can name two records: a booking that adds a client or a site
+ * stamps the site it makes with the booking's own id (properties.ts
+ * `resolvePropertyId`), for a booking kept on the phone behind it to find.
+ * So a booking's key sent with a site save (`properties.create` or
+ * `createForClient`) is answered with the site that booking made, and makes
+ * nothing, as any repeat of a site's own key is; a site's key sent with a
+ * booking still makes the booking, and stamps no second site. And a
+ * booking's key is now read off the site it made too, by every member
+ * (`properties.search`, `list`, `get` and `listByClient` return the whole
+ * row, `properties.search` for any member): sent to `find`, or with a
+ * booking of the same kind, it is answered with the id of a job or series
+ * they may not open (and by `find`, the site it is at), and books nothing.
+ * Ids only: every read of the job is still scoped.
+ *
  * Optional on every mutation that takes one, so every older screen still
  * saves exactly as before.
  *

@@ -9,8 +9,11 @@ import { isTwoStepNeeded } from '#/lib/twoStep'
 import {
   BookingSession,
   LEFT_ON_PHONE,
+  UNSENT_NOT_KEPT,
+  UNSENT_NOT_KEPT_COPY,
   bookOutcome,
   canKeepNow,
+  leftDropChange,
   leftOnPhoneChange,
   saysKept,
   takeOffChange,
@@ -18,7 +21,9 @@ import {
 import { FakeLockManager } from './fakeLocks.fixtures'
 import { addRule, answeredView, latchSlots } from './latchSlots'
 import { OutboxModel } from './outbox'
+import { itemFromBooking } from './outboxItem'
 import { itemLock } from './outboxLocks'
+import { codeOf } from './outboxRules'
 import {
   ANSWER_WAIT_MS,
   FIRST_VISIT_GONE_MS,
@@ -35,7 +40,9 @@ import {
 import {
   B1,
   DISPLAY,
+  MemoryOutboxBackend,
   bookingFor,
+  itemFor,
   memoryStorage,
   outboxOf,
   personOf,
@@ -127,6 +134,35 @@ describe('bookOutcome: each step of a press of Book', () => {
 
   test('it can: kept first', () => {
     expect(bookOutcome({ canKeep: true })).toEqual({ do: 'keep' })
+  })
+
+  test('on a client or site not sent yet (2c-I): only ever kept, refused where it can’t be, and held by the kill switch rather than sent straight', () => {
+    const refused = { done: 'refused', error: new ConvexError(UNSENT_NOT_KEPT) }
+    expect(bookOutcome({ canKeep: false, local: true })).toEqual(refused)
+    expect(bookOutcome({ canKeep: true, keep: 'late', local: true })).toEqual(
+      refused,
+    )
+    // Refused by the store: the one chosen discarded, or put on another
+    // booking, in another tab meanwhile (outboxStore.ts `keepsToOneLevel`).
+    expect(
+      bookOutcome({ canKeep: true, keep: 'refused', local: true }),
+    ).toEqual(refused)
+    expect(bookOutcome({ canKeep: true, local: true })).toEqual({ do: 'keep' })
+    expect(bookOutcome(kept({ local: true }))).toEqual({ do: 'send' })
+    const paused = new ConvexError('OUTBOX_PAUSED')
+    const left = itemFor('u1', { holdUntil: Date.now() + 60_000 })
+    expect(
+      bookOutcome(
+        kept({ local: true, sent: { outcome: 'paused', error: paused, left } }),
+      ),
+    ).toEqual({ done: 'kept' })
+    expect(UNSENT_NOT_KEPT_COPY).toBe(
+      'Could not book this job: its client or site was booked on this phone, so it can only wait on this phone, and this phone can’t keep it now. Reload PestM8 and try again.',
+    )
+    // Under a picker row that may say the one it was booked on has gone
+    // ("Sent just now", "Sent") or is going ("Sending…"): never that it
+    // hasn't.
+    expect(UNSENT_NOT_KEPT_COPY).not.toMatch(/not sent/i)
   })
 
   test.each(['late', 'error', 'refused', 'exists'] as const)(
@@ -263,6 +299,27 @@ describe('bookOutcome: each step of a press of Book', () => {
       asMembership: false,
       stopKeeping: false,
     })
+  })
+
+  test('a refusal’s booking comes off the phone only as the answer left it, and never while a booking made on its client or site since waits on it (2c-I)', () => {
+    const left = {
+      localId: LOCAL,
+      state: 'needsLook',
+      updatedAt: 1,
+    } as OutboxItem
+    const drop = leftDropChange(left)
+    expect(drop(left, [left])).toBe('delete')
+    expect(drop({ ...left, updatedAt: 2 }, [left])).toBe('abort')
+    const madeOn = {
+      localId: 'made-on-it',
+      dependsOn: LOCAL,
+      state: 'waiting',
+    } as OutboxItem
+    for (const state of ['waiting', 'sending', 'needsLook'] as const) {
+      expect(drop(left, [left, { ...madeOn, state }])).toBe('abort')
+    }
+    // One sent already waits on nothing.
+    expect(drop(left, [left, { ...madeOn, state: 'sent' }])).toBe('delete')
   })
 
   test('a booking nothing is to send leaves the phone whatever an answer made of it, unless its job was made', () => {
@@ -1329,7 +1386,11 @@ function failDeletes(p: Phone, opts: { ms?: number; times?: number } = {}) {
   let left = opts.times ?? Infinity
   p.backend.update = (epoch, localId, change) => {
     const now = p.backend.items.get(localId)
-    if (left > 0 && now && change(structuredClone(now)) === 'delete') {
+    if (
+      left > 0 &&
+      now &&
+      change(structuredClone(now), [...p.backend.items.values()]) === 'delete'
+    ) {
       left--
       return opts.ms === undefined
         ? Promise.resolve('error' as const)
@@ -1344,7 +1405,8 @@ function slowDeletes(p: Phone, ms: number) {
   const real = p.backend.update.bind(p.backend)
   p.backend.update = (epoch, localId, change) => {
     const now = p.backend.items.get(localId)
-    return now && change(structuredClone(now)) === 'delete'
+    return now &&
+      change(structuredClone(now), [...p.backend.items.values()]) === 'delete'
       ? sleep(ms).then(() => real(epoch, localId, change))
       : real(epoch, localId, change)
   }
@@ -1815,6 +1877,177 @@ async function keptAndSent() {
   expect(stored(p)).toMatchObject({ state: 'sending', attempts: 1 })
   return { p, ...pressed }
 }
+
+describe('one made on a client or site not sent yet (2c-I): it can only be kept, so a slow keep is waited for, and one not kept never sticks to the form', () => {
+  const PARENT = 'parent-booking'
+  const LOCAL_ARGS = bookingFor({
+    property: { local: PARENT },
+  }) as unknown as SendableBooking
+
+  /** No signal, and New Job's first booking, for a new client, kept. */
+  async function withParent() {
+    const p = await phone()
+    p.keeper.live = false
+    const parent = itemFor('u1', {
+      localId: PARENT,
+      booking: bookingFor({
+        property: {
+          newClient: {
+            clientName: 'Jane Nguyen',
+            kind: 'person',
+            addressLine: '1 Hay St',
+            suburb: 'Perth',
+            state: 'WA',
+            postcode: '6000',
+          },
+        },
+      }),
+    })
+    p.backend.items.set(PARENT, structuredClone(parent))
+    await p.model.refresh()
+    return p
+  }
+
+  /** A draft whose `renew` gives it new ids, as `useDraftRequestId`'s does
+   * for the next render. */
+  function renewingDraft() {
+    const d = draft()
+    d.renew.mockImplementation(() => {
+      d.localId = 'local-2'
+      d.requestId = '22222222-2222-4222-8222-222222222222'
+    })
+    return d
+  }
+
+  test('a keep that takes longer than KEEP_WAIT_MS but lands within the phone’s own limit is kept, never refused', async () => {
+    const p = await withParent()
+    slowKeep(p, KEEP_WAIT_MS + 300)
+    const { outcome } = press(p, draft(), p.session, LOCAL_ARGS)
+    await onTo(KEEP_WAIT_MS + 400)
+    expect(outcome.error).toBeUndefined()
+    expect(outcome.value).toEqual({ outcome: 'kept' })
+    expect(stored(p)).toMatchObject({ dependsOn: PARENT, state: 'waiting' })
+    expect(p.convex.calls).toEqual([])
+  })
+
+  test('not kept within it: refused, the draft takes new ids, and Book again keeps it afresh, the first still noted as given up until its keep has come off', async () => {
+    const p = await withParent()
+    // Written in time to be refused nothing, answered only at 4 s.
+    keptLate(p, STORE_OP_MS + 1_000)
+    const d = renewingDraft()
+    const first = press(p, d, p.session, LOCAL_ARGS)
+    await onTo(STORE_OP_MS + 10)
+    expect(codeOf(first.outcome.error)).toBe(UNSENT_NOT_KEPT)
+    expect(d.renew).toHaveBeenCalledTimes(1)
+    expect(d.stopKeeping).not.toHaveBeenCalled()
+    expect(givenUpNote()).toEqual([LOCAL])
+    // The phone's storage at its own speed again.
+    p.backend.keep = MemoryOutboxBackend.prototype.keep.bind(p.backend)
+    const again = press(p, d, p.session, LOCAL_ARGS)
+    await flush()
+    expect(again.outcome.error).toBeUndefined()
+    expect(again.outcome.value).toEqual({ outcome: 'kept' })
+    expect(p.backend.items.get('local-2')).toMatchObject({
+      dependsOn: PARENT,
+      requestId: '22222222-2222-4222-8222-222222222222',
+    })
+    // The first still noted, so a reload now deletes it…
+    expect(givenUpNote()).toEqual([LOCAL])
+    // …and taken off the phone once its keep has said it landed.
+    await onTo(STORE_OP_MS + 1_100)
+    expect(stored(p)).toBeUndefined()
+    expect(givenUpNote()).toEqual([])
+    expect(p.backend.items.get('local-2')?.state).toBe('waiting')
+    expect(p.convex.calls).toEqual([])
+  })
+})
+
+describe('a first booking another tab booked on while it was being sent (2c-I): the sheet still open on it never takes it off the phone alone', () => {
+  const NEW_CLIENT_ARGS = bookingFor({
+    property: {
+      newClient: {
+        clientName: 'Jane Nguyen',
+        kind: 'person',
+        addressLine: '1 Hay St',
+        suburb: 'Perth',
+        state: 'WA',
+        postcode: '6000',
+      },
+    },
+  }) as SendableBooking
+  const MADE_ON = 'made-on-it'
+
+  /** Jane booked, kept and being sent; then, inside the wait for its
+   * answer, a second job booked on "Jane Nguyen — Sending…" in another
+   * tab's New Job. */
+  async function bookedOnWhileSending() {
+    const p = await phone()
+    const pressed = press(p, draft(), p.session, NEW_CLIENT_ARGS)
+    await flush()
+    expect(p.sheet.now).toBe('kept')
+    expect(stored(p)).toMatchObject({ state: 'sending' })
+    const madeOn = itemFromBooking(bookingFor({ property: { local: LOCAL } }), {
+      localId: MADE_ON,
+      requestId: '33333333-3333-4333-8333-333333333333',
+      userId: 'u1',
+      business: { slug: 'pest-co', name: 'Pest Co' },
+      membershipId: M1,
+      display: DISPLAY,
+      now: Date.now(),
+    })
+    expect(await p.model.keep(madeOn)).toBe('kept')
+    await flush()
+    return { p, ...pressed }
+  }
+
+  test('refused INVALID_ASSIGNEE: left needing a look, the sheet closing with it kept, never FormAlert; the one made on it waits, never told its client was deleted', async () => {
+    const { p, outcome } = await bookedOnWhileSending()
+    p.convex.calls[0].reject(new ConvexError('INVALID_ASSIGNEE'))
+    await flush()
+    expect(outcome.error).toBeUndefined()
+    expect(outcome.value).toEqual({ outcome: 'kept' })
+    expect(p.sheet.close).toHaveBeenCalledTimes(1)
+    expect(p.sheet.booked).toHaveBeenCalledTimes(1)
+    expect(stored(p)).toMatchObject({
+      state: 'needsLook',
+      problem: { code: 'INVALID_ASSIGNEE' },
+    })
+    await vi.advanceTimersByTimeAsync(60_000)
+    await flush()
+    expect(p.backend.items.get(MADE_ON)).toMatchObject({
+      dependsOn: LOCAL,
+      state: 'waiting',
+      problem: null,
+    })
+    expect(p.convex.calls).toHaveLength(1)
+  })
+
+  test('OUTBOX_PAUSED: held on the phone, never sent straight, so the one made on it goes after it once the hold is up', async () => {
+    const { p, outcome } = await bookedOnWhileSending()
+    p.convex.calls[0].reject(new ConvexError('OUTBOX_PAUSED'))
+    await flush()
+    expect(outcome.error).toBeUndefined()
+    expect(outcome.value).toEqual({ outcome: 'kept' })
+    expect(p.sheet.close).toHaveBeenCalledTimes(1)
+    expect(p.convex.calls).toHaveLength(1)
+    expect(stored(p)).toMatchObject({ state: 'waiting' })
+    expect(stored(p)?.holdUntil).toBeGreaterThan(Date.now())
+    expect(p.backend.items.get(MADE_ON)).toMatchObject({
+      dependsOn: LOCAL,
+      state: 'waiting',
+      problem: null,
+    })
+    p.session.dispose()
+    await vi.advanceTimersByTimeAsync(16 * 60_000)
+    await flush()
+    expect(p.convex.calls).toHaveLength(2)
+    expect(p.convex.calls[1].args).toMatchObject({ clientRequestId: REQUEST })
+    expect(p.backend.items.get(MADE_ON)).toMatchObject({
+      state: 'waiting',
+      problem: null,
+    })
+  })
+})
 
 describe('closed while the phone writes what a refusal says: the sheet said kept, so the phone keeps it (§3.2 step 6, F1)', () => {
   const PATHS = [['kept in time and sent', keptAndSent]] as const

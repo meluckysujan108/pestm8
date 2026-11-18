@@ -63,15 +63,25 @@ import type {
 import { useLineFixHold } from '#/components/clients/useMatchLines'
 import type { FieldFix } from '#/components/forms/FieldMessage'
 import type { Id } from '../../../convex/_generated/dataModel'
-import type { OutboxItem, SendableBooking } from '#/lib/outbox/outboxItem'
+import type {
+  BookingArgs,
+  OutboxItem,
+  SendableBooking,
+} from '#/lib/outbox/outboxItem'
 import { bookingDisplay, contactPersonFor } from '#/lib/outbox/outboxRow'
 import {
   pageItemDeps,
   useCanKeep,
   useDraftRequestId,
+  useHoldOffered,
+  useOutboxItems,
 } from '#/lib/outbox/useOutbox'
 import { OUTBOX_ENABLED } from '#/lib/outbox/outboxSet'
-import { saysKept } from '#/lib/outbox/book'
+import {
+  UNSENT_NOT_KEPT,
+  UNSENT_NOT_KEPT_COPY,
+  saysKept,
+} from '#/lib/outbox/book'
 import type { BookingWho } from '#/lib/outbox/book'
 import { useHydrated } from '#/lib/useHydrated'
 import { useLineDown } from '#/lib/offline/useLineDown'
@@ -85,6 +95,7 @@ import {
   propertyOptions,
   siteWorkDetail,
   siteWorkIndex,
+  withUnsentSites,
 } from '#/lib/propertyOptions'
 import {
   clientOf,
@@ -197,7 +208,16 @@ import { useAccess } from '#/lib/access'
 import { isOffline } from '#/lib/online'
 import { OUTBOX_ACTION_COPY } from '#/lib/outbox/outboxInset'
 import { replaceItem } from '#/lib/outbox/itemActions'
-import { bookingFromForm, formFromBooking } from './newJobEdit'
+import {
+  asKept,
+  bookingFromForm,
+  formFromBooking,
+  offersNewSite,
+  unsentLocalId,
+  unsentSites,
+  unsentStatus,
+  unsentValue,
+} from './newJobEdit'
 import type { ClientMode } from './newJobEdit'
 
 /** What New Job's checks found at a press (lib/sheetChecks.ts
@@ -520,17 +540,37 @@ function NewJobForm({
   const [edit] = useState(() =>
     item === undefined
       ? null
-      : formFromBooking(item.booking as SendableBooking, {
+      : formFromBooking(item.booking, {
           timezone,
           businessState,
+          // Its site deleted: one made on another booking opens on no site,
+          // never on that one again (`formFromBooking`).
+          siteGone:
+            item.state === 'needsLook' && item.problem?.code === 'NOT_FOUND',
         }),
   )
   const pickDate = pickDateAsked || edit !== null
+  // The clients and sites on the phone not sent yet (plan part 2c §7): a
+  // booking can be made on one, and goes once that one has. Null until the
+  // phone's bookings are read. Offered with keeping switched on, and to an
+  // Edit of a booking made on one, which opens on it (D-I4): that one is
+  // kept for it whatever has become of it, sent before this page load
+  // included, which every list leaves out (`useOutboxItems`' `keep`).
+  const keptHere = useOutboxItems(businessId, {
+    keep: edit === null ? null : unsentLocalId(edit.propertyId),
+  })
+  const offersUnsent =
+    OUTBOX_ENABLED || (item !== undefined && 'local' in item.booking.property)
 
-  // A business with no properties yet has nothing to pick from, so it starts
-  // straight in "new client" mode rather than hitting a dead end.
+  // A business with nothing to pick from (no site in the client list, nor
+  // one on the phone not sent yet) starts straight in "new client" mode
+  // rather than hitting a dead end.
   const [mode, setMode] = useState<ClientMode>(
-    edit?.mode ?? (properties.length > 0 ? 'existing' : 'new'),
+    edit?.mode ??
+      (properties.length > 0 ||
+      (offersUnsent && keptHere !== null && unsentSites(keptHere).length > 0)
+        ? 'existing'
+        : 'new'),
   )
   // Chosen already when booked from a client's sheet: that is the client.
   // Anywhere else nothing is, until the person chooses.
@@ -542,6 +582,31 @@ function NewJobForm({
         : '',
   )
   const [propertyId, setPropertyId] = useState(openedProperty)
+  // When the form opened, held for its life: what "Added recently" counts
+  // from, and since when one on the phone sent stays in the picker.
+  const [openedAt] = useState(() => Date.now())
+  const chosenUnsent = unsentLocalId(propertyId)
+  const unsentItems = useMemo(() => {
+    if (keptHere === null || !offersUnsent) return null
+    const offered = unsentSites(keptHere, item, chosenUnsent, openedAt)
+    // Keeping switched off, nothing new is made on a booking not sent yet:
+    // an Edit of one made on one (D14) is offered that one alone.
+    return OUTBOX_ENABLED
+      ? offered
+      : offered.filter((unsent) => unsent.localId === chosenUnsent)
+  }, [keptHere, offersUnsent, item, chosenUnsent, openedAt])
+  // Each offered stays on the phone while it is, sent or not: no sweep or
+  // ten-minute forget takes a row from the open picker, a choice of it from
+  // the form, or the site from a booking made on it (`useHoldOffered`).
+  useHoldOffered((unsentItems ?? []).map((unsent) => unsent.localId))
+  const unsentPicked =
+    chosenUnsent === null
+      ? undefined
+      : unsentItems?.find((unsent) => unsent.localId === chosenUnsent)
+  // Something to pick in the Property picker: a site in the client list,
+  // or a client or site on the phone not sent yet (2c-I), which only it
+  // offers.
+  const sitesToPick = properties.length > 0 || (unsentItems?.length ?? 0) > 0
   // A day of its own only where the form asks for one; the Schedule's New
   // Job books on the day the Schedule is showing, as it always has.
   const [openedDay] = useState(edit?.day ?? dayKey)
@@ -689,11 +754,24 @@ function NewJobForm({
   // to whoever happened to be first in the list — and nothing on the form
   // said so.
   // New clients first ("Added recently"), then everyone A–Z. `now` is held
-  // for the form's life, so the section does not reshuffle while it is open.
-  const [openedAt] = useState(() => Date.now())
+  // for the form's life (`openedAt`), so the section does not reshuffle
+  // while it is open.
   const propertyOptionList = useMemo(
-    () => propertyOptions(properties, { timezone, now: openedAt }),
-    [properties, timezone, openedAt],
+    () =>
+      withUnsentSites(
+        propertyOptions(properties, { timezone, now: openedAt }),
+        (unsentItems ?? []).map((unsent) => ({
+          value: unsentValue(unsent.localId),
+          clientName: unsent.display.clientName,
+          addressLine: unsent.display.addressLine,
+          suburb: unsent.display.suburb,
+          postcode: unsent.display.postcode,
+          phone: unsent.display.clientPhone,
+          email: unsent.display.clientEmail,
+          status: unsentStatus(unsent, openedAt),
+        })),
+      ),
+    [properties, timezone, openedAt, unsentItems],
   )
   const [propertyMissing, setPropertyMissing] = useState(false)
 
@@ -705,6 +783,16 @@ function NewJobForm({
       clientOptions(clientsForPicker(directory), { timezone, now: openedAt }),
     [directory, timezone, openedAt],
   )
+  // "New site for an existing client": decided as the form opens, and
+  // never put in while Existing client is on screen (`offersNewSite`).
+  const [newSiteOffered, setNewSiteOffered] = useState(
+    () => clientOptionList.length > 0,
+  )
+  const newSiteShown = offersNewSite(newSiteOffered, {
+    clients: clientOptionList.length,
+    mode,
+  })
+  if (newSiteShown !== newSiteOffered) setNewSiteOffered(newSiteShown)
   // From the client list, not the sites: a client with no site yet, chosen
   // here, stays chosen, and a business among them gets its site contact.
   const siteClient = clientOf(directory, siteClientId)
@@ -717,7 +805,8 @@ function NewJobForm({
   // add one; a landlord's managing agent issues them too.
   const clientKind =
     mode === 'existing'
-      ? properties.find((p) => p._id === propertyId)?.client.kind
+      ? (properties.find((p) => p._id === propertyId)?.client.kind ??
+        unsentPicked?.display.clientKind)
       : mode === 'site'
         ? siteClient?.kind
         : newClient.kind
@@ -730,10 +819,19 @@ function NewJobForm({
   // rather than submitted as an id nobody can see. Nothing removes a property
   // today, but the list is scoped to the client directory (clientScope.ts),
   // and a narrower scope would take rows away mid-booking.
+  // One on the phone goes from the picker only once it is discarded or
+  // cleared (sent, it stays while the form is open: `unsentSites`'
+  // `openedAt`, `useHoldOffered`): only once the phone's bookings are read.
   useEffect(() => {
-    if (propertyId && !properties.some((p) => p._id === propertyId))
+    if (!propertyId) return
+    const local = unsentLocalId(propertyId)
+    if (local === null) {
+      if (!properties.some((p) => p._id === propertyId)) setPropertyId('')
+      return
+    }
+    if (unsentItems !== null && !unsentItems.some((u) => u.localId === local))
       setPropertyId('')
-  }, [properties, propertyId])
+  }, [properties, propertyId, unsentItems])
   // The same for the new site's client: gone from the client list, not
   // merely without a site.
   useEffect(() => {
@@ -815,6 +913,9 @@ function NewJobForm({
   // longer than the panel would take their rows: an edit meanwhile ends it.
   const create = useMutation({
     mutationFn: async (args: SendableBooking) => {
+      // As it is kept: on a client or site not sent yet, `{ local }`, which
+      // is only ever kept, never sent straight (book.ts).
+      const kept = asKept(args)
       // An Edit: in the booking's place, as it is kept (no checks go with
       // it, as none go with a booking the phone sends), and the form closes
       // on whatever comes of it, the booking's own sheet saying the rest.
@@ -825,7 +926,7 @@ function NewJobForm({
         }
         const outcome = await replaceItem(
           item.localId,
-          { booking: args, display: whoFor(args).display() },
+          { booking: kept, display: whoFor(kept).display() },
           pageItemDeps(),
           () => setReplaced(true),
           () => editDiscarded.current,
@@ -844,9 +945,9 @@ function NewJobForm({
         // Sent again at once, straight, as the send refused went.
         send: (extra, again) =>
           booking.session.book(
-            args,
+            kept,
             draft,
-            whoFor(args),
+            whoFor(kept),
             checks(extra, again),
             { straight: again },
           ),
@@ -873,7 +974,7 @@ function NewJobForm({
    * until the real one lands (`bookingDisplay`), as the form has it at the
    * press.
    */
-  function whoFor(args: SendableBooking): BookingWho {
+  function whoFor(args: BookingArgs): BookingWho {
     return {
       userId: signedInUserId(),
       lens: lensOf(access),
@@ -905,6 +1006,11 @@ function NewJobForm({
               directory.contacts.filter((c) => c.clientId === siteClientId),
             listed,
           ),
+          // On a client or site not sent yet: that booking's card.
+          ...('local' in property && {
+            parent: unsentItems?.find((u) => u.localId === property.local)
+              ?.display,
+          }),
         })
       },
     }
@@ -974,7 +1080,11 @@ function NewJobForm({
     // Checked here rather than by disabling "Book job": the button sits at
     // the foot of a long sheet, and a greyed-out button tells someone on the
     // phone to a customer nothing about what is missing.
-    if (mode === 'existing' && !properties.some((p) => p._id === propertyId)) {
+    if (
+      mode === 'existing' &&
+      !properties.some((p) => p._id === propertyId) &&
+      unsentPicked === undefined
+    ) {
       setPropertyMissing(true)
       propertyTrigger.current?.focus()
       return false
@@ -2279,7 +2389,7 @@ function NewJobForm({
 
         {/* A client with no site yet is still a client to add one for. Not a
             Field: its <label> would name only the first segment. */}
-        {directory.clients.length > 0 && (
+        {(directory.clients.length > 0 || sitesToPick) && (
           <div className="mt-4 flex flex-col gap-1.5">
             <span id={clientChoiceId} className="section-label">
               Client
@@ -2294,8 +2404,7 @@ function NewJobForm({
               value={mode === 'new' ? 'new' : 'existing'}
               onChange={(next) =>
                 switchMode((m) =>
-                  next === 'existing' &&
-                  (m === 'site' || properties.length === 0)
+                  next === 'existing' && (m === 'site' || !sitesToPick)
                     ? 'site'
                     : next,
                 )
@@ -2326,7 +2435,7 @@ function NewJobForm({
                 noMatchLabel={
                   // Only while a push takes the last site away: the tab goes
                   // to New site for when there are none.
-                  properties.length === 0
+                  !sitesToPick
                     ? 'No sites yet — search for the client to add one.'
                     : 'No client or address matches.'
                 }
@@ -2350,23 +2459,28 @@ function NewJobForm({
                 Choose the client and address for this job.
               </p>
             )}
-            <button
-              type="button"
-              onClick={() => {
-                // The client already found in the picker is most likely the
-                // one with the new address, so it comes along.
-                const picked = properties.find((p) => p._id === propertyId)
-                flushSync(() => {
-                  if (picked) setSiteClientId(picked.clientId)
-                  switchMode(() => 'site')
-                })
-                clientTrigger.current?.focus()
-              }}
-              className="relative tap-target mt-3 inline-flex items-center gap-1 text-body font-semibold text-blue"
-            >
-              <Plus size={16} strokeWidth={2.2} />
-              New site for an existing client
-            </button>
+            {/* Not while there is no client to choose: one booked on the
+                phone and not sent yet is never offered there (plan §7).
+                Never put in under a thumb (`offersNewSite`). */}
+            {newSiteShown && (
+              <button
+                type="button"
+                onClick={() => {
+                  // The client already found in the picker is most likely
+                  // the one with the new address, so it comes along.
+                  const picked = properties.find((p) => p._id === propertyId)
+                  flushSync(() => {
+                    if (picked) setSiteClientId(picked.clientId)
+                    switchMode(() => 'site')
+                  })
+                  clientTrigger.current?.focus()
+                }}
+                className="relative tap-target mt-3 inline-flex items-center gap-1 text-body font-semibold text-blue"
+              >
+                <Plus size={16} strokeWidth={2.2} />
+                New site for an existing client
+              </button>
+            )}
           </>
         ) : mode === 'site' ? (
           <>
@@ -2423,7 +2537,7 @@ function NewJobForm({
               />
             )}
             {/* Not while there is no site to choose. */}
-            {properties.length > 0 && (
+            {sitesToPick && (
               <button
                 type="button"
                 onClick={() => {
@@ -2683,6 +2797,8 @@ function NewJobForm({
             ),
             // An Edit's own refusals (lib/outbox/itemActions.ts).
             ...(item !== undefined && OUTBOX_ACTION_COPY),
+            // On a client or site not sent yet, which can't go straight.
+            [UNSENT_NOT_KEPT]: UNSENT_NOT_KEPT_COPY,
           }}
           className="mt-3"
         />

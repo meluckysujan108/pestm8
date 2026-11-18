@@ -1762,6 +1762,21 @@ const PLAN = {
   'outbox-sheet-stale': {},
   'outbox-sheet-foreign': {},
   'outbox-discard-confirm': {},
+  // Part 2c-I. A second job held behind the first, which needs a look: its
+  // inset says whose; and the first's Discard asking once for both. Check
+  // the dialog's title wraps to two lines at most at 390.
+  'outbox-sheet-held-parent': {},
+  'outbox-discard-cascade': {},
+  // New Job's Property picker with no signal and a new client's booking on
+  // the phone: that client at the top of "Added recently", "Not sent yet"
+  // under them. Check the row's two lines and the group heading.
+  'newjob-picker-unsent-client': {
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Property' }).click()
+      await p.waitForTimeout(700)
+    },
+  },
   // Part 2c-F. The Week View with bookings on the phone: today's under its
   // jobs, and a clear day with one and no "No jobs" (drawn from the
   // outbox); then today after a send, its slot the real job. Check the

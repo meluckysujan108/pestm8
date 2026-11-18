@@ -870,6 +870,49 @@ describe('an id is the business’s, behind its membership', () => {
     })
     expect(await findAs(s.owner, s.businessId, 'series', key)).toBeNull()
   })
+
+  test('a booking’s key, sent with a site save, is answered with the site that booking made, and makes nothing', async () => {
+    // The other way round: a booking that added a client stamped the site it
+    // made with its own id (lib/clientRequest.ts). Kevin sends that key with
+    // a site of his own, for another client, either way a site is saved:
+    // he is told the booking's site, as a repeat of it would be, and no
+    // site is made, nor does the phone asking after it hear anything else.
+    const s = await setup()
+    const key = newKey()
+    const jobId = await s.owner.as.mutation(api.jobs.create, {
+      ...booking(s, { propertyId: undefined }),
+      newClient: priya,
+      clientRequestId: key,
+    })
+    const priyasSite = (await row(s, jobId)).propertyId
+    const before = await everything(s)
+
+    expect(
+      await s.kevin.as.mutation(api.properties.createForClient, {
+        businessId: s.businessId,
+        clientId: s.clientId,
+        ...secondSite,
+        clientRequestId: key,
+      }),
+    ).toBe(priyasSite)
+    expect(
+      await s.kevin.as.mutation(api.properties.create, {
+        businessId: s.businessId,
+        clientName: 'Dev Shah',
+        ...secondSite,
+        clientRequestId: key,
+      }),
+    ).toBe(priyasSite)
+
+    const after = await everything(s)
+    expect(after.properties).toEqual(before.properties)
+    expect(after.clients).toEqual(before.clients)
+    expect(await findAs(s.owner, s.businessId, 'site', key)).toEqual({
+      kind: 'site',
+      id: priyasSite,
+      propertyId: priyasSite,
+    })
+  })
 })
 
 describe('only an id as the phone makes one', () => {
@@ -920,7 +963,7 @@ describe('only an id as the phone makes one', () => {
 })
 
 describe('where the id is kept', () => {
-  test('on the job, never on the client or site made with it', async () => {
+  test('on the job and the site made with it, never on the client', async () => {
     const s = await setup()
     const withClient = newKey()
     const withSite = newKey()
@@ -942,15 +985,72 @@ describe('where the id is kept', () => {
     )
     expect(a.clientRequestId).toBe(withClient)
     expect(b.clientRequestId).toBe(withSite)
+    // The site a booking makes carries the booking's id, for a second
+    // booking kept behind it on the phone to find (`clientRequests.find`,
+    // kind 'site'); the client never does.
     const madeWith = await row(s, a.propertyId)
-    expect(madeWith).not.toHaveProperty('clientRequestId')
+    expect(madeWith.clientRequestId).toBe(withClient)
     expect(await row(s, madeWith.clientId)).not.toHaveProperty(
       'clientRequestId',
     )
-    expect(await row(s, b.propertyId)).not.toHaveProperty('clientRequestId')
+    expect((await row(s, b.propertyId)).clientRequestId).toBe(withSite)
   })
 
-  test('on the series, never on its visits or the site made with it', async () => {
+  test('never on a site a booking only goes to', async () => {
+    const s = await setup()
+    const key = newKey()
+    const job = await row(
+      s,
+      await s.owner.as.mutation(
+        api.jobs.create,
+        booking(s, { clientRequestId: key }),
+      ),
+    )
+    const seriesKey = newKey()
+    const arrangement = await row(
+      s,
+      await s.owner.as.mutation(
+        api.recurrences.create,
+        series(s, { clientRequestId: seriesKey }),
+      ),
+    )
+    expect(job.propertyId).toBe(s.propertyId)
+    expect(arrangement.propertyId).toBe(s.propertyId)
+    expect(await row(s, s.propertyId)).not.toHaveProperty('clientRequestId')
+    expect(await findAs(s.owner, s.businessId, 'site', key)).toBeNull()
+    expect(await findAs(s.owner, s.businessId, 'site', seriesKey)).toBeNull()
+  })
+
+  test('nor on a new one when a site already carries the id', async () => {
+    // A key read off a site and sent with a booking that adds another: the
+    // key still names the first site alone.
+    const s = await setup()
+    const key = newKey()
+    const siteId = await s.owner.as.mutation(api.properties.createForClient, {
+      businessId: s.businessId,
+      clientId: s.clientId,
+      ...secondSite,
+      clientRequestId: key,
+    })
+    const job = await row(
+      s,
+      await s.kevin.as.mutation(api.jobs.create, {
+        ...booking(s, { propertyId: undefined }),
+        newClient: priya,
+        clientRequestId: key,
+      }),
+    )
+    expect(job.clientRequestId).toBe(key)
+    expect(job.propertyId).not.toBe(siteId)
+    expect(await row(s, job.propertyId)).not.toHaveProperty('clientRequestId')
+    expect(await findAs(s.owner, s.businessId, 'site', key)).toEqual({
+      kind: 'site',
+      id: siteId,
+      propertyId: siteId,
+    })
+  })
+
+  test('on the series and the site made with it, never on its visits', async () => {
     const s = await setup()
     const clientRequestId = newKey()
     const recurrenceId = await s.owner.as.mutation(api.recurrences.create, {
@@ -965,9 +1065,20 @@ describe('where the id is kept', () => {
     for (const visit of visits) {
       expect(visit).not.toHaveProperty('clientRequestId')
     }
-    expect(await row(s, arrangement.propertyId)).not.toHaveProperty(
-      'clientRequestId',
+    const site = await row(s, arrangement.propertyId)
+    expect(site.clientRequestId).toBe(clientRequestId)
+    expect(await row(s, site.clientId)).not.toHaveProperty('clientRequestId')
+
+    const withSite = newKey()
+    const second = await row(
+      s,
+      await s.owner.as.mutation(api.recurrences.create, {
+        ...series(s, { propertyId: undefined }),
+        newProperty: { clientId: s.clientId, ...secondSite },
+        clientRequestId: withSite,
+      }),
     )
+    expect((await row(s, second.propertyId)).clientRequestId).toBe(withSite)
   })
 
   test('on the site a new client or a new site makes', async () => {
@@ -1317,6 +1428,60 @@ describe('clientRequests.find: where it went', () => {
     })
   })
 
+  test('a booking that added a site: kind site names that site, moved or not', async () => {
+    // What a second booking kept behind it on the phone goes to: the site
+    // the first booking made, even once the office has moved the first.
+    const s = await setup()
+    const [withClient, withSite, seriesKey] = [newKey(), newKey(), newKey()]
+    const jobId = await s.owner.as.mutation(api.jobs.create, {
+      ...booking(s, { propertyId: undefined }),
+      newClient: priya,
+      clientRequestId: withClient,
+    })
+    const priyasSite = (await row(s, jobId)).propertyId
+    const siteJob = await s.owner.as.mutation(api.jobs.create, {
+      ...booking(s, { propertyId: undefined }),
+      newProperty: { clientId: s.clientId, ...secondSite },
+      clientRequestId: withSite,
+    })
+    const extraSite = (await row(s, siteJob)).propertyId
+    const recurrenceId = await s.owner.as.mutation(api.recurrences.create, {
+      ...series(s, { propertyId: undefined }),
+      newClient: { ...priya, clientName: 'Dev Shah' },
+      clientRequestId: seriesKey,
+    })
+    const seriesSite = (await row(s, recurrenceId)).propertyId
+
+    await s.owner.as.mutation(api.jobs.update, {
+      businessId: s.businessId,
+      jobId,
+      propertyId: s.propertyId,
+    })
+
+    const site = (key: string) => findAs(s.owner, s.businessId, 'site', key)
+    expect(await site(withClient)).toEqual({
+      kind: 'site',
+      id: priyasSite,
+      propertyId: priyasSite,
+    })
+    expect(await site(withSite)).toEqual({
+      kind: 'site',
+      id: extraSite,
+      propertyId: extraSite,
+    })
+    expect(await site(seriesKey)).toEqual({
+      kind: 'site',
+      id: seriesSite,
+      propertyId: seriesSite,
+    })
+    // And the booking itself, where it is now.
+    expect(await findAs(s.owner, s.businessId, 'job', withClient)).toEqual({
+      kind: 'job',
+      id: jobId,
+      propertyId: s.propertyId,
+    })
+  })
+
   test('a Recurring Job: its first visit, or none while it has none', async () => {
     const s = await setup()
     // Started more than a day ago, so its first visit is the engine's next.
@@ -1435,5 +1600,51 @@ describe('clientRequests.find: where it went', () => {
       expect(found, kind).toEqual({ kind, id })
       expect(Object.keys(found!).sort(), kind).toEqual(['id', 'kind'])
     }
+  })
+
+  test('a booking and the site it made, wiped together: each kept under its own kind', async () => {
+    // One id names both. Wiped with its client, each is remembered on its
+    // own, so the phone's ask for the site is told it was made and is gone
+    // (needs a look), never null (made again).
+    vi.useFakeTimers()
+    const s = await setup()
+    const key = newKey()
+    const jobId = await s.owner.as.mutation(api.jobs.create, {
+      ...booking(s, { propertyId: undefined }),
+      newClient: priya,
+      clientRequestId: key,
+    })
+    const job = await row(s, jobId)
+    const clientId = (await row(s, job.propertyId)).clientId
+    await settle(s)
+    await s.owner.as.mutation(api.bin.deleteClient, {
+      businessId: s.businessId,
+      clientId,
+    })
+    await s.owner.as.mutation(api.bin.empty, { businessId: s.businessId })
+    await settle(s)
+    expect(await isGone(s, jobId)).toBe(true)
+    expect(await isGone(s, job.propertyId)).toBe(true)
+
+    expect(await findAs(s.owner, s.businessId, 'site', key)).toEqual({
+      kind: 'site',
+      id: job.propertyId,
+    })
+    expect(await findAs(s.owner, s.businessId, 'job', key)).toEqual({
+      kind: 'job',
+      id: jobId,
+    })
+    // And sent again, neither is made again.
+    const before = await everything(s)
+    expect(
+      await s.owner.as.mutation(api.jobs.create, {
+        ...booking(s, { propertyId: undefined }),
+        newClient: priya,
+        clientRequestId: key,
+      }),
+    ).toBe(jobId)
+    const after = await everything(s)
+    expect(after.properties).toEqual(before.properties)
+    expect(after.clients).toEqual(before.clients)
   })
 })

@@ -5,9 +5,15 @@ import { signedInUserId, signedOutAfterAll } from '#/lib/rootState'
 import { rq } from '#/lib/routeQueries'
 import { flagIfTwoStepNeeded, isTwoStepNeeded } from '#/lib/twoStep'
 import { outbox as pageOutbox } from './outbox'
-import { bookingCall, newRequestId } from './outboxItem'
+import { bookingCall, newRequestId, waitedOn } from './outboxItem'
 import { lapseLeftEdits } from './itemActions'
-import { SEND_LOCK, itemLock, retakeTabLock, takeLock } from './outboxLocks'
+import {
+  SEND_LOCK,
+  itemLock,
+  offeredNow,
+  retakeTabLock,
+  takeLock,
+} from './outboxLocks'
 import {
   classify,
   codeOf,
@@ -84,7 +90,10 @@ import type { OutboxKind } from './outboxSet'
  *   (switchGate.ts `holdSends`, `holdSendsHere`);
  * - G7 this build can read it (not a newer build's);
  * - G8 it is waiting or unanswered, not being edited, not held or backing
- *   off, and not waiting on the booking that makes its site;
+ *   off, and not waiting on the booking that makes its client or site
+ *   (2c-I): behind it while that one waits or is being sent, held while
+ *   that one needs a look; once it is sent, this one goes to the site it
+ *   made (`resolve`);
  * - G9 two-step sign-in is not being asked for.
  * The server holds to the same (`asMembership`, convex/lib/outboxGuards.ts):
  * a send that lands in someone else's account is refused NOT_OWN_ACCOUNT.
@@ -109,7 +118,8 @@ import type { OutboxKind } from './outboxSet'
  * nothing could undo a booking forgotten on its word. So nothing is
  * forgotten on an answer that doesn't show it is the person's: `access:me`
  * names their membership, which is one person's in one business, and the
- * business list lists a membership one of their bookings was saved under.
+ * business list names whose it is on every row (`userId`; a backend from
+ * before that, a membership one of their bookings was saved under).
  *
  * Removed and invited back: a rejoin makes the same membership active again
  * (invitations.redeem), so the membership a booking was saved under can't
@@ -160,6 +170,7 @@ export type HeldReason =
   | 'retry'
   | 'hold'
   | 'parent'
+  | 'behind'
   | 'switched-hold'
   | 'two-step'
   | 'line'
@@ -168,6 +179,22 @@ export type HeldReason =
   | 'switch-starting'
 
 type Gate = HeldReason | 'gone' | 'earlier-stint' | null
+
+/**
+ * What holds a booking for reasons of its own, worded from its own fields
+ * or about it alone (its retry's time, a hold the server put on it, an Edit
+ * of it): a booking made on its client or site (2c-I), behind it, is told
+ * it waits on it instead (`Sender.heldReason`).
+ */
+const PARENTS_OWN: ReadonlySet<HeldReason> = new Set<HeldReason>([
+  'retry',
+  'hold',
+  'editing',
+  'behind',
+  'parent',
+  'state',
+  'newer-build',
+])
 
 /**
  * The sheet waiting on the send it started (`sendHeld`): told once, and
@@ -230,6 +257,30 @@ function madeOf(
 const LIST_KEY = convexQuery(api.businesses.listForUser, {}).queryKey
 
 type Listed = FunctionReturnType<typeof api.businesses.listForUser>
+
+/**
+ * Whether `listed` is `userId`'s list for certain (`forgetNotListed`): every
+ * row names them. Rows that name nobody (a backend from before 18 Nov 2026)
+ * are theirs only when one lists a membership a booking of theirs (`mine`)
+ * was saved under.
+ */
+export function listIsTheirs(
+  listed: ReadonlyArray<{ membershipId: string; userId?: string }>,
+  userId: string,
+  mine: ReadonlyArray<OutboxItem>,
+): boolean {
+  const named = listed.filter((row) => row.userId !== undefined)
+  if (named.length > 0) {
+    return (
+      named.length === listed.length &&
+      named.every((row) => row.userId === userId)
+    )
+  }
+  const known = new Set<string>(
+    mine.filter(isReadable).map((item) => item.membershipId),
+  )
+  return listed.some((row) => known.has(row.membershipId))
+}
 
 /** How many passes one wake may make, while things keep changing. */
 const MAX_ROUNDS = 5
@@ -314,6 +365,18 @@ export class Sender {
     string,
     { attemptAt: number | null; n: number }
   >()
+  // The site each sent booking made, by its key, for the bookings made on
+  // it (`siteOf`): this page load's.
+  private readonly sites = new Map<string, Id<'properties'>>()
+  // The code each one's site ask was last refused with, until it is had:
+  // noted once per change (`siteRefused`).
+  private readonly siteRefusals = new Map<string, string>()
+  // The bookings whose site couldn't be had this run (`resolve`): the rest
+  // made on each wait for the next, so they still go in the order booked.
+  private readonly siteWaits = new Set<string>()
+  // A sent booking whose ten minutes are up, kept for an open New Job that
+  // offers it (`offeredNow`): looked at again each OUTBOX_TICK_MS.
+  private offerKept = false
   // Each booking's held reason as last noted, and how many looks found it.
   private readonly heldNotes = new Map<
     string,
@@ -424,8 +487,9 @@ export class Sender {
     for (const item of deps.outbox.all()) {
       if (item.userId !== userId || item.businessId !== b._id) continue
       // One waiting that has waited too long goes only once looked at, as
-      // the sender will say once the line lets it (`goesOnlyAfterALook`).
-      if (goesOnlyAfterALook(item, now)) needsLook++
+      // the sender will say once the line lets it (`goesOnlyAfterALook`);
+      // so does one made on a booking that does (2c-I).
+      if (goesOnlyAfterALook(item, now, deps.outbox.all())) needsLook++
       else if (item.state === 'waiting' || item.state === 'sending') count++
     }
     if (count === 0 && needsLook === 0) return null
@@ -438,6 +502,38 @@ export class Sender {
   heldReason(localId: string): HeldReason | null {
     const item = this.deps?.outbox.get(localId)
     if (!item) return null
+    const why = this.ownHeldReason(item)
+    if (why !== 'behind') return why
+    // Behind the booking that makes its site (2c-I): what holds that one
+    // and says nothing of it (the line, two-step, the account) holds this
+    // one too, and with nothing holding it and its call out, it goes in a
+    // moment. What is that one's own (its retry, a hold the server put on
+    // it, an Edit of it, or its being behind another in turn) is told here
+    // as waiting on that one (`parent`): its time and its words are its own
+    // sheet's, and this one's fields would tell them wrong. Asked once,
+    // never further: one level, so even a ring two tabs made between them
+    // ends.
+    const parent =
+      item.dependsOn === undefined
+        ? undefined
+        : this.deps?.outbox.get(item.dependsOn)
+    const its = parent === undefined ? null : this.ownHeldReason(parent)
+    if (its !== null) return PARENTS_OWN.has(its) ? 'parent' : its
+    // That one sent and never answered (its sheet says it may already be
+    // booked): it waits to be settled, which can take a while on a poor
+    // line, so this one says it waits on it, never "in a moment". While
+    // that one's call is out, here or in another tab, this one goes in a
+    // moment.
+    return parent !== undefined &&
+      parent.state === 'sending' &&
+      !this.sendingHere(parent.localId) &&
+      !this.sendingElsewhere(parent.localId)
+      ? 'parent'
+      : null
+  }
+
+  /** `heldReason` for `item` by itself, never looking past it. */
+  private ownHeldReason(item: OutboxItem): HeldReason | null {
     const why = this.gate(item)
     if (why === 'gone' || why === 'earlier-stint') return null
     // A switch that ended by itself (`degraded`) holds it (G5) only until
@@ -558,6 +654,7 @@ export class Sender {
         if (userId === null) break
         await this.tidy(userId)
         const tried = new Set<string>()
+        this.siteWaits.clear()
         while (await this.step(userId, tried)) {
           // One booking at a time, each tried once a round.
         }
@@ -613,6 +710,11 @@ export class Sender {
     for (const item of this.candidates(userId)) {
       const id = item.localId
       if (tried.has(id) || this.pending.has(id) || this.heldHere.has(id))
+        continue
+      // Made on a booking whose site couldn't be had this run (2c-I): an
+      // older one made on it waits for that, so this one does too, or the
+      // two could go out of the order they were booked in.
+      if (item.dependsOn !== undefined && this.siteWaits.has(item.dependsOn))
         continue
       if ((this.trouble.get(id) ?? 0) > now) continue
       // Not settled while a page just closed may still have its call on
@@ -868,8 +970,10 @@ export class Sender {
   // ── Before a run ─────────────────────────────────────────────────────────
 
   /**
-   * Deletes what was sent a while ago; forgets the person's bookings from an
-   * earlier stint in a business, whatever their state (`forgetEarlierStint`:
+   * Deletes what was sent a while ago, unless a booking made on it is still
+   * unsent, or an open New Job offers it (`offeredNow`); forgets the
+   * person's bookings from an earlier stint in a business, whatever their
+   * state (`forgetEarlierStint`:
    * one needing a look would otherwise go the moment the person sent it on);
    * and forgets the bookings for any business the person's `listForUser`,
    * live on this connection, no longer lists: offboarding from someone's
@@ -894,15 +998,24 @@ export class Sender {
     )
     const mine = deps.outbox.all().filter((item) => item.userId === userId)
     const now = Date.now()
-    for (const item of mine) {
-      if (
-        item.state !== 'sent' ||
-        !isReadable(item) ||
-        item.sentAt === null ||
-        item.sentAt + SENT_KEEP_MS > now ||
-        // A booking made after it on its site still needs its answer.
-        mine.some((other) => other.dependsOn === item.localId)
-      ) {
+    const due = mine.filter(
+      (item) =>
+        item.state === 'sent' &&
+        isReadable(item) &&
+        item.sentAt !== null &&
+        item.sentAt + SENT_KEEP_MS <= now &&
+        // A booking made after it on its site still asks for the site it
+        // made by its request id (`resolve`). Asked again in the forget's
+        // own transaction, of what is on the phone then.
+        !waitedOn(item, mine),
+    )
+    // An open New Job offering it, in any tab: its row stays in the picker,
+    // and a booking made on it can still be kept behind it.
+    const offered = due.length > 0 ? await offeredNow(deps.locks) : null
+    this.offerKept = false
+    for (const item of due) {
+      if (offered?.has(item.localId)) {
+        this.offerKept = true
         continue
       }
       await deps.outbox.change('forget-sent', item.localId, forgetSentChange())
@@ -916,24 +1029,24 @@ export class Sender {
 
   /**
    * The bookings for any business the person's `listForUser`, live on this
-   * connection, no longer lists. Theirs for certain only when it lists a
-   * membership one of their bookings was saved under, a membership being
-   * one person's: the socket's token alone can be theirs a moment before
-   * the list is (the top of this file). A list that shows nothing of theirs
-   * forgets nothing, and their bookings for a business they have left wait,
-   * held, until it does (their next booking anywhere it lists) or they sign
-   * out.
+   * connection, no longer lists. Only on a list that is theirs for certain:
+   * the socket's token alone can be theirs a moment before the list is (the
+   * top of this file). Each row names whose list it is (`userId`), so one
+   * naming them is theirs, whichever businesses it lists: the next one they
+   * join, after being taken off the last. A list naming anyone else, or one
+   * that can't say whose it is, forgets nothing, and their bookings for a
+   * business they have left wait, held, until one does or they sign out. A
+   * backend from before rows named anyone (18 Nov 2026): theirs only when it
+   * lists a membership one of their bookings was saved under, a membership
+   * being one person's.
    */
   private forgetNotListed(userId: string): void {
     const deps = this.deps
     if (!deps || !deps.keeper.isLive(LIST_KEY)) return
     const listed = deps.qc.getQueryData<Listed>(LIST_KEY)
-    if (!Array.isArray(listed)) return
+    if (!Array.isArray(listed) || listed.length === 0) return
     const mine = deps.outbox.all().filter((item) => item.userId === userId)
-    const known = new Set(
-      mine.filter(isReadable).map((item) => item.membershipId),
-    )
-    if (!listed.some((b) => known.has(b.membershipId))) return
+    if (!listIsTheirs(listed, userId, mine)) return
     const theirs = new Set<string>(listed.map((b) => b.businessId))
     const now = Date.now()
     const gone = new Set(
@@ -952,30 +1065,134 @@ export class Sender {
   // ── Sending ──────────────────────────────────────────────────────────────
 
   /**
-   * The booking as it goes: one made on a client or site not sent yet goes
-   * to the site that one made, once it has. Null while that waits; a
-   * problem when its site can't be had.
+   * The booking as it goes: one made on a client or site not sent yet
+   * (2c-I) goes to the site that one made, once it is sent (`siteOf`).
+   * 'wait' while that one hasn't gone, or its site can't be asked for now;
+   * a problem when its site can't be had: that one gone from the phone, or
+   * what it made wiped for good since.
    */
-  private resolve(
+  private async resolve(
     item: OutboxItem,
-  ): SendableBooking | 'wait' | { problem: 'NOT_FOUND' } {
+  ): Promise<SendableBooking | 'wait' | { problem: 'NOT_FOUND' }> {
     const property = item.booking.property
     if (!('local' in property)) {
       return { ...item.booking, property }
     }
-    const parent = this.deps?.outbox.get(property.local)
-    if (parent && parent.state !== 'sent') return 'wait'
-    const propertyId = parent?.result?.propertyId
-    if (propertyId === undefined) {
-      // Just sent, from another tab perhaps, whose ask for the site it made
-      // may still be on its way (`followUp`).
-      const justSent =
-        parent !== undefined &&
-        parent.sentAt !== null &&
-        Date.now() - parent.sentAt < 2 * FIND_WAIT_MS
-      return justSent ? 'wait' : { problem: 'NOT_FOUND' }
+    const deps = this.deps
+    if (!deps) return 'wait'
+    // Kept on the phone while this waits on it, sent or not (outboxStore.ts
+    // `sentAndDone`), and discarded with it: gone, it was cleared, and
+    // nothing says where its site is.
+    const parent = deps.outbox.get(property.local)
+    if (!parent) return { problem: 'NOT_FOUND' }
+    if (parent.state !== 'sent') return 'wait'
+    const site = await this.siteOf(parent)
+    if (site === 'wait') {
+      this.siteWaits.add(parent.localId)
+      return 'wait'
     }
-    return { ...item.booking, property: { propertyId } }
+    if (site === 'gone') return { problem: 'NOT_FOUND' }
+    return { ...item.booking, property: { propertyId: site } }
+  }
+
+  /**
+   * The site a sent booking made, for the bookings made on it (2c-I): asked
+   * by its request id, on a live line, each time until it is had (so one
+   * whose answer came in with the line down, or on another tab, is asked
+   * for on a later run, never given up on for that), then kept for this
+   * page load.
+   *
+   * The server stamps a site a booking makes with the booking's id, so
+   * `find` kind 'site' names that site, wherever the booking has been moved
+   * since (convex/properties.ts `resolvePropertyId`). Nothing under it (a
+   * booking sent to a backend from before 18 Nov 2026): the site the
+   * booking itself is at now, which is the one it made unless the office
+   * moved it meanwhile (plan §15). 'gone' once what it made was wiped for
+   * good. Had, it is written on that one too (`result.propertyId`), for a
+   * client's sheet to list the ones made on it by.
+   */
+  private async siteOf(
+    parent: OutboxItem,
+  ): Promise<Id<'properties'> | 'wait' | 'gone'> {
+    const deps = this.deps
+    if (!deps) return 'wait'
+    const known = this.sites.get(parent.localId)
+    if (known !== undefined) return known
+    if (!deps.keeper.lineLive()) return 'wait'
+    const made = await this.find(parent, 'site')
+    if (made === 'timeout') return 'wait'
+    if (!('found' in made)) return this.siteRefused(parent, made.refused)
+    let site: Id<'properties'> | undefined
+    if (made.found !== null) {
+      site = made.found.propertyId
+      if (site === undefined) return 'gone'
+    } else {
+      const kinds: Array<OutboxKind> =
+        parent.sentKinds.length > 0
+          ? parent.sentKinds
+          : [parent.kind as OutboxKind]
+      for (const kind of kinds) {
+        const own = await this.find(parent, kind)
+        if (own === 'timeout') return 'wait'
+        if (!('found' in own)) return this.siteRefused(parent, own.refused)
+        if (own.found === null) continue
+        site = own.found.propertyId
+        if (site === undefined) return 'gone'
+        break
+      }
+      if (site === undefined) return 'gone'
+    }
+    this.sites.set(parent.localId, site)
+    this.siteRefusals.delete(parent.localId)
+    logConnection('outbox-site', { made: made.found !== null })
+    // On the phone too, as that one's `result.propertyId`: a client's sheet,
+    // the kept one with no signal included, lists the bookings made on it
+    // by the site they go to (outboxList.ts `bookedForClient`), which is
+    // this, not where that one's job is now. A one-off heard as it went has
+    // no site of its own on the phone, and this page load's memory goes
+    // with a reload.
+    if (parent.result?.propertyId !== site) {
+      await deps.outbox.change(
+        'result',
+        parent.localId,
+        resultChange({ propertyId: site }, Date.now()),
+      )
+    }
+    return site
+  }
+
+  /**
+   * A site ask refused: it waits, as one unanswered does, and is asked
+   * again on the next run (`siteOf`). Two-step owed is said, as any find's
+   * refusal says it; and the refusal is noted once per change of its code,
+   * so a phone's notes say why a booking said to go in a moment hasn't.
+   */
+  private siteRefused(parent: OutboxItem, refused: unknown): 'wait' {
+    flagIfTwoStepNeeded(refused)
+    const code = codeOf(refused) ?? 'none'
+    if (this.siteRefusals.get(parent.localId) !== code) {
+      this.siteRefusals.set(parent.localId, code)
+      logConnection('outbox-site', { refused: code })
+    }
+    return 'wait'
+  }
+
+  /**
+   * The booking as its mark (`beginSend`) read it, at the site `resolve`
+   * found for it: null when an Edit has since put it on another client or
+   * site not sent yet, which is asked for afresh.
+   */
+  private going(
+    begun: OutboxItem,
+    was: OutboxItem,
+    resolved: SendableBooking,
+  ): SendableBooking | null {
+    const property = begun.booking.property
+    if (!('local' in property)) return { ...begun.booking, property }
+    const before = was.booking.property
+    return 'local' in before && before.local === property.local
+      ? { ...begun.booking, property: resolved.property }
+      : null
   }
 
   private async send(
@@ -985,7 +1202,8 @@ export class Sender {
     const deps = this.deps
     if (!deps) return 'skipped'
     const id = item.localId
-    const args = this.resolve(item)
+    if (this.gate(item) !== null) return 'skipped'
+    const args = await this.resolve(item)
     if (args === 'wait') return 'skipped'
     if ('problem' in args) {
       const changed = await deps.outbox.change(
@@ -1030,12 +1248,8 @@ export class Sender {
       // in another tab may have changed it since this step read it. And a
       // switch, a sign-in or the line can have moved while it was written.
       // Nothing has gone, so either way it waits again.
-      const going = this.resolve(begun)
-      if (
-        going === 'wait' ||
-        'problem' in going ||
-        this.gate(begun, true) !== null
-      ) {
+      const going = this.going(begun, item, args)
+      if (going === null || this.gate(begun, true) !== null) {
         await deps.outbox.change('unlock', id, unlockChange(Date.now()))
         return 'skipped'
       }
@@ -1278,19 +1492,16 @@ export class Sender {
   }
 
   /**
-   * Once a Recurring Job, or a booking another waits on for its site, is
-   * sent: what it made, asked once on the line it went on, for the first
-   * visit its card becomes and the site the next one goes to.
+   * Once a Recurring Job is sent: what it made, asked once on the line it
+   * went on, for the first visit its card becomes. The site a booking made
+   * on it goes to is asked for as that one goes (`siteOf`).
    */
   private async followUp(item: OutboxItem): Promise<void> {
     const deps = this.deps
     if (!deps || !isReadable(item)) return
-    const waitedOn = deps.outbox
-      .all()
-      .some((other) => other.dependsOn === item.localId)
-    if (item.kind !== 'series' && !waitedOn) return
+    if (item.kind !== 'series') return
     if (!deps.keeper.lineLive()) return
-    const answer = await this.find(item, item.kind as OutboxKind)
+    const answer = await this.find(item, 'series')
     if (answer === 'timeout' || !('found' in answer) || !answer.found) return
     await deps.outbox.change(
       'result',
@@ -1412,7 +1623,10 @@ export class Sender {
    * first answer is the server's. Given up after FIND_WAIT_MS, and stopped
    * on every path.
    */
-  private find(item: OutboxItem, kind: OutboxKind): Promise<FindAnswer> {
+  private find(
+    item: OutboxItem,
+    kind: OutboxKind | 'site',
+  ): Promise<FindAnswer> {
     const deps = this.deps
     if (!deps) return Promise.resolve('timeout')
     return new Promise((resolve) => {
@@ -1532,6 +1746,7 @@ export class Sender {
       at(this.trouble.get(item.localId) ?? null)
       at(this.switchedMarks.get(item.localId)?.until ?? null)
     }
+    if (this.offerKept) at(now + OUTBOX_TICK_MS)
     if (next === Infinity) return
     this.timer = setTimeout(() => this.kick(), Math.max(next - now, 0))
   }

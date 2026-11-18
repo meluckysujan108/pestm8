@@ -65,6 +65,35 @@ test('the Job tab lists its bookings by `jobTabShows`, under its own filters', (
   expect(text).not.toMatch(/isOnJob\(/)
 })
 
+test('a client’s lists find one made on a booking on the phone (2c-I) through that one, sent before this page load included', () => {
+  // The live sheet's Jobs tab: by the site that one went to, by its request
+  // id among their jobs once it is sent.
+  expect(read('components/clients/ClientJobsTab.tsx')).toMatch(
+    /bookedForClient\(item, \{\s+clientId,\s+propertyIds: new Set\(summary\?\.properties\.map\(\(p\) => p\._id\)\),\s+site: propertyId,\s+parentOf: \(localId\) => outbox\.get\(localId\),\s+madeAt: madeAtOf\(summary\),\s+\}\)/,
+  )
+  // The sheet kept on the phone's.
+  expect(read('components/clients/ClientSheet.tsx')).toMatch(
+    /bookedForClient\(item, \{\s+clientId,\s+propertyIds: new Set\(keptSites\?\.map\(\(s\) => s\._id\)\),\s+parentOf: \(localId\) => outbox\.get\(localId\),\s+\}\)/,
+  )
+})
+
+/**
+ * A client's bookings on the phone say where they are by one rule
+ * (`outboxSiteLine`) on both their sheets: one made on another booking on
+ * the phone (2c-I), whose card has no site id, shows the site that one
+ * makes on the sheet kept on the phone too, as on the live Jobs tab.
+ */
+test('a client’s sheets, live and kept on the phone, say where a booking on the phone is by `outboxSiteLine`', () => {
+  expect(read('components/clients/ClientJobsTab.tsx')).toMatch(
+    /siteOf=\{\(slot\) =>\s+outboxSiteLine\(\s+slot\.item,\s+slot\.real\?\.propertyId \?\? slot\.card\.propertyId,\s+\{\s+has: \(at\) => summary\.properties\.some\(\(p\) => p\._id === at\),\s+siteOf,\s+\},\s+\)\s+\}/,
+  )
+  const kept = read('components/clients/ClientSheet.tsx')
+  expect(kept).toMatch(
+    /siteOf=\{\(slot\) =>\s+outboxSiteLine\(slot\.item, slot\.card\.propertyId, \{\s+has: \(at\) =>\s+keptSites\?\.some\(\(s\) => s\._id === at\) === true,\s+siteOf: keptSiteOf,\s+\}\)\s+\}/,
+  )
+  expect(kept).not.toMatch(/'newProperty' in slot\.item\.booking\.property/)
+})
+
 /**
  * A booking begun on a client's sheet lives in one keyed element, put in
  * every body the sheet may change to while it is open: the kept sheet's,

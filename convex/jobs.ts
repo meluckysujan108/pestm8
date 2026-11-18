@@ -1327,7 +1327,8 @@ export const create = mutation({
     // know.
     alsoGoing: v.optional(v.array(v.id('memberships'))),
     // The phone's id for this booking (lib/clientRequest.ts). It covers a
-    // new client or site made with the job, which never carry it.
+    // new client or site made with the job too: the site carries the same
+    // id (properties.ts `resolvePropertyId`), the client never does.
     clientRequestId: clientRequestIdArg,
     // Whose booking it is, from one the phone kept and sent by itself
     // (lib/outboxGuards.ts): refused unless that is who is writing, in their
@@ -1432,7 +1433,14 @@ export const create = mutation({
       },
     )
 
-    const propertyId = await resolvePropertyId(ctx, args.businessId, target)
+    // A site this booking adds carries its id, for a booking kept behind it
+    // on the phone to find (properties.ts `resolvePropertyId`).
+    const propertyId = await resolvePropertyId(
+      ctx,
+      args.businessId,
+      target,
+      requestId,
+    )
     // A booking the outbox moved onto an existing client, as the audit row
     // below records it, with the site it landed on: read before the lead is
     // made active, so it says whether this booking did that, for "Book as a

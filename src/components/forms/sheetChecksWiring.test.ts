@@ -67,8 +67,10 @@ const addProperty = () =>
 
 describe('New Job (every client mode)', () => {
   test('books through `sendChecked`, with the checks read as the press’s send goes, under the draft’s request id; a send again goes straight, with what the send refused carried, and only while the form is as it was at the press', () => {
+    // As it is kept: on a client or site not sent yet, `{ local }` (2c-I).
+    expect(newJob()).toMatch(/const kept = asKept\(args\)/)
     expect(newJob()).toMatch(
-      /const checks = pressChecks\(\(extra\) =>\s+latestSheetChecks\.current\(args, extra\),\s+\)\s+return sendChecked\(\{\s+(?:\/\/[^\n]*\s+)*send: \(extra, again\) =>\s+booking\.session\.book\(\s+args,\s+draft,\s+whoFor\(args\),\s+checks\(extra, again\),\s+\{ straight: again \},?\s+\),\s+(?:\/\/[^\n]*\s+)*asPressed: saveWarnings\.asPressed,/,
+      /const checks = pressChecks\(\(extra\) =>\s+latestSheetChecks\.current\(args, extra\),\s+\)\s+return sendChecked\(\{\s+(?:\/\/[^\n]*\s+)*send: \(extra, again\) =>\s+booking\.session\.book\(\s+kept,\s+draft,\s+whoFor\(kept\),\s+checks\(extra, again\),\s+\{ straight: again \},?\s+\),\s+(?:\/\/[^\n]*\s+)*asPressed: saveWarnings\.asPressed,/,
     )
     // Never read afresh for a send again.
     expect(newJob()).not.toMatch(
@@ -281,8 +283,9 @@ describe('New Job (every client mode)', () => {
 
   test('FormAlert’s words are for the booking as it was sent: a new site for a client has its own for MATCHED_CLIENT (bookingCopy.test.ts)', () => {
     expect(newJob()).toMatch(
-      // An Edit of a booking on the phone adds its own refusals after them.
-      /copy=\{\{\s+\.\.\.bookingErrorCopy\(\s+create\.variables\?\.property,\s+\(id\) => matchIndex\.clients\.get\(id\)\?\.name,\s+\),\s+\/\/ [^\n]*\n\s+\.\.\.\(item !== undefined && OUTBOX_ACTION_COPY\),\s+\}\}/,
+      // An Edit of a booking on the phone adds its own refusals after them,
+      // and a booking on a client or site not sent yet its own (2c-I).
+      /copy=\{\{\s+\.\.\.bookingErrorCopy\(\s+create\.variables\?\.property,\s+\(id\) => matchIndex\.clients\.get\(id\)\?\.name,\s+\),\s+\/\/ [^\n]*\n\s+\.\.\.\(item !== undefined && OUTBOX_ACTION_COPY\),\s+\/\/ [^\n]*\n\s+\[UNSENT_NOT_KEPT\]: UNSENT_NOT_KEPT_COPY,\s+\}\}/,
     )
   })
 
@@ -527,6 +530,81 @@ describe('Add property on a client’s sheet', () => {
     )
     expect(addProperty()).not.toMatch(
       /shown\.map\(\(\) => \(\{ fix: \{ kind: 'use'/,
+    )
+  })
+})
+
+describe('New Job’s clients and sites not sent yet (2c-I)', () => {
+  test('offered only with keeping switched on, or to an Edit of a booking made on one (D14): with the flag off a New Job adds no “Not sent yet” rows, and an Edit of one made on another still opens on it', () => {
+    expect(newJob()).toMatch(
+      /const offersUnsent =\s+OUTBOX_ENABLED \|\| \(item !== undefined && 'local' in item\.booking\.property\)\n/,
+    )
+    // Nothing offered where it is false: the picker's rows add none. With
+    // the flag off, an Edit of one made on another is offered that one
+    // alone: nothing new is made on a booking not sent yet (D14).
+    expect(newJob()).toMatch(
+      /const unsentItems = useMemo\(\(\) => \{\s+if \(keptHere === null \|\| !offersUnsent\) return null\s+const offered = unsentSites\(keptHere, item, chosenUnsent, openedAt\)\s+(?:\/\/[^\n]*\s+)*return OUTBOX_ENABLED\s+\? offered\s+: offered\.filter\(\(unsent\) => unsent\.localId === chosenUnsent\)\s+\}/,
+    )
+    expect(newJob()).toMatch(
+      /withUnsentSites\(\s+propertyOptions\(properties, \{ timezone, now: openedAt \}\),\s+\(unsentItems \?\? \[\]\)\.map\(/,
+    )
+    // The one an Edit opens on is kept, sent before this page load
+    // included (D-I4), and says where it stands.
+    expect(newJob()).toMatch(
+      /const keptHere = useOutboxItems\(businessId, \{\s+keep: edit === null \? null : unsentLocalId\(edit\.propertyId\),\s+\}\)/,
+    )
+    expect(newJob()).toMatch(/status: unsentStatus\(unsent, openedAt\),/)
+  })
+
+  test('counted wherever New Job asks whether there is anything to pick: a business with no clients yet and one booked on the phone opens on the picker, with the Client choice drawn', () => {
+    expect(newJob()).toMatch(
+      /edit\?\.mode \?\?\s+\(properties\.length > 0 \|\|\s+\(offersUnsent && keptHere !== null && unsentSites\(keptHere\)\.length > 0\)\s+\? 'existing'\s+: 'new'\)/,
+    )
+    expect(newJob()).toMatch(
+      /const sitesToPick = properties\.length > 0 \|\| \(unsentItems\?\.length \?\? 0\) > 0\n/,
+    )
+    expect(newJob()).toMatch(
+      /\{\(directory\.clients\.length > 0 \|\| sitesToPick\) && \(/,
+    )
+    expect(newJob()).toMatch(
+      /next === 'existing' && \(m === 'site' \|\| !sitesToPick\)\s+\? 'site'/,
+    )
+    expect(newJob()).toMatch(
+      /!sitesToPick\s+\? 'No sites yet — search for the client to add one\.'/,
+    )
+    expect(newJob()).toMatch(/\{sitesToPick && \(\s+<button/)
+    // Never the client list's own count for any of these.
+    expect(newJob()).not.toMatch(
+      /directory\.clients\.length > 0 \|\| properties\.length > 0|m === 'site' \|\| properties\.length === 0|properties\.length === 0\s+\? 'No sites yet/,
+    )
+  })
+
+  test('“New site for an existing client” only while there is a client to choose: one not sent yet is never offered in “New site for” (plan §7); decided as the form opens, and never put in while Existing client is on screen (`offersNewSite`, newJobEdit.test.ts)', () => {
+    expect(newJob()).toMatch(
+      /const \[newSiteOffered, setNewSiteOffered\] = useState\(\s+\(\) => clientOptionList\.length > 0,\s+\)\s+const newSiteShown = offersNewSite\(newSiteOffered, \{\s+clients: clientOptionList\.length,\s+mode,\s+\}\)\s+if \(newSiteShown !== newSiteOffered\) setNewSiteOffered\(newSiteShown\)\n/,
+    )
+    expect(newJob()).toMatch(
+      /\{newSiteShown && \(\s+<button[\s\S]{0,800}?New site for an existing client\s+<\/button>\s+\)\}/,
+    )
+    // Never the client list as it is now: a business's first client, sent
+    // while the form is open on one not sent yet, would put it in under a
+    // thumb.
+    expect(newJob()).not.toMatch(/\{clientOptionList\.length > 0 && \(/)
+  })
+
+  test('an Edit of one whose site has been deleted opens on no site, never on the one it was made on (`formFromBooking`’s `siteGone`)', () => {
+    expect(newJob()).toMatch(
+      /formFromBooking\(item\.booking, \{\s+timezone,\s+businessState,\s+(?:\/\/[^\n]*\s+)*siteGone:\s+item\.state === 'needsLook' && item\.problem\?\.code === 'NOT_FOUND',\s+\}\)/,
+    )
+  })
+
+  test('where one stands is read in sun: its own line, `text-ink-2`, never the muted detail (guide §2.1, §4.3)', () => {
+    const combobox = source('../primitives/Combobox.tsx')
+    expect(combobox).toMatch(
+      /\{o\.status && \(\s+<span className="block text-caption text-ink-2">\s+\{o\.status\}\s+<\/span>\s+\)\}/,
+    )
+    expect(source('../../lib/propertyOptions.ts')).toMatch(
+      /status: UNSENT_STATUS_WORDS\[u\.status\]/,
     )
   })
 })
