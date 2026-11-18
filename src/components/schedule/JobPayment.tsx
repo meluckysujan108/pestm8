@@ -56,9 +56,11 @@ import type {
 import { useHydrated } from '#/lib/useHydrated'
 import { dayKeyOf, startOfDayInZone } from '../../../convex/lib/dates'
 import {
+  EVERY_METHOD,
   MAX_HAND_OVER_NOTE_LENGTH,
   MAX_REFERENCE_LENGTH,
 } from '../../../convex/lib/paymentLimits'
+import type { PaymentsOffered } from '../../../convex/lib/paymentLimits'
 import type { FunctionReturnType } from 'convex/server'
 import type { Role } from '../../../convex/lib/capabilities'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -213,6 +215,10 @@ export function JobPaymentSection({
   }
 
   const billed = job.status === 'invoiced'
+  // What the owner offers (Settings → Payments); everything from a backend
+  // older than the setting, whose answer has none.
+  const offered: PaymentsOffered =
+    'offered' in data ? data.offered : EVERY_METHOD
   const today = dayKeyOf(Date.now(), timezone)
   // A job with no price has nothing to collect, and the server says so.
   const noPrice = !hidden && data.owing === 0 && !data.settled
@@ -290,6 +296,7 @@ export function JobPaymentSection({
                 paidBefore={data.payments.length > 0}
                 billed={false}
                 deposit
+                offered={offered}
                 question="How was the deposit paid?"
                 lastTime={null}
                 onRecorded={recorded}
@@ -326,6 +333,7 @@ export function JobPaymentSection({
             owing={data.owing}
             paidBefore={data.payments.length > 0}
             billed={billed}
+            offered={offered}
             question={
               data.payments.length > 0
                 ? 'How was the rest paid?'
@@ -418,6 +426,7 @@ function PaymentAskForm({
   paidBefore,
   billed,
   deposit = false,
+  offered,
   question,
   lastTime,
   onRecorded,
@@ -432,6 +441,8 @@ function PaymentAskForm({
   billed: boolean
   /** Money before the work: no Invoice or No charge, and the job stays. */
   deposit?: boolean
+  /** The ways the owner offers, and what their card machine is called. */
+  offered: PaymentsOffered
   question: string
   lastTime: string | null
   onRecorded: (id: Id<'payments'>) => void
@@ -530,6 +541,8 @@ function PaymentAskForm({
   const cents = amountRaw === null ? owing : parseAmount(amountRaw)
   const amountError = checkAmount ? amountProblem(cents, owing) : null
 
+  const others = otherMethods(billed, deposit, offered)
+
   const choose = (next: PaymentTile) => {
     record.reset()
     invoice.reset()
@@ -538,7 +551,8 @@ function PaymentAskForm({
       return
     }
     setTile(next)
-    setOther('')
+    // Other with one way under it is that way: nothing left to choose.
+    setOther(next === 'other' && others.length === 1 ? others[0].value : '')
   }
 
   const submit = () => {
@@ -578,7 +592,7 @@ function PaymentAskForm({
     })
   }
 
-  const tiles = paymentTiles(billed, deposit)
+  const tiles = paymentTiles(billed, deposit, offered)
   const ready = tile === 'invoice' || method !== null
   const waitId = `${id}-waits`
   const otherId = `${id}-other`
@@ -647,7 +661,7 @@ function PaymentAskForm({
         })}
       </div>
 
-      {tile === 'other' && (
+      {tile === 'other' && others.length > 1 && (
         <div className="mt-3.5 flex flex-col gap-1.5">
           <span id={otherId} className="section-label">
             How they paid
@@ -656,7 +670,7 @@ function PaymentAskForm({
             kind="choice"
             labelledBy={otherId}
             value={other}
-            options={otherMethods(billed, deposit)}
+            options={others}
             disabled={!hydrated || busy}
             onChange={(next) => {
               record.reset()
