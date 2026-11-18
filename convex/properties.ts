@@ -190,8 +190,10 @@ function storedPostcode(raw: string): string {
  * oldest live site, and this may be their first.
  *
  * `requestId` is the phone's id for the save that made it
- * (lib/clientRequest.ts): given by `create` and `createForClient`, never for
- * a site made while booking, which the job's or series' own id covers.
+ * (lib/clientRequest.ts): given by `create` and `createForClient`, and for a
+ * site made while booking, the booking's own id (`resolvePropertyId`), so a
+ * second booking kept on the phone behind the first finds the site the first
+ * made (`clientRequests.find`, kind 'site').
  */
 async function insertPropertyForClient(
   ctx: MutationCtx,
@@ -422,6 +424,14 @@ async function insertClientAndProperty(
  * existing client, or inline new-client fields, inserting what is new in the
  * same mutation — Convex mutations are transactional, so this can never leave
  * an orphaned client or site behind if the rest of the caller's insert fails.
+ *
+ * `requestId` is the booking's own id (`jobs.create`, `recurrences.create`),
+ * stamped on a site it makes, never on one it only books at. A booking kept
+ * on the phone behind this one, at the client or site this one adds, asks
+ * for the site by it (`clientRequests.find`, kind 'site'): the site this
+ * booking made, wherever this booking has been moved since. The same id
+ * names the job or series too, each in its own table, and a wipe keeps each
+ * under its own kind (`keepWipedRequest`).
  */
 export async function resolvePropertyId(
   ctx: MutationCtx,
@@ -431,6 +441,7 @@ export async function resolvePropertyId(
     newProperty?: Infer<typeof newPropertyFields>
     newClient?: NewClient
   },
+  requestId?: string,
 ): Promise<Id<'properties'>> {
   if (input.propertyId !== undefined) {
     // Nothing is booked at a site in the Recycle bin.
@@ -441,14 +452,33 @@ export async function resolvePropertyId(
     return input.propertyId
   }
 
+  // Only an id no site carries yet: one a member read off a site and sent
+  // with a booking (lib/clientRequest.ts) still names that site alone.
+  const siteRequestId =
+    requestId !== undefined &&
+    (await propertyMadeBy(ctx, businessId, requestId)) === null
+      ? requestId
+      : undefined
+
   if (input.newProperty) {
     const { clientId, ...site } = input.newProperty
     await requireClientOf(ctx, businessId, clientId)
-    return insertPropertyForClient(ctx, businessId, clientId, site)
+    return insertPropertyForClient(
+      ctx,
+      businessId,
+      clientId,
+      site,
+      siteRequestId,
+    )
   }
 
   if (!input.newClient) throw new ConvexError('MISSING_PROPERTY')
-  return insertClientAndProperty(ctx, businessId, input.newClient)
+  return insertClientAndProperty(
+    ctx,
+    businessId,
+    input.newClient,
+    siteRequestId,
+  )
 }
 
 /**

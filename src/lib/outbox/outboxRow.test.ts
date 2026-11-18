@@ -296,3 +296,28 @@ describe('what New Job takes as it saves', () => {
     })
   })
 })
+
+describe('what New Job takes for a booking on a client or site not sent yet (2c-I)', () => {
+  test('that booking’s whose and where, and its own people', () => {
+    const parent = {
+      ...DISPLAY,
+      clientName: 'Marta Kowalski',
+      clientNumber: undefined,
+      addressLine: '9 Coode St',
+      suburb: 'Bayswater',
+      postcode: '6053',
+      assigneeName: 'Sam',
+    }
+    const display = bookingDisplay(
+      bookingFor({ property: { local: 'local-1' } }),
+      { sites: [], roster: ROSTER, businessState: 'WA', parent },
+    )
+    expect(display).toMatchObject({
+      clientName: 'Marta Kowalski',
+      addressLine: '9 Coode St',
+      suburb: 'Bayswater',
+      postcode: '6053',
+      assigneeName: 'Kevin Doyle',
+    })
+  })
+})

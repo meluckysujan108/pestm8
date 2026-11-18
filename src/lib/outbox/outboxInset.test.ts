@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import { LEFT_ON_PHONE } from './book'
 import {
   DISCARD_ITEM,
+  DISCARD_LEFT_ON_PHONE,
   DISCARD_MAY_HAVE_GONE,
   OUTBOX_ACTION_COPY,
   discardDialog,
@@ -297,7 +298,8 @@ describe('the inset, for what 2c-E adds', () => {
     expect(held('retry', { retryAt: later + 5 * 60_000 })).toBe(
       `${waited} PestM8 couldn’t take it just now. Send it after 9:48am, or edit it.`,
     )
-    // Made on a site another booking makes (2c-I): no Edit, only Discard.
+    // Made on a site another booking makes (2c-I): its Edit opens on that
+    // one (D-I4).
     expect(
       held(
         'parent',
@@ -305,7 +307,7 @@ describe('the inset, for what 2c-E adds', () => {
         { parentClient: 'Jane Nguyen' },
       ),
     ).toBe(
-      `${waited} Send it once the first booking for Jane Nguyen is sent, or discard it.`,
+      `${waited} Send it once the first booking for Jane Nguyen is sent, or edit it.`,
     )
     // Its session ended: the same, by its own reason.
     expect(held('two-step', { sessionEndedAt: SAVED + 1 })).toBe(
@@ -436,15 +438,17 @@ describe('the footer', () => {
     expect(footer({ v: 2, state: 'sending' })?.locked).toBe(true)
   })
 
-  test('made on a booking still on the phone (2c-I): nothing to edit, Discard only', () => {
+  test('made on a booking still on the phone (2c-I): edited as any other, its Edit opening on that one (D-I4)', () => {
     const local = {
       booking: bookingFor({ property: { local: 'parent-1' } }),
     }
-    expect(footer(local)?.fix).toBeNull()
-    expect(footer({ ...local, ...look('FIRST_VISIT_PAST') })?.fix).toBeNull()
+    expect(footer(local)?.fix).toBe('edit')
+    expect(footer({ ...local, ...look('FIRST_VISIT_PAST') })?.fix).toBe(
+      'changeDate',
+    )
     expect(footer({ ...local, ...look('SERVER') })).toMatchObject({
       fix: 'tryAgain',
-      alsoEdit: false,
+      alsoEdit: true,
     })
   })
 })
@@ -518,6 +522,52 @@ describe('the dialogs, and the refusals mid-dialog (S22b)', () => {
     expect(
       discardDialog(itemFor('u1', { state: 'sending' }, SAVED), 'mayHaveGone'),
     ).toBe(DISCARD_MAY_HAVE_GONE)
+  })
+
+  test('one others were booked after on its client or site (2c-I): they go with it, and it says so', () => {
+    const parent = itemFor('u1', {}, SAVED)
+    expect(discardDialog(parent, 'item', 1)).toEqual({
+      title: 'Discard this job and the 1 booked after it for Jane Nguyen?',
+      body: 'Neither has been sent, so they’re only on this phone. This can’t be undone.',
+      confirm: 'Discard both',
+      cancel: 'Keep jobs',
+    })
+    expect(discardDialog(parent, 'item', 2)).toEqual({
+      title: 'Discard this job and the 2 booked after it for Jane Nguyen?',
+      body: 'None of them has been sent, so they’re only on this phone. This can’t be undone.',
+      confirm: 'Discard all 3',
+      cancel: 'Keep jobs',
+    })
+    expect(discardDialog(parent, 'item', 0)).toBe(DISCARD_ITEM)
+    // One that may already be booked: the ones made on it haven't been.
+    expect(
+      discardDialog(
+        itemFor('u1', { state: 'sending' }, SAVED),
+        'mayHaveGone',
+        1,
+      ),
+    ).toEqual({
+      title:
+        'This may already be booked. Discard it and the 1 booked after it from this phone?',
+      body: `${DISCARD_MAY_HAVE_GONE.body} The job booked after it for Jane Nguyen hasn’t been sent, and goes from this phone too.`,
+      confirm: 'Discard both',
+      cancel: 'Keep jobs',
+    })
+    // The title and both buttons count them, so neither the red word nor
+    // the way out reads as one job.
+    expect(
+      discardDialog(
+        itemFor('u1', { problem: { code: LEFT_ON_PHONE } }, SAVED),
+        'item',
+        2,
+      ),
+    ).toEqual({
+      title:
+        'This may already be booked. Discard it and the 2 booked after it from this phone?',
+      body: `${DISCARD_LEFT_ON_PHONE.body} The 2 jobs booked after it for Jane Nguyen haven’t been sent, and go from this phone too.`,
+      confirm: 'Discard all 3',
+      cancel: 'Keep jobs',
+    })
   })
 
   test('a Discard, an Edit or a Book refused once the dialog or form was open', () => {

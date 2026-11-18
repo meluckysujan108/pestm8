@@ -201,6 +201,10 @@ describe('removing a member', () => {
     // Still signed in, and still working for the other business.
     const businesses = await s.kevin.as.query(api.businesses.listForUser, {})
     expect(businesses.map((b) => b.businessId)).toEqual([other.businessId])
+    // Each row says whose list it is, though it shares no membership with
+    // the business he left: what lets his phone forget the bookings it still
+    // holds for that one (src/lib/outbox/sender.ts `forgetNotListed`).
+    expect(businesses.map((b) => b.userId)).toEqual([s.kevin.userId])
   })
 
   test('their session is deleted when that was their only business', async () => {

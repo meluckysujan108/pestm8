@@ -114,7 +114,8 @@ import {
 } from '#/components/clients/KeptClientView'
 import { ClientEditForm } from '#/components/clients/ClientEditForm'
 import { OutboxVisits } from '#/components/clients/OutboxVisits'
-import { bookedForClient } from '#/lib/outbox/outboxList'
+import { outbox } from '#/lib/outbox/outbox'
+import { bookedForClient, outboxSiteLine } from '#/lib/outbox/outboxList'
 import { OUTBOX_ENABLED } from '#/lib/outbox/outboxSet'
 import { useOutboxList } from '#/lib/outbox/useOutbox'
 import { PropertyFields } from '#/components/clients/PropertyFields'
@@ -353,10 +354,12 @@ function ClientBody({
     rows: NO_VISITS,
     redrawKey: 'kept',
     draws: keptShown,
+    // One made on a booking on the phone (2c-I) is theirs as that one is.
     shows: (item) =>
       bookedForClient(item, {
         clientId,
         propertyIds: new Set(keptSites?.map((s) => s._id)),
+        parentOf: (localId) => outbox.get(localId),
       }),
   })
   // The contact person is the primary contact (Prompt 6.1), not a field of
@@ -543,10 +546,14 @@ function ClientBody({
                   list={keptUnsent}
                   businessSlug={businessSlug}
                   timezone={timezone}
+                  // As their live Jobs tab has it: a new site, or one made
+                  // on another booking on the phone (2c-I), by its card.
                   siteOf={(slot) =>
-                    'newProperty' in slot.item.booking.property
-                      ? slot.item.display.addressLine
-                      : keptSiteOf(slot.card.propertyId)
+                    outboxSiteLine(slot.item, slot.card.propertyId, {
+                      has: (at) =>
+                        keptSites?.some((s) => s._id === at) === true,
+                      siteOf: keptSiteOf,
+                    })
                   }
                   // To the card's edges, under the row's own line.
                   className="-mx-3.5 -mb-2.5 border-t border-hairline-2"

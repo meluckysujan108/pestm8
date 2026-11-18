@@ -8,6 +8,8 @@ import {
   isStale,
   sessionEndUnanswered,
 } from './outboxSet'
+import { showsSiteOf, waitedOn, withSiteOf } from './outboxItem'
+import { browserLocks, offeredNow } from './outboxLocks'
 import type {
   BookingArgs,
   OutboxDisplay,
@@ -87,6 +89,17 @@ export type StoreResult<T> = T | 'gone' | 'refused' | 'error'
  */
 export type Change = OutboxItem | 'abort' | 'delete' | 'discard'
 
+/**
+ * A change to one item, decided in the transaction that writes it: on the
+ * item as it reads it, and on every item it reads (`all`), so a rule over
+ * the others (a booking made on it, `waitedOn`) holds to what is on the
+ * phone then, never to a tab's memory of it.
+ */
+export type ItemChange = (
+  item: OutboxItem,
+  all: ReadonlyArray<OutboxItem>,
+) => Change
+
 /** Where the bookings live: IndexedDB here, memory in tests. */
 export interface OutboxBackend {
   peek: () => Promise<OutboxPeek | 'error'>
@@ -104,9 +117,11 @@ export interface OutboxBackend {
     { owner: OutboxOwner; dropped: number; marked: number } | 'error'
   >
   /** Adds `item`. Only over the same draft's own item while that is still
-   * waiting or needing a look, and only for this epoch's person; and only
-   * while `wanted` says so, asked in the transaction just before it writes:
-   * a keep given up on (`giveUpKeep`) is refused, never written late. */
+   * waiting or needing a look, and only for this epoch's person; one made
+   * on another booking only while that one is on the phone and keeps it to
+   * one level (`keepsToOneLevel`); and only while `wanted` says so, asked
+   * in the transaction just before it writes: a keep given up on
+   * (`giveUpKeep`) is refused, never written late. */
   keep: (
     epoch: string,
     item: OutboxItem,
@@ -117,15 +132,20 @@ export interface OutboxBackend {
   update: (
     epoch: string,
     localId: string,
-    change: (item: OutboxItem) => Change,
+    change: ItemChange,
   ) => Promise<StoreResult<OutboxItem | 'deleted'>>
   /** Every item `change` returns a new one for, in one transaction. */
   updateWhere: (
     change: (item: OutboxItem) => OutboxItem | null,
   ) => Promise<number | 'error'>
-  /** Deletes every item `match` says, in one transaction: how many. */
+  /** Deletes every item `match` says, in one transaction: how many.
+   * `all`: every item, as that transaction read them. */
   removeWhere: (
-    match: (item: OutboxItem, owner: OutboxOwner | null) => boolean,
+    match: (
+      item: OutboxItem,
+      owner: OutboxOwner | null,
+      all: ReadonlyArray<OutboxItem>,
+    ) => boolean,
   ) => Promise<number | 'error'>
   /** Both stores, in one transaction: how many items it held. */
   wipe: () => Promise<number | 'error'>
@@ -212,20 +232,49 @@ export function claimDecision(
   }
 }
 
-/** Whether `item` may be kept, over `existing` if there is one. */
+/** Whether `item` may be kept, over the one of its key in `items` if there
+ * is one. `items`: every item, as the keep's transaction read them. */
 export function keepDecision(
   owner: OutboxOwner | null,
   epoch: string,
   item: OutboxItem,
-  existing: OutboxItem | undefined,
+  items: ReadonlyArray<OutboxItem>,
 ): 'kept' | 'exists' | 'refused' {
   if (!mayWrite(owner, epoch, item.userId)) return 'refused'
+  const existing = items.find((row) => row.localId === item.localId)
   // The same draft kept again after a refusal it can retry: the rollback
   // made nothing. Never over one that went, or may have.
   if (existing && !(open(existing.state) && existing.userId === item.userId)) {
     return 'exists'
   }
+  if (!keepsToOneLevel(items, item)) return 'refused'
   return 'kept'
+}
+
+/**
+ * Whether `item`, kept, keeps to one level (plan §7): made on a booking of
+ * its person's still on the phone, sent or not, that is itself made on
+ * none; never on itself, nor while others are made on it. A Book's picker
+ * offers only what keeps to that (`unsentSites`), but another tab can put
+ * the one chosen onto another booking, or discard it, while the form is
+ * open: the keep is refused, in the transaction that would have written it,
+ * and New Job says so (`UNSENT_NOT_KEPT`). An Edit's Book is held to it by
+ * `nestsDeeper`.
+ */
+function keepsToOneLevel(
+  items: ReadonlyArray<OutboxItem>,
+  item: OutboxItem,
+): boolean {
+  const parent = item.dependsOn
+  if (parent === undefined) return true
+  if (parent === item.localId) return false
+  const on = items.find((other) => other.localId === parent)
+  return (
+    on !== undefined &&
+    on.userId === item.userId &&
+    on.dependsOn === undefined &&
+    dependantsOf(items, item.localId).length === 0
+  )
 }
 
 /**
@@ -257,38 +306,99 @@ export function dependantsOf(
   return found
 }
 
-/** What `update` does: its answer, and what it writes. */
+/**
+ * The bookings made on `parent`'s client or site, not sent yet, whose cards
+ * don't show what it shows now (`withSiteOf`): each rewritten to, in the
+ * transaction that writes `parent` (plan §7, "Editing a parent").
+ */
+function dependantsShowing(
+  items: ReadonlyArray<OutboxItem>,
+  parent: OutboxItem,
+): Array<OutboxItem> {
+  if (!isReadable(parent)) return []
+  return items
+    .filter(
+      (item) =>
+        item.dependsOn === parent.localId &&
+        item.userId === parent.userId &&
+        isReadable(item) &&
+        item.state !== 'sent' &&
+        !showsSiteOf(item.display, parent.display),
+    )
+    .map((item) => ({
+      ...item,
+      display: withSiteOf(item.display, parent.display),
+      updatedAt: Math.max(item.updatedAt, parent.updatedAt),
+    }))
+}
+
+/**
+ * Whether `written`, put on another booking's client or site by this change
+ * (`item` as it was), would be more than one level deep (plan §7): made on
+ * one itself made on another, or on itself, or while others not sent yet
+ * are made on it. Each tab's picker offers only what keeps to one level
+ * (`unsentSites`), but two tabs can each book one on the other's at once,
+ * and a ring of them could never be sent: the second to land is refused,
+ * in the transaction that would have written it.
+ */
+function nestsDeeper(
+  items: ReadonlyArray<OutboxItem>,
+  item: OutboxItem,
+  written: OutboxItem,
+): boolean {
+  const parent = written.dependsOn
+  if (parent === undefined || parent === item.dependsOn) return false
+  if (parent === written.localId) return true
+  const on = items.find((other) => other.localId === parent)
+  return (
+    on?.dependsOn !== undefined ||
+    dependantsOf(items, written.localId).length > 0
+  )
+}
+
+/** What `update` does: its answer, and what it writes: `put`, and `also`,
+ * the bookings made on it rewritten with it (`dependantsShowing`). */
 export function updateDecision(
   owner: OutboxOwner | null,
   epoch: string,
   items: ReadonlyArray<OutboxItem>,
   localId: string,
-  change: (item: OutboxItem) => Change,
+  change: ItemChange,
 ): {
   result: Exclude<StoreResult<OutboxItem | 'deleted'>, 'error'>
   put: OutboxItem | null
   drop: Array<string>
+  also: Array<OutboxItem>
 } {
-  const nothing = { put: null, drop: [] }
+  const nothing = { put: null, drop: [], also: [] }
   const item = items.find((row) => row.localId === localId)
   if (!item || owner?.userId !== item.userId) {
     return { result: 'gone', ...nothing }
   }
   if (owner.epoch !== epoch) return { result: 'refused', ...nothing }
-  const next = change(item)
+  const next = change(item, items)
   if (next === 'abort') return { result: 'refused', ...nothing }
   if (next === 'delete')
-    return { result: 'deleted', put: null, drop: [localId] }
+    return { result: 'deleted', put: null, drop: [localId], also: [] }
   if (next === 'discard') {
     return {
       result: 'deleted',
       put: null,
       drop: [localId, ...dependantsOf(items, localId)],
+      also: [],
     }
   }
   // Its key and whose it is never change.
   const written = { ...next, localId, userId: item.userId }
-  return { result: written, put: written, drop: [] }
+  if (nestsDeeper(items, item, written)) {
+    return { result: 'refused', ...nothing }
+  }
+  return {
+    result: written,
+    put: written,
+    drop: [],
+    also: dependantsShowing(items, written),
+  }
 }
 
 // ── The changes ────────────────────────────────────────────────────────────
@@ -516,10 +626,15 @@ export function resultChange(
 }
 
 /** A booking sent a while ago, whose card has had time to land: it goes
- * from the phone. Only one that was sent. */
-export function forgetSentChange(): (item: OutboxItem) => Change {
-  return (item) =>
-    isReadable(item) && item.state === 'sent' ? 'delete' : 'abort'
+ * from the phone. Only one that was sent, and never while a booking made on
+ * it is still unsent (`waitedOn`), as this transaction reads them: one kept
+ * in another tab after this tab last read the phone still asks for the site
+ * it made by its request id. */
+export function forgetSentChange(): ItemChange {
+  return (item, all) =>
+    isReadable(item) && item.state === 'sent' && !waitedOn(item, all)
+      ? 'delete'
+      : 'abort'
 }
 
 /** Send, on one that waited too long: it goes. */
@@ -1042,24 +1157,16 @@ export const idbOutboxBackend: OutboxBackend = {
     return transact<'kept' | 'exists' | 'refused'>(
       'readwrite',
       (stores, done) => {
-        const ownerRequest = stores.owner.get(OWNER_KEY)
-        ownerRequest.onsuccess = () => {
-          const owner = asOwner(ownerRequest.result)
-          const existingRequest = stores.items.get(item.localId)
-          existingRequest.onsuccess = () => {
-            const found: unknown = existingRequest.result
-            const decided = !wanted()
-              ? 'refused'
-              : keepDecision(
-                  owner,
-                  epoch,
-                  item,
-                  isItem(found) ? found : undefined,
-                )
-            if (decided === 'kept') stores.items.put(item)
-            done(decided)
-          }
-        }
+        // Every item, not only its key's: one made on another booking is
+        // checked against that one, as this transaction reads it
+        // (`keepsToOneLevel`).
+        readAll(stores, (owner, items) => {
+          const decided = !wanted()
+            ? 'refused'
+            : keepDecision(owner, epoch, item, items)
+          if (decided === 'kept') stores.items.put(item)
+          done(decided)
+        })
       },
     )
   },
@@ -1072,6 +1179,7 @@ export const idbOutboxBackend: OutboxBackend = {
           const decided = updateDecision(owner, epoch, items, localId, change)
           for (const gone of decided.drop) stores.items.delete(gone)
           if (decided.put) stores.items.put(decided.put)
+          for (const dependant of decided.also) stores.items.put(dependant)
           done(decided.result)
         })
       },
@@ -1098,7 +1206,7 @@ export const idbOutboxBackend: OutboxBackend = {
       readAll(stores, (owner, items) => {
         let removed = 0
         for (const item of items) {
-          if (!match(item, owner)) continue
+          if (!match(item, owner, items)) continue
           stores.items.delete(item.localId)
           removed++
         }
@@ -1170,6 +1278,9 @@ let backend: OutboxBackend = idbOutboxBackend
 // was when that read began. A failure is never kept.
 let peeked: OutboxPeek | null = null
 let peekedNote: string | null = null
+/** What this page load's first read found already sent
+ * (`sentBeforeThisLoad`). Sent is for good, so it is never wrong later. */
+let sentAtLoad: Set<string> | null = null
 let reading: Promise<OutboxPeek | 'error'> | null = null
 // The last read failed, so whoever asked was left with nothing.
 let readFailed = false
@@ -1243,15 +1354,47 @@ export function stillKept(item: OutboxItem): boolean {
   )
 }
 
+/** It makes a client or a site with it: what New Job's picker offers. */
+function makesSite(item: OutboxItem): boolean {
+  const property = item.booking.property
+  return 'newClient' in property || 'newProperty' in property
+}
+
+/**
+ * A booking sent before this page load that stays on the phone: one a
+ * booking made after it on its client or site still waits on (`waitedOn`),
+ * kept for the sender to ask for the site it made. Every other is deleted
+ * by the page load's sweep, but one an open New Job in another tab offers
+ * (outboxLocks.ts `offerLock`), which that tab's sender forgets once it
+ * doesn't. The sender reads it; no screen draws it
+ * (`sentBeforeThisLoad`), as its card is the real one by now.
+ */
+function sentAndDone(
+  item: OutboxItem,
+  all: ReadonlyArray<OutboxItem>,
+): boolean {
+  return item.state === 'sent' && isReadable(item) && !waitedOn(item, all)
+}
+
+/**
+ * Sent before this page load: kept only while a booking made on it waits
+ * (`sentAndDone`), for the sender. The screens leave it out
+ * (`useOutboxItems`): its card is the real one by now. Told by this page
+ * load's first read (`sentAtLoad`), not by the clock, which can be set back.
+ */
+export function sentBeforeThisLoad(item: OutboxItem): boolean {
+  return item.state === 'sent' && sentAtLoad?.has(item.localId) === true
+}
+
 /**
  * What the read holds, less what is gone since (`stillKept`), and less what
- * was sent before this page load, which its sweep deletes.
+ * was sent before this page load, which its sweep deletes (`sentAndDone`).
  */
 function shown(read: OutboxPeek): OutboxPeek {
   return {
     owner: ownerNow === undefined ? read.owner : ownerNow,
     items: read.items.filter(
-      (item) => stillKept(item) && !(item.state === 'sent' && isReadable(item)),
+      (item) => stillKept(item) && !sentAndDone(item, read.items),
     ),
   }
 }
@@ -1293,6 +1436,11 @@ async function readOutbox(): Promise<OutboxPeek | 'error'> {
     return 'error'
   }
   readAgain.stop()
+  sentAtLoad ??= new Set(
+    found.items
+      .filter((item) => item.state === 'sent')
+      .map((item) => item.localId),
+  )
   // A wipe since the read began has the last word: it read as nothing.
   if (peeked === null) {
     peeked = found
@@ -1469,18 +1617,44 @@ export function checkOutboxOwner(user: OutboxUser | null): void {
 async function sweep(): Promise<void> {
   const covered = readTombstones()
   const givenUpThen = readGivenUp()
-  const removed = await withinMs(
+  // A sent booking that makes a client or site may be one an open New Job
+  // in another tab offers (outboxLocks.ts `offerLock`), which stays while it
+  // does, for the sender there to forget after: left for a second look, once
+  // the browser has said which (`offeredNow`), and only if there is one.
+  const mayBeOffered = new Set<string>()
+  const first = await withinMs(
     STORE_OP_MS,
-    backend.removeWhere(
-      (item) =>
-        coveredBy(covered, item) ||
-        givenUpThen.includes(item.localId) ||
-        (item.state === 'sent' && isReadable(item)),
-    ),
+    backend.removeWhere((item, _owner, all) => {
+      if (coveredBy(covered, item) || givenUpThen.includes(item.localId)) {
+        return true
+      }
+      if (!sentAndDone(item, all)) return false
+      if (makesSite(item)) {
+        mayBeOffered.add(item.localId)
+        return false
+      }
+      return true
+    }),
   )
-  if (removed === 'error') {
+  if (first === 'error') {
     logConnection('outbox-store-failed', { op: 'sweep' })
     return
+  }
+  let removed = first
+  if (mayBeOffered.size > 0) {
+    const offered = await withinMs(STORE_OP_MS, offeredNow(browserLocks()))
+    const kept = offered === 'error' ? null : offered
+    const more = await withinMs(
+      STORE_OP_MS,
+      backend.removeWhere(
+        (item, _owner, all) =>
+          mayBeOffered.has(item.localId) &&
+          sentAndDone(item, all) &&
+          kept?.has(item.localId) !== true,
+      ),
+    )
+    if (more === 'error') logConnection('outbox-store-failed', { op: 'sweep' })
+    else removed += more
   }
   // Before the tombstone goes: other tabs' reads from before now may hold
   // what it covered.
@@ -1725,7 +1899,7 @@ function forgetGivenUpAll(gone: ReadonlyArray<string>): void {
 export function changeOutboxItem(
   op: string,
   localId: string,
-  change: (item: OutboxItem) => Change,
+  change: ItemChange,
   landed?: (result: StoreResult<OutboxItem | 'deleted'>) => void,
 ): Promise<StoreResult<OutboxItem | 'deleted'>> {
   const done = claimToWrite()
@@ -1751,6 +1925,7 @@ export function setOutboxBackendForTests(next: OutboxBackend): void {
   backend = next
   peeked = null
   peekedNote = null
+  sentAtLoad = null
   reading = null
   readFailed = false
   readAgain.stop()

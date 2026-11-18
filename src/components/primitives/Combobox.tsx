@@ -33,6 +33,12 @@ export type ComboboxOption = {
   /** A second, quieter line under the label in the list ("Added Tue 29
    * Sept"). Never on the closed field, and never matched or picked by. */
   detail?: string
+  /** Where the row stands, which must be read, not skipped: New Job's "Not
+   * sent yet" on a client booked on the phone. A line of its own under the
+   * label, before any `detail`, in `ink-2` (a `detail` is muted, which sun
+   * washes out). Never on the closed field, and never matched or picked
+   * by. */
+  status?: string
   /** The heading this option is listed under while nothing is typed
    * ("Added recently"). Options come grouped, in the order given; once
    * something is typed the list is one list, best match first. */
@@ -536,6 +542,11 @@ export function Combobox({
                         <span className="block break-words text-body text-ink">
                           {o.label}
                         </span>
+                        {o.status && (
+                          <span className="block text-caption text-ink-2">
+                            {o.status}
+                          </span>
+                        )}
                         {detail && (
                           <span className="block text-caption text-muted">
                             {detail}

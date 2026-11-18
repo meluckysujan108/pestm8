@@ -312,3 +312,16 @@ export const FOR_SUBI_ROKEBY: OutboxItem = kept(
     sentKinds: ['job'],
   },
 )
+
+/** A second job for Marta Kowalski, booked on the phone on the client the
+ * first booking makes, not sent yet (2c-I): it goes once that one has. */
+export const AFTER_WAITING: OutboxItem = kept(
+  'a5',
+  {
+    scheduledAt: laterAt(7, 10),
+    property: { local: WAITING.localId },
+    jobType: 'Termite Inspection',
+    price: 38_500,
+  },
+  WAITING.display,
+)

@@ -6,10 +6,16 @@ import {
   clientOptions,
   pickerName,
   propertyOptions,
+  UNSENT_STATUS_WORDS,
   siteWorkDetail,
   siteWorkIndex,
+  withUnsentSites,
 } from './propertyOptions'
-import type { PickableClient, PickableProperty } from './propertyOptions'
+import type {
+  PickableClient,
+  PickableProperty,
+  UnsentStatus,
+} from './propertyOptions'
 import type { OpenWork } from './siteWorkRows'
 import { filterByWords, pickOnEnter, startsFirst } from './searchMatch'
 import { clientsForPicker, sitesWithClients } from './directory'
@@ -994,5 +1000,58 @@ describe('what a site’s row says of its work (`siteWorkDetail`)', () => {
     }
     expect(reads).toBe(1)
     expect(siteWorkDetail(index, P, at)).toBe('Booked Thu 29 Oct')
+  })
+})
+
+describe('clients and sites on the phone not sent yet (2c-I)', () => {
+  const unsent = {
+    value: 'outbox:local-1',
+    clientName: 'Jane Nguyen',
+    addressLine: '1 Hay St',
+    suburb: 'Perth',
+    postcode: '6000',
+    phone: '0400 000 000',
+    status: 'unsent' as UnsentStatus,
+  }
+
+  test('at the top of “Added recently”, saying “Not sent yet”; everyone else under “Everyone, A–Z”', () => {
+    const options = withUnsentSites(
+      [{ value: 'p1', label: 'Sam Wu — 2 Bay Rd, Cottesloe' }],
+      [unsent],
+    )
+    expect(options).toMatchObject([
+      {
+        value: 'outbox:local-1',
+        label: 'Jane Nguyen — 1 Hay St, Perth',
+        group: RECENT_GROUP,
+        status: 'Not sent yet',
+      },
+      { value: 'p1', group: EVERYONE_GROUP },
+    ])
+    // A line to be read, never the muted day line: it is the one sign the
+    // row is a booking still on the phone.
+    expect(options[0]).not.toHaveProperty('detail')
+    // Found by name, street, suburb, postcode and phone, as any other.
+    expect(filterByWords(options, '0400000000').map((o) => o.value)).toContain(
+      'outbox:local-1',
+    )
+    // None: the options as they were.
+    const alone = [{ value: 'p1', label: 'Sam Wu — 2 Bay Rd, Cottesloe' }]
+    expect(withUnsentSites(alone, [])).toEqual(alone)
+  })
+
+  test('says where each stands as its card does: being sent is never “Not sent yet”, and one chosen and sent says when', () => {
+    const said = (status: UnsentStatus) =>
+      withUnsentSites([], [{ ...unsent, status }])[0].status
+    expect(said('unsent')).toBe('Not sent yet')
+    expect(said('sending')).toBe('Sending…')
+    // One New Job sent straight and couldn't take off the phone, chosen: it
+    // may already be booked, as its card's chip says.
+    expect(said('look')).toBe('Needs a look')
+    // Sent while the form has been open, or before it opened (an Edit of a
+    // booking made on it opens on it).
+    expect(said('sentNow')).toBe('Sent just now')
+    expect(said('sent')).toBe('Sent')
+    expect(Object.keys(UNSENT_STATUS_WORDS)).toHaveLength(5)
   })
 })

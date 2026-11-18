@@ -80,7 +80,11 @@ import {
 } from '#/components/schedule/NewJobSheet'
 import { OutboxGroup } from '#/components/schedule/OutboxGroup'
 import { OutboxItemView } from '#/components/schedule/OutboxItemSheet'
-import { DISCARD_ITEM, outboxFooter } from '#/lib/outbox/outboxInset'
+import {
+  DISCARD_ITEM,
+  discardCascade,
+  outboxFooter,
+} from '#/lib/outbox/outboxInset'
 import type { InsetFacts } from '#/lib/outbox/outboxInset'
 import { DayAgendaPanel } from '#/components/schedule/DayAgendaPanel'
 import { keeper } from '#/lib/offline/keeper'
@@ -102,6 +106,7 @@ import { OutboxOnPhoneLine } from '#/components/auth/OutboxOnPhoneLine'
 import { FIELD } from '#/components/forms/FormField'
 import { dayKeyOf } from '../../convex/lib/dates'
 import {
+  AFTER_WAITING,
   FOR_SUBI,
   FOR_SUBI_ROKEBY,
   HARNESS_TOKEN,
@@ -3027,6 +3032,35 @@ const OUTBOX_SHEETS: Record<string, () => ReactNode> = {
   'outbox-sheet-foreign': () => (
     <OutboxSheet item={{ ...WAITING, v: 2 }} facts={{ lineLive: true }} />
   ),
+  // Part 2c-I. A second job booked on the client the first makes, held
+  // while that one needs a look; and the first's Discard, which takes the
+  // second with it, asked once for both.
+  'outbox-sheet-held-parent': () => (
+    <OutboxSheet
+      item={AFTER_WAITING}
+      facts={{
+        lineLive: true,
+        held: 'parent',
+        parentClient: WAITING.display.clientName,
+      }}
+    />
+  ),
+  'outbox-discard-cascade': () => {
+    const words = discardCascade(1, WAITING.display.clientName)
+    return (
+      <OutboxSheet item={WAITING}>
+        <ConfirmDialog
+          open
+          onOpenChange={() => {}}
+          title={words.title}
+          body={words.body}
+          confirm={words.confirm}
+          cancel={words.cancel}
+          onConfirm={() => {}}
+        />
+      </OutboxSheet>
+    )
+  },
   // Discard, asked first.
   'outbox-discard-confirm': () => (
     <OutboxSheet item={WAITING}>
@@ -3041,6 +3075,25 @@ const OUTBOX_SHEETS: Record<string, () => ReactNode> = {
       />
     </OutboxSheet>
   ),
+}
+
+/** Marta Kowalski's booking, not sent yet, on the phone (2c-I). */
+const UNSENT_CLIENT_BOOKINGS = [WAITING]
+
+/**
+ * New Job with no signal while a booking for a new client is on the phone
+ * (2c-I): the Property picker opens on "Added recently" with that client at
+ * its top, "Not sent yet" under them, as a second job can be booked on
+ * them. The shoot plan opens the picker.
+ */
+function NewJobPickerUnsentClient() {
+  return (
+    <NoSignal>
+      <WithBookings items={UNSENT_CLIENT_BOOKINGS}>
+        <NewJob />
+      </WithBookings>
+    </NoSignal>
+  )
 }
 
 /** Edit of a booking on the phone: New Job opened on it, the date a field. */
@@ -4694,6 +4747,7 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'agenda-outbox': AgendaOutbox,
   ...OUTBOX_SHEETS,
   'newjob-edit-item': NewJobEditItem,
+  'newjob-picker-unsent-client': NewJobPickerUnsentClient,
   // Search first (the matching plan's M2, 28 Oct 2026).
   'newjob-picker-email-match': NewJobPickerMatch,
   'newjob-picker-no-match-add': NewJobPickerMatch,
