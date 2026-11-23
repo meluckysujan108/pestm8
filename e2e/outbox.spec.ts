@@ -2112,16 +2112,19 @@ test('offboarded with a booking on the phone: never booked, and gone once the li
     await context.setOffline(false)
   }
 
-  // He signs in again, to a list of no business: the page that says so,
-  // drawn and working (its Sign out waits on hydration), then a while for
-  // the sender to act on that list, live on his socket. A list of no
-  // business forgets nothing (sender.ts `forgetNotListed`), so the booking
-  // is still on the phone, and what clears it below is the next business's
-  // list.
+  // He signs in again, to a list of no business: the page for someone in
+  // none, drawn and working (its Sign out waits on hydration), then a while
+  // for the sender to act on that list, live on his socket. That page is
+  // set-up's first step where anyone may start a business, as on the e2e
+  // deployment, and the one saying he is in none where sign-up is by
+  // invitation (`NoBusiness`). A list of no business forgets nothing
+  // (sender.ts `forgetNotListed`), so the booking is still on the phone,
+  // and what clears it below is the next business's list.
   await signInViaUi(page, s.sub.email)
+  await expect(page).toHaveURL(/\/onboarding/)
   await expect(
     page.getByRole('heading', {
-      name: 'This account isn’t part of a business',
+      name: /^(What’s your business called\?|This account isn’t part of a business)$/,
     }),
   ).toBeVisible()
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeEnabled()
@@ -2353,7 +2356,10 @@ test('the first of two needing a look (its assignee taken off the team): the sec
   await first.getByRole('button', { name: 'Edit' }).click()
   const edit = editSheet(page)
   await expect(edit.getByRole('button', { name: 'Book job' })).toBeEnabled()
-  await edit.getByLabel('Assigned to').selectOption(s.ownerMembershipId)
+  // Kevin was the team's other person, so the owner is the only one left to
+  // book: New Job puts the lead on them by itself, with no choice to make,
+  // and says so.
+  await expect(edit).toContainText('Assigned to you')
   await pressBook(edit)
 
   await expect
