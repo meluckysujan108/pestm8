@@ -63,7 +63,7 @@ export function ReportFilterButton({
   const { data: members = [] } = useQuery(rq.roster(businessId))
 
   // Whose, only where the library is everyone's: a subcontractor's is their
-  // own already, and so is the owner's in "Just my jobs".
+  // own already, and so is the owner's in My jobs.
   const showStaff =
     listsEverything === true && mode !== 'mine' && members.length >= 2
   const staffId = narrow.staffId ?? 'all'

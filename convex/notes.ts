@@ -40,7 +40,7 @@ export const noteFilter = v.union(
   v.literal('all'),
   // The caller's own personal notes.
   v.literal('mine'),
-  // Everyone else's personal notes: the owner, in God view, only.
+  // Everyone else's personal notes: the owner, in Overview, only.
   v.literal('everyone'),
   v.literal('jobs'),
   v.literal('sites'),
@@ -81,7 +81,7 @@ type Folder =
  *
  * Being allowed to read a note and being shown it in a folder are separate
  * questions. The owner may read anyone's personal note, but it is listed only
- * in "Everyone's notes" (and Recently Deleted) and only in God view — never
+ * in "Everyone's notes" (and Recently Deleted) and only in Overview — never
  * mixed into All Notes or Team, where his own notebook lives.
  */
 function inFolder(note: Note, folder: Folder, viewer: NoteViewer): boolean {

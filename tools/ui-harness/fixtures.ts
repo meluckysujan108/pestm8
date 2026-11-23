@@ -252,6 +252,43 @@ export const state = {
   clientOwes: false,
   /** Settings → Payments with one way left on (`payments:methodSettings`). */
   oneMethodLeft: false,
+  /** The view menu's view (`access:me`); null is someone with no menu. */
+  view: 'everyone' as 'everyone' | 'mine' | null,
+}
+
+/**
+ * The view menu (`views:options`): Terence, with Kevin and Jo to work in; or,
+ * as a technician, Kevin alone, whose menu lists no accounts.
+ */
+function viewOptions() {
+  return state.technician
+    ? {
+        overview: 'everyone',
+        me: {
+          membershipId: 'm_kev',
+          name: 'Kevin Doyle',
+          colour: '#FF3B30',
+          licenceMissing: false,
+        },
+        accounts: [],
+      }
+    : {
+        overview: 'everyone',
+        me: {
+          membershipId: 'm_owner',
+          name: 'Terence Walsh',
+          colour: '#0A84FF',
+          licenceMissing: false,
+        },
+        accounts: [
+          {
+            membershipId: 'm_kev',
+            name: 'Kevin Doyle',
+            colour: '#FF3B30',
+            role: 'subcontractor',
+          },
+        ],
+      }
 }
 
 /**
@@ -337,10 +374,10 @@ function accessMe() {
     expiresAt: state.actingAs ? Date.now() + 5 * 3600_000 : null,
     degraded: null,
     viewingAs: null,
-    view: { mode: 'everyone' },
+    view: state.view === null ? null : { mode: state.view },
     // The everyone view, and a technician here sees every schedule too: the
     // Job tab pages the whole business (`jobs.listPage`).
-    listsEverything: true,
+    listsEverything: state.view !== 'mine',
   }
 }
 
@@ -1064,6 +1101,7 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
         ]
       : [],
   'access:me': accessMe,
+  'views:options': viewOptions,
   'jobs:get': jobGet,
   'payments:summary': paymentsSummary,
   'payments:outstanding': paymentsOutstanding,

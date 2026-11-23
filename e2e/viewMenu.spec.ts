@@ -3,18 +3,22 @@ import { api, setupBusinessWithSub, signInViaUi } from './fixtures'
 import type { Page } from '@playwright/test'
 
 /**
- * The owner's view menu, beside the + in the header: God view, just his own
- * jobs, or someone else's account.
+ * The view menu, beside the + in the header: Overview, My jobs, or — for the
+ * owner — someone else's account. Everyone whose lists can show more than
+ * their own work has it, and every device opens in My jobs.
  *
- * Runs on the phone layout too (playwright.config.ts). The phone is where he
- * wants "Just my jobs" — standing in a roof void, not at a desk — and it is
- * where the header has the least room to take a fourth control.
+ * Runs on the phone layout too (playwright.config.ts). The phone is where
+ * My jobs matters — standing in a roof void, not at a desk — and it is where
+ * the header has the least room to take a fourth control.
+ *
+ * The fixtures put each sign-in in Overview (`chooseOverview`); the tests
+ * about where a device opens sign in with 'mine' to leave it there.
  */
 
 async function ownerWithKevinsJob(label: string) {
   const setup = await setupBusinessWithSub(label)
   // The fixture's own job is the owner's Termite Inspection; this one is
-  // Kevin's, on the same day, so God view and "Just my jobs" differ. At the
+  // Kevin's, on the same day, so Overview and My jobs differ. At the
   // same moment, not a fresh `Date.now()`, which past Perth midnight is the
   // next day. Each page opens on that day (`ownerJobDay`) for the same reason.
   await setup.owner.client.mutation(api.jobs.create, {
@@ -39,20 +43,15 @@ async function choose(page: Page, item: RegExp) {
   await page.getByRole('menuitemradio', { name: item }).click()
 }
 
-test('God view shows everyone; "Just my jobs" shows his own and simplifies', async ({
+test('he opens in My jobs, which simplifies; Overview shows everyone', async ({
   page,
 }) => {
   const { owner, slug, ownerJobDay } = await ownerWithKevinsJob('view-mine')
 
-  await signInViaUi(page, owner.email)
+  await signInViaUi(page, owner.email, undefined, undefined, 'mine')
   await page.goto(`/${slug}/schedule?date=${ownerJobDay}`)
 
-  // God view is the default — on the phone as on the desktop.
-  await expect(ownJob(page)).toBeVisible()
-  await expect(kevinsJob(page)).toBeVisible()
-
-  await choose(page, /Just my jobs/)
-
+  // My jobs is where the device opens — on the phone as on the desktop.
   await expect(page.getByRole('heading', { name: 'My jobs' })).toBeVisible()
   await expect(ownJob(page)).toBeVisible()
   await expect(kevinsJob(page)).toBeHidden()
@@ -69,14 +68,19 @@ test('God view shows everyone; "Just my jobs" shows his own and simplifies', asy
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByText('Team this month')).toBeHidden()
 
-  await choose(page, /God view/)
+  await choose(page, /Overview/)
 
   await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
   await expect(kevinsJob(page)).toBeVisible()
+  await expect(ownJob(page)).toBeVisible()
+
+  await choose(page, /My jobs/)
+  await expect(page.getByRole('heading', { name: 'My jobs' })).toBeVisible()
+  await expect(kevinsJob(page)).toBeHidden()
 })
 
 /**
- * Filtered to Kevin in God view, then switched to his own jobs: without the
+ * Filtered to Kevin in Overview, then switched to his own jobs: without the
  * reset, the list would hold only the owner's jobs and the filter would still
  * want Kevin's — "No matches", with the staff picker hidden in that view
  * and so no way to see why.
@@ -101,7 +105,7 @@ test('changing view starts the filters over', async ({ page }) => {
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page).toHaveURL(/[?&]staff=/)
 
-  await choose(page, /Just my jobs/)
+  await choose(page, /My jobs/)
 
   await expect(ownJob(page)).toBeVisible()
   await expect(page.getByText('No matches', { exact: true })).toBeHidden()
@@ -109,32 +113,35 @@ test('changing view starts the filters over', async ({ page }) => {
   await expect(page).not.toHaveURL(/[?&]staff=/)
 })
 
-test('the choice belongs to this device: another sign-in stays in God view', async ({
+test('the choice belongs to this device: another sign-in opens in My jobs', async ({
   page,
   browser,
 }) => {
   const { owner, slug, ownerJobDay } = await ownerWithKevinsJob('view-device')
 
-  await signInViaUi(page, owner.email)
+  await signInViaUi(page, owner.email, undefined, undefined, 'mine')
   await page.goto(`/${slug}/schedule?date=${ownerJobDay}`)
-  await choose(page, /Just my jobs/)
   await expect(kevinsJob(page)).toBeHidden()
+  await choose(page, /Overview/)
+  await expect(kevinsJob(page)).toBeVisible()
 
   // The office machine: a separate browser, so a separate session.
   const office = await browser.newContext()
   try {
     const desk = await office.newPage()
-    await signInViaUi(desk, owner.email)
+    await signInViaUi(desk, owner.email, undefined, undefined, 'mine')
     await desk.goto(`/${slug}/schedule?date=${ownerJobDay}`)
-    await expect(kevinsJob(desk)).toBeVisible()
+    await expect(desk.getByRole('heading', { name: 'My jobs' })).toBeVisible()
     await expect(ownJob(desk)).toBeVisible()
+    await expect(kevinsJob(desk)).toBeHidden()
   } finally {
     await office.close()
   }
 
   // And the phone is still where he left it.
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'My jobs' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
+  await expect(kevinsJob(page)).toBeVisible()
 })
 
 test('working in Kevin’s account is one pick away, and so is coming back', async ({
@@ -172,12 +179,51 @@ test('working in Kevin’s account is one pick away, and so is coming back', asy
   await expect(kevinsJob(page)).toBeVisible()
   await expect(ownJob(page)).toBeHidden()
 
-  await choose(page, /God view/)
+  await choose(page, /Overview/)
   await expect(banner).toBeHidden()
   await expect(ownJob(page)).toBeVisible()
 })
 
-test('nobody else gets the menu', async ({ page }) => {
+/**
+ * Kevin, given "Can view all jobs" on Settings → Team: his day stays his own,
+ * and everyone's is one pick away — the same menu as the owner's, without
+ * anyone's account in it.
+ */
+test('a subcontractor allowed to see all jobs gets Overview and My jobs', async ({
+  page,
+}) => {
+  const setup = await ownerWithKevinsJob('view-kevin')
+  await setup.owner.client.mutation(api.memberships.setGrants, {
+    businessId: setup.businessId,
+    membershipId: setup.subMembershipId,
+    grants: {
+      switchInto: null,
+      clientDirectory: true,
+      prices: false,
+      otherSchedules: true,
+    },
+  })
+
+  await signInViaUi(page, setup.sub.email, undefined, undefined, 'mine')
+  await page.goto(`/${setup.slug}/schedule?date=${setup.ownerJobDay}`)
+
+  await expect(page.getByRole('heading', { name: 'My jobs' })).toBeVisible()
+  await expect(kevinsJob(page)).toBeVisible()
+  await expect(ownJob(page)).toBeHidden()
+
+  await page.getByRole('button', { name: 'Whose jobs to show' }).click()
+  await expect(page.getByRole('menuitemradio')).toHaveCount(2)
+  await expect(page.getByText('Work in another account')).toHaveCount(0)
+  await page.getByRole('menuitemradio', { name: /Overview/ }).click()
+
+  await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
+  await expect(ownJob(page)).toBeVisible()
+  await expect(kevinsJob(page)).toBeVisible()
+})
+
+test('a subcontractor who sees only their own jobs gets no menu', async ({
+  page,
+}) => {
   const { sub, slug } = await setupBusinessWithSub('view-sub')
 
   await signInViaUi(page, sub.email)

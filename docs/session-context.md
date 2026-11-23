@@ -143,7 +143,7 @@ Before editing Convex code, read `convex/_generated/ai/guidelines.md`. CLAUDE.md
 - **Other:**
   - Licences and products: `memberLicences` and `memberLicenceFiles` (the licence wallet), `products` (photo plus SDS/label PDF).
   - Weather and places: `weatherCache`, `suburbGeocache`, `geocodeMisses`.
-  - Sessions and audit: `jobPhotos`, `accountSwitches` (12-hour "work in another account"), `sessionViews` (the owner's per-device view), `auditLog` (with `onBehalfOf`).
+  - Sessions and audit: `jobPhotos`, `accountSwitches` (12-hour "work in another account"), `sessionViews` (each device's Overview or My jobs; no row is My jobs), `auditLog` (with `onBehalfOf`).
   - Two-step: `twoStepAttempts`, `twoStepSetups`.
 - **Better Auth users** live in the component's tables, not the app's.
 

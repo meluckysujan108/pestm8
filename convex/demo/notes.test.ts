@@ -5,6 +5,7 @@ import { noteExtensions } from '../../src/components/notes/noteExtensions'
 import { noteKind } from '../lib/noteAccess'
 import { deriveNoteFields, walk } from '../lib/richText'
 import { runDemoSteps } from '../../test/demoFixture'
+import { inOverview } from '../../test/harness'
 import { NAMED_VISITS, at } from './shared'
 import type { DemoRun } from '../../test/demoFixture'
 import type { TestActor, TestApp } from '../../test/harness'
@@ -166,6 +167,9 @@ describe('the demo notes', () => {
     run = await runDemoSteps('notes')
     seededBy = Date.now()
     rows = await rowsOf(run.t, run.base.businessId)
+    // Every device opens in My jobs, where Everyone's notes is empty; these
+    // read what the owner may see, so his phone is in Overview.
+    await inOverview(run.t, run.owner, run.base.businessId)
   }, 60_000)
 
   test('it made the notes it says it made', () => {

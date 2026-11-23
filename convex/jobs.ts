@@ -576,7 +576,7 @@ const JOB_PAGE_BYTES_READ = 6 * 1024 * 1024
  * each page's end so a re-run covers the same rows. A filter naming who
  * the caller is ("these members, plus the jobs they are also going on")
  * changes whenever they are added to a job, a team changes, or the owner
- * picks "Just my jobs" — and every page loaded under the old one fails and
+ * picks My jobs — and every page loaded under the old one fails and
  * starts again from the top. Here the filter is the same for everyone
  * (`deletedAt`, `status`), so a page's place never goes stale. One person's
  * or one team's work is short enough to read whole, and `list` does.
@@ -749,7 +749,7 @@ export const listRecurring = query({
 
     // `listScope`, exactly as the visits above — NOT `scope`.
     //
-    // The two differ whenever the owner is in "Just my jobs": `scope` is
+    // The two differ whenever the owner is in My jobs: `scope` is
     // everything they may read, `listScope` is what the view they chose is
     // showing (lib/actor.ts). Counting series by `scope` while listing visits
     // by `listScope` puts a bar reading "12 Recurring Jobs" over a handful of
@@ -944,7 +944,7 @@ export const listWeek = query({
  * for a visit, and nothing more: a subcontractor's phone can warn that an
  * address is booked without learning by whom, for what or for how much.
  * Someone else's visit already done isn't sent at all. Prices never are.
- * `scope`, not `listScope`: "Just my jobs" chooses what a list shows, and
+ * `scope`, not `listScope`: My jobs chooses what a list shows, and
  * this is about the house.
  *
  * Each row's `at` is its slot (`slotOf`), which a booking names as seen, so

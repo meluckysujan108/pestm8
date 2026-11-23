@@ -75,7 +75,7 @@ test('a technician’s note is theirs: blank on +, no tags, and said so', async 
   expect(mine[0].private).toBe(true)
 })
 
-test('the owner reads the team’s personal notes in God view, and cannot change them', async ({
+test('the owner reads the team’s personal notes in Overview, and cannot change them', async ({
   page,
 }) => {
   const s = await setupBusinessWithSub('personal-owner')
@@ -109,7 +109,7 @@ test('the owner reads the team’s personal notes in God view, and cannot change
     ).toBeVisible()
     await expect(page.getByRole('button', { name: /Van list/ })).toHaveCount(0)
   }
-  // …but in the folder God view gives him, under whose it is.
+  // …but in the folder Overview gives him, under whose it is.
   await folders.getByRole('button', { name: 'Everyone’s notes' }).click()
   const row = page.getByRole('button', { name: /Van list/ })
   await expect(row).toContainText('Kevin')
@@ -132,16 +132,16 @@ test('the owner reads the team’s personal notes in God view, and cannot change
     page.getByText('This note can no longer be edited from here.'),
   ).toHaveCount(0)
 
-  // In "Just my jobs", or working in Kevin's account, the folder is not
-  // offered; back in God view it is.
+  // In My jobs, or working in Kevin's account, the folder is not
+  // offered; back in Overview it is.
   const everyone = folders.getByRole('button', { name: 'Everyone’s notes' })
   const view = async (item: RegExp) => {
     await page.getByRole('button', { name: 'Whose jobs to show' }).click()
     await page.getByRole('menuitemradio', { name: item }).click()
   }
-  await view(/Just my jobs/)
+  await view(/My jobs/)
   await expect(everyone).toHaveCount(0)
-  await view(/God view/)
+  await view(/Overview/)
   await expect(everyone).toBeVisible()
   await view(/Kevin/)
   await expect(page.getByText(/Working in .*’s account/)).toBeVisible()

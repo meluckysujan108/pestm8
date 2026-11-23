@@ -143,7 +143,7 @@ function ReportsPage() {
 
 /**
  * A person from the address, where the library is everyone's: a narrower
- * one (a subcontractor's, the owner's "Just my jobs") is one person's
+ * one (a subcontractor's, the owner's My jobs) is one person's
  * already, and its filter offers no one.
  */
 function appliedPerson(

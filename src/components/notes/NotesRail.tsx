@@ -9,10 +9,15 @@ import {
   Users,
 } from 'lucide-react'
 import { useAccess } from '#/lib/access'
+import type { Access } from '#/lib/access'
 import type { LucideIcon } from 'lucide-react'
 import type { LibraryFilter } from './NoteList'
 
-export const LIBRARY_FILTERS: Array<{ value: LibraryFilter; label: string; icon: LucideIcon }> = [
+export const LIBRARY_FILTERS: Array<{
+  value: LibraryFilter
+  label: string
+  icon: LucideIcon
+}> = [
   { value: 'mine', label: 'My notes', icon: NotebookPen },
   { value: 'all', label: 'All notes', icon: Notebook },
   { value: 'mentions', label: 'Mentions', icon: AtSign },
@@ -25,17 +30,32 @@ export const LIBRARY_FILTERS: Array<{ value: LibraryFilter; label: string; icon:
 
 /**
  * The folders this person is offered. "Everyone's notes" — the team's
- * personal notes — only to the owner in God view as himself: not in "Just my
- * jobs", not switched into an account, not looking through anyone. That is
+ * personal notes — only to the owner in Overview as himself: not in My
+ * jobs, not switched into an account, not looking through anyone. That is
  * the one view in which he has asked to see the whole business.
+ *
+ * The owner by role, not just by view: contractors and subcontractors have
+ * Overview too, and the server lists nobody else's personal notes to them
+ * (`godView` in convex/lib/noteAccess.ts), so the folder would be empty.
  */
 export function useLibraryFolders() {
-  const access = useAccess()
-  const godView = access.view?.mode === 'everyone' && access.viewingAs === null
+  const godView = offersEveryonesNotes(useAccess())
   return {
     godView,
     folders: LIBRARY_FILTERS.filter((f) => f.value !== 'everyone' || godView),
   }
+}
+
+/** Whether "Everyone's notes" is offered — see `useLibraryFolders`. */
+export function offersEveryonesNotes(
+  access: Pick<Access, 'role' | 'actingAs' | 'view' | 'viewingAs'>,
+): boolean {
+  return (
+    access.role === 'owner' &&
+    access.actingAs === null &&
+    access.view?.mode === 'everyone' &&
+    access.viewingAs === null
+  )
 }
 
 /**

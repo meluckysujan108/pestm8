@@ -138,7 +138,7 @@ function JobListPage() {
   const { status, staff, sort, jobId, outboxId } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
-  // Follows the view live: "Just my jobs" turns the paged list into the
+  // Follows the view live: My jobs turns the paged list into the
   // bounded one and back, in place. A person is chosen only from the whole
   // business's list — a narrower one is one person's or team's already, and
   // its filter offers no one — so a `staff` left in the address there is
@@ -193,7 +193,7 @@ function JobListPage() {
 
   // The bookings on this phone, not sent yet, in a group of their own above
   // the list (plan part 2c §9.8): under "All statuses" only (a booking has
-  // no status yet), and for the person chosen or "Just my jobs", those they
+  // no status yet), and for the person chosen or My jobs, those they
   // lead or are also going on (`jobTabShows`). Above the list, so they come
   // on only as the page first draws, reached in the app (never on a full
   // page load, nor with Back or Forward: `useFirstDrawOffer`), at a

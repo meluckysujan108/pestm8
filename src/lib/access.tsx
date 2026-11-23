@@ -34,8 +34,8 @@ export type Access = {
   degraded: string | null
   viewingAs: { membershipId: Id<'memberships'>; name: string } | null
   /**
-   * The owner's view dropdown: which of his views is showing, or null for
-   * anyone who does not get one. Optional because this build can meet a
+   * The view menu: which view is showing, or null for anyone who does not
+   * get one (they see only their own work, or work in someone's account). Optional because this build can meet a
    * backend from before the field existed (CLAUDE.md: the two deploy
    * separately) — and absent must read exactly like null, so nothing renders.
    */
@@ -59,7 +59,7 @@ export type Access = {
   lastRemovedAt?: number | null
 }
 
-/** God view, just my jobs, or working in someone else's account. */
+/** Overview, My jobs, or working in someone else's account. */
 export type ViewMode = 'everyone' | 'mine' | 'account'
 
 const AccessContext = createContext<Access | null>(null)
@@ -130,7 +130,7 @@ export function useActing(): {
 
 /**
  * Which of the owner's views is showing — null for everyone who has no
- * dropdown. Screens that simplify in "Just my jobs" read this and nothing
+ * dropdown. Screens that simplify in My jobs read this and nothing
  * else, so there is one answer to "is he in his own view" across the app.
  */
 export function useViewMode(): ViewMode | null {

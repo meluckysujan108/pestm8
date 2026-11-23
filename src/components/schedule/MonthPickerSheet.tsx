@@ -143,7 +143,7 @@ function MonthDays({
   )
 
   const byDay = new Map(days.map((d) => [d.dayKey, d]))
-  // One neutral dot in "Just my jobs" — see `dayDots`.
+  // One neutral dot in My jobs — see `dayDots`.
   const mine = useViewMode() === 'mine'
 
   return (

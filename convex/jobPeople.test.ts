@@ -5,6 +5,7 @@ import {
   createActor,
   createBusiness,
   daysAroundNow,
+  inOverview,
   testApp,
 } from '../test/harness'
 import { MAX_ALSO_GOING } from './lib/jobPeople'
@@ -55,6 +56,9 @@ async function setup() {
   const t = testApp()
   const owner = await createActor(t, { email: 'terence@pestm8.test' })
   const { businessId, ownerMembershipId } = await createBusiness(t, owner)
+  // Every device opens in My jobs; these tests read the owner's day and
+  // workload as the whole business, so his phone is in Overview.
+  await inOverview(t, owner, businessId)
   const kevin = await createActor(t, { email: 'kevin@pestm8.test' })
   const kevinId = await join(t, owner, kevin, businessId, 'subcontractor')
   const sam = await createActor(t, { email: 'sam@pestm8.test' })
@@ -324,6 +328,8 @@ describe('a contractor and her team on one job', () => {
     const dan = await createActor(s.t, { email: 'dan@pestm8.test' })
     const danId = await join(s.t, s.owner, dan, s.businessId, 'subcontractor')
     await s.t.run((ctx) => ctx.db.patch(danId, { parentMembershipId: caraId }))
+    // Her day as her whole team's, where Dan's row could list it twice.
+    await inOverview(s.t, cara, s.businessId)
 
     const when = at()
     const jobId = await book(s, { lead: caraId, alsoGoing: [danId], when })

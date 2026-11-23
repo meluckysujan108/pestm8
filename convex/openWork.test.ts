@@ -595,7 +595,7 @@ describe('whose rows say what', () => {
     }
   })
 
-  test('the owner’s “Just my jobs” still names every job: it is about the house, not the list', async () => {
+  test('the owner’s My jobs still names every job: it is about the house, not the list', async () => {
     const { s, ids, day } = await seeded()
     await s.owner.as.mutation(api.views.set, {
       businessId: s.businessId,

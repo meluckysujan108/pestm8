@@ -4,6 +4,7 @@ import { api } from './_generated/api'
 import {
   createActor,
   createBusiness,
+  inOverview,
   joinBusiness,
   testApp,
 } from '../test/harness'
@@ -30,6 +31,9 @@ async function setup() {
   const t = testApp()
   const owner = await createActor(t, { email: 'terence@coastal.test' })
   const { businessId, ownerMembershipId } = await createBusiness(t, owner)
+  // Every device opens in My jobs; these tests read the owner's analytics as
+  // the whole business, so his phone is in Overview.
+  await inOverview(t, owner, businessId)
   const propertyId = await t.run(async (ctx) => {
     const clientId = await ctx.db.insert('clients', {
       businessId,
