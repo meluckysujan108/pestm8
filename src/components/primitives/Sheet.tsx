@@ -16,6 +16,7 @@ import { FIX_ARM_MS } from '#/components/forms/saveWarningRules'
 import { ReachNotice } from '#/components/shell/ConnectionNotice'
 import { KeptPlace, useKeptHere } from '#/lib/offline/keptOnScreen'
 import { noticeOverKept, useDrawsNotice, useReachNotice } from '#/lib/reach'
+import { useFollowKeyboard } from '#/lib/sheetKeyboard'
 import type { ReactNode, Ref, RefObject } from 'react'
 
 /**
@@ -166,6 +167,7 @@ export function SheetShell({
       return next
     })
   }, [])
+  const followKeyboard = useFollowKeyboard()
   const locked = open && locks.size > 0
   const changed = locked && [...locks.values()].some((lock) => lock.changed)
   const [asking, setAsking] = useState(false)
@@ -255,13 +257,21 @@ export function SheetShell({
       // sheet not told it is nested undoes it as it closes — the page then
       // scrolled under New Job after every pick.
       nested={overSheet}
+      // The sheet follows the keyboard itself (`lib/sheetKeyboard.ts`): from
+      // iOS 27 Vaul's own reading of it kept a tall sheet at full height on
+      // the keyboard, its top off the screen and nothing scrolling. Off, it
+      // also takes Vaul's iOS focus trick with it (`usePreventScroll`, which
+      // ran only with it); the page under the sheet stays locked by the
+      // scrim's own scroll lock and, in Safari, Vaul's fixed body.
+      repositionInputs={false}
     >
       <Drawer.Portal>
         <Drawer.Overlay
           className={`fixed inset-0 bg-scrim ${overSheet ? 'z-50' : 'z-40'}`}
         />
         <Drawer.Content
-          className={`fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-sheet bg-canvas outline-none ${className}`}
+          ref={followKeyboard}
+          className={`fixed inset-x-0 bottom-[var(--sheet-lift,0px)] z-50 mx-auto flex max-h-[min(92vh,var(--sheet-room,92vh))] w-full max-w-[460px] flex-col rounded-t-sheet bg-canvas outline-none ${className}`}
           // Vaul holds on to the pointer at every press — for a drag that may
           // follow — so a tap still lands on its button when what is under it
           // moves mid-tap (a field's warning line appearing as it loses
