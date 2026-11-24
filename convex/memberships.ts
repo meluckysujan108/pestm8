@@ -1,7 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { canViewAs, getAuthUserId, requireMembership } from './lib/access'
+import { getAuthUserId, requireMembership } from './lib/access'
 import { isMemberColour, nextColour, normaliseColour } from './lib/colours'
 import { inviteState } from './lib/inviteTokens'
 import { normalisePhone } from './lib/phone'
@@ -93,10 +93,16 @@ export const listForBusiness = query({
           email: detailed ? (user?.email ?? '') : undefined,
           phone: detailed ? m.phone : undefined,
           licenceNumber: detailed ? m.licenceNumber : undefined,
-          canViewAllJobs: detailed ? m.canViewAllJobs : undefined,
-          canViewOtherAccounts: detailed
-            ? (m.canViewOtherAccounts ?? false)
+          /**
+           * Both kept in this answer's shape, which phones hold offline
+           * (src/lib/offline/keptShape.ts), though the columns they were read
+           * from are retired (schema.ts): "View only" or more, from `grants`,
+           * and the old "view as", which nobody has any more.
+           */
+          canViewAllJobs: detailed
+            ? grantsFromMembership(m).otherSchedules
             : undefined,
+          canViewOtherAccounts: detailed ? false : undefined,
           /**
            * Whether the caller may put work onto this person — `canDispatchTo`
            * on the account being worked in, the function `jobs.create`,
@@ -245,14 +251,14 @@ export const invite = mutation({
       ? (await ctx.db.patch(existing._id, {
           role: args.role,
           status: 'invited',
-          canViewAllJobs: false,
+          // The retired column (schema.ts) goes as the row is touched.
+          canViewAllJobs: undefined,
         }),
         existing._id)
       : await ctx.db.insert('memberships', {
           userId: args.userId,
           businessId: args.businessId,
           role: args.role,
-          canViewAllJobs: false,
           grants: NO_GRANTS,
           colour,
           status: 'invited',
@@ -387,8 +393,9 @@ export const setCanViewAllJobs = mutation({
       editOthers: args.canViewAllJobs && current.editOthers,
     }
     await ctx.db.patch(args.membershipId, {
-      canViewAllJobs: args.canViewAllJobs,
       grants: nextGrants,
+      // The retired column (schema.ts) goes as the row is touched.
+      canViewAllJobs: undefined,
     })
 
     await recordAudit(ctx, forSelf(actor._id), {
@@ -403,11 +410,11 @@ export const setCanViewAllJobs = mutation({
 })
 
 /**
- * Distinct from setCanViewAllJobs (a data-scope grant): this governs whether
- * a subcontractor can also view the app through OTHER members' eyes via the
- * header account menu's "view as" — never grantable for viewing the owner,
- * even when on (enforced again, unconditionally, in lib/access.ts's own
- * canViewAs check — this guard here just fails loud and early).
+ * The old "Can view other accounts" switch, for a phone on a build that still
+ * shows it. Retired (schema.ts): nobody may be given the old read-only "view
+ * as" any more, so whatever is asked, this only ever clears it, and that
+ * phone's switch comes back off, which is the truth. Who may ask is unchanged.
+ * Goes when the columns are dropped.
  */
 export const setCanViewOtherAccounts = mutation({
   args: {
@@ -418,7 +425,6 @@ export const setCanViewOtherAccounts = mutation({
   handler: async (ctx, args) => {
     const env = await requireActor(ctx, args.businessId)
     requireCapability(env, 'team.manage')
-    const actor = env.actor.real
 
     const target = await ctx.db.get(args.membershipId)
     if (!target || target.businessId !== args.businessId) {
@@ -434,19 +440,10 @@ export const setCanViewOtherAccounts = mutation({
       throw new ConvexError('NO_ACCESS')
     }
 
-
-    await ctx.db.patch(args.membershipId, {
-      canViewOtherAccounts: args.canViewOtherAccounts,
-    })
-
-    await recordAudit(ctx, forSelf(actor._id), {
-      businessId: args.businessId,
-      action: 'membership.setCanViewOtherAccounts',
-      entityType: 'memberships',
-      entityId: args.membershipId,
-      meta: { canViewOtherAccounts: args.canViewOtherAccounts },
-      at: Date.now(),
-    })
+    if (target.canViewOtherAccounts !== undefined) {
+      await ctx.db.patch(args.membershipId, { canViewOtherAccounts: undefined })
+    }
+    return null
   },
 })
 
@@ -543,7 +540,8 @@ export const setRole = mutation({
       role: args.role,
       parentMembershipId: becoming.parentMembershipId ?? undefined,
       grants: roleGrants,
-      canViewAllJobs: roleGrants.otherSchedules,
+      // The retired column (schema.ts) goes as the row is touched.
+      canViewAllJobs: undefined,
     })
 
     await recordAudit(ctx, forSelf(actor._id), {
@@ -684,10 +682,10 @@ export const setProfile = mutation({
 })
 
 /**
- * Always self-only to write (the caller's own membership, never an
- * argument-supplied one) — "view as" can only ever change what YOU see.
- * Validated here too (not just read-side in resolveViewScope) so a rejected
- * attempt fails immediately with a clear error rather than silently no-op.
+ * The old read-only "view as" is retired (schema.ts), and nothing reads a
+ * selection any more. This only clears the caller's own, for a phone on a
+ * build whose banner still offers to; starting one is refused. Goes when the
+ * columns are dropped.
  */
 export const setViewingAs = mutation({
   args: {
@@ -696,19 +694,13 @@ export const setViewingAs = mutation({
   },
   handler: async (ctx, args) => {
     const actor = await requireMembership(ctx, args.businessId)
-
-    if (args.targetMembershipId === undefined) {
-      await ctx.db.patch(actor._id, { viewingAsMembershipId: undefined })
-      return
+    if (args.targetMembershipId !== undefined) {
+      throw new ConvexError('NO_ACCESS')
     }
-
-    const target = await ctx.db.get(args.targetMembershipId)
-    if (!target) throw new ConvexError('NOT_FOUND')
-    if (!canViewAs(actor, target)) throw new ConvexError('NO_ACCESS')
-
-    await ctx.db.patch(actor._id, {
-      viewingAsMembershipId: args.targetMembershipId,
-    })
+    if (actor.viewingAsMembershipId !== undefined) {
+      await ctx.db.patch(actor._id, { viewingAsMembershipId: undefined })
+    }
+    return null
   },
 })
 
@@ -758,9 +750,9 @@ export const setGrants = mutation({
     })
     await ctx.db.patch(args.membershipId, {
       grants: clamped,
-      // Kept in step while anything still reads it: the legacy column is the
-      // fallback for rows with no `grants`, and this row now has one.
-      canViewAllJobs: clamped.otherSchedules,
+      // The retired column (schema.ts) goes as the row is touched: this row
+      // has `grants` now, so nothing falls back to it.
+      canViewAllJobs: undefined,
     })
 
     await recordAudit(ctx, forSelf(env.actor.real._id), {

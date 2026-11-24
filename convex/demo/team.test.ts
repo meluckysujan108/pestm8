@@ -219,7 +219,9 @@ describe('the demo team', () => {
     for (const m of rows.members) {
       // Absent `grants` takes the legacy fallback, which no app path writes.
       expect(m.grants).toBeDefined()
-      expect(m.canViewAllJobs).toBe(m.grants?.otherSchedules)
+      // Nor the retired view columns (schema.ts).
+      expect(m).not.toHaveProperty('canViewAllJobs')
+      expect(m).not.toHaveProperty('canViewOtherAccounts')
       // Optional fields are omitted, never null (the schema has no v.null()).
       expect(Object.values(m)).not.toContain(null)
     }
@@ -274,10 +276,10 @@ describe('the demo team', () => {
     expect(former).toMatchObject({
       status: 'removed',
       removedByMembershipId: run.base.members.owner,
-      canViewAllJobs: false,
-      canViewOtherAccounts: false,
       grants: NO_GRANTS,
     })
+    expect(former).not.toHaveProperty('canViewAllJobs')
+    expect(former).not.toHaveProperty('canViewOtherAccounts')
     expect(former).not.toHaveProperty('viewingAsMembershipId')
     expect(dayOf(former.removedAt!)).toBe(daysAgo(30))
 

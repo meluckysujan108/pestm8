@@ -20,9 +20,9 @@ import {
  * of which is a place the model and the interface could disagree without
  * either one being wrong on its own.
  *
- * `viewAs.spec.ts` covers the older read-only lens and stays as it is: the two
- * features exist side by side until the legacy column is dropped, and the
- * suite should notice if either stops working.
+ * The older read-only "view as" lens is retired (convex/schema.ts), and its
+ * spec went with it: switching is the only way to see through another
+ * account now.
  */
 
 test('an owner works in a subcontractor’s account, then comes back out', async ({

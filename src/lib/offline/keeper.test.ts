@@ -91,7 +91,6 @@ const own: Access = {
   actingAs: null,
   expiresAt: null,
   degraded: null,
-  viewingAs: null,
 }
 const LENS = lensOf(own) as string
 /** The owner's lens on one of his views. */
@@ -690,7 +689,7 @@ describe('live, and what is written', () => {
     const h = harness(backend)
     await claimed(h, {
       ...own,
-      viewingAs: { membershipId: 'm2' as Id<'memberships'>, name: 'Sam' },
+      actingAs: { membershipId: 'm2' as Id<'memberships'>, name: 'Sam' },
     })
     h.convex.answer(day(TODAY), [job('theirs')])
     await vi.advanceTimersByTimeAsync(10_000)
@@ -755,7 +754,7 @@ describe('live, and what is written', () => {
     const h = harness(await phoneKeeps([{ key: day(TODAY), data: [] }]))
     await claimed(h, {
       ...own,
-      viewingAs: { membershipId: 'm2' as Id<'memberships'>, name: 'Sam' },
+      actingAs: { membershipId: 'm2' as Id<'memberships'>, name: 'Sam' },
     })
     expect(keepStartPage).not.toHaveBeenCalled()
 

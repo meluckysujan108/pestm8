@@ -151,7 +151,6 @@ describe('who is calling', () => {
     expect(env.actor.acting._id).toBe(f.kevinId)
     expect(env.readScope._id).toBe(f.kevinId)
     expect(env.actor.session).toBeNull()
-    expect(env.viewingAsLegacy).toBe(false)
   })
 
   /** Same opaque error for both, on purpose: telling a stranger that the
@@ -191,95 +190,102 @@ describe('who is calling', () => {
   })
 })
 
-describe('the legacy read-only view-as', () => {
+describe('the retired read-only view-as', () => {
   /**
-   * THE trap this module is shaped around.
-   *
-   * `viewingAsMembershipId` grants looking. If it were resolved into `acting`,
-   * every holder would silently gain the right to write in that account and to
-   * be recorded as the author of what they wrote — an install-wide privilege
-   * upgrade, invisible in a diff, arriving first in the destructive paths.
+   * Retired (schema.ts): nothing can start one, and a selection still stored
+   * on a row (left from before, or written straight into the database) must
+   * not take effect, for the owner or for a holder of the old grant. It was
+   * only ever leave to look, and it never becomes `acting` either.
    */
-  test('never becomes the account being acted in', async () => {
-    const f = await scenario()
-    await f.t.run((ctx) =>
-      ctx.db.patch(f.ownerMembershipId, { viewingAsMembershipId: f.kevinId }),
-    )
-    // My jobs, where every device opens, outranks a leftover view-as as a
-    // choice would; it is only ever looked through from Overview.
-    await inOverview(f.t, f.terence, f.businessId)
-
-    const env = await read(f, f.terence)
-    expect(env.readScope._id).toBe(f.kevinId)
-    expect(env.actor.acting._id).toBe(f.ownerMembershipId)
-    expect(env.viewingAsLegacy).toBe(true)
-
-    const w = await write(f, f.terence)
-    expect(w.actor.acting._id).toBe(f.ownerMembershipId)
-  })
-
-  /**
-   * The point of the feature is "show me what Kevin sees". Scoping it by the
-   * VIEWER's capabilities would show an owner — who can see everything — the
-   * whole business, which is not a wrong answer to the question so much as the
-   * feature not working at all.
-   */
-  test('scopes to what the target sees, not to what the viewer can see', async () => {
-    const f = await scenario()
-    await f.t.run((ctx) =>
-      ctx.db.patch(f.ownerMembershipId, { viewingAsMembershipId: f.kevinId }),
-    )
-    await inOverview(f.t, f.terence, f.businessId)
-
-    const env = await read(f, f.terence)
-    expect(env.scope).toEqual({ kind: 'own', membershipId: f.kevinId })
-
-    // And without the selection, the same owner sees everything.
-    await f.t.run((ctx) =>
-      ctx.db.patch(f.ownerMembershipId, { viewingAsMembershipId: undefined }),
-    )
-    expect((await read(f, f.terence)).scope).toEqual({ kind: 'business' })
-  })
-
-  test('is ignored without the old grant, and honoured with it', async () => {
-    const f = await scenario()
-    await f.t.run((ctx) =>
-      ctx.db.patch(f.priyaId, { viewingAsMembershipId: f.kevinId }),
-    )
-    expect((await read(f, f.priya)).readScope._id).toBe(f.priyaId)
-
-    await f.t.run((ctx) =>
-      ctx.db.patch(f.priyaId, { canViewOtherAccounts: true }),
-    )
-    expect((await read(f, f.priya)).readScope._id).toBe(f.kevinId)
-  })
-
-  /** Owner invisibility does not depend on the new model being switched on. */
-  test('can never be pointed at the owner', async () => {
-    const f = await scenario()
-    await f.t.run((ctx) =>
-      ctx.db.patch(f.priyaId, {
-        canViewOtherAccounts: true,
-        viewingAsMembershipId: f.ownerMembershipId,
-      }),
-    )
-    expect((await read(f, f.priya)).readScope._id).toBe(f.priyaId)
-  })
-
-  /** Fails open, deliberately: a stale selection should stop taking effect,
-   * not break the page mid-shift. */
-  test('falls back silently when the target is gone', async () => {
+  test('a stored selection is ignored, even with the old grant', async () => {
     const f = await scenario()
     await f.t.run(async (ctx) => {
       await ctx.db.patch(f.ownerMembershipId, {
         viewingAsMembershipId: f.kevinId,
       })
-      await ctx.db.patch(f.kevinId, { status: 'removed' })
+      await ctx.db.patch(f.priyaId, {
+        canViewOtherAccounts: true,
+        viewingAsMembershipId: f.kevinId,
+      })
+      // Kevin with business-wide sight (and Jo, whose ceiling his is), so
+      // looking through him would widen what Priya sees.
+      await ctx.db.patch(f.joId, { grants: ALL_ON })
+      await ctx.db.patch(f.kevinId, { grants: ALL_ON })
     })
+    await inOverview(f.t, f.terence, f.businessId)
 
-    const env = await read(f, f.terence)
-    expect(env.readScope._id).toBe(f.ownerMembershipId)
-    expect(env.actor.degraded).toBeNull()
+    const owner = await read(f, f.terence)
+    expect(owner.readScope._id).toBe(f.ownerMembershipId)
+    expect(owner.actor.acting._id).toBe(f.ownerMembershipId)
+    expect(owner.scope).toEqual({ kind: 'business' })
+
+    const priya = await read(f, f.priya)
+    expect(priya.readScope._id).toBe(f.priyaId)
+    expect(priya.scope).toEqual({ kind: 'own', membershipId: f.priyaId })
+
+    const w = await write(f, f.priya)
+    expect(w.actor.acting._id).toBe(f.priyaId)
+    expect(w.readScope._id).toBe(f.priyaId)
+    expect(w.scope).toEqual({ kind: 'own', membershipId: f.priyaId })
+  })
+
+  /** A phone on an older build reads anything but null as looking through
+   * someone, so the field stays, always null. */
+  test('access.me never reports one', async () => {
+    const f = await scenario()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.ownerMembershipId, { viewingAsMembershipId: f.kevinId }),
+    )
+    await inOverview(f.t, f.terence, f.businessId)
+    const me = await f.terence.as.query(api.access.me, {
+      businessId: f.businessId,
+    })
+    expect(me.viewingAs).toBeNull()
+  })
+
+  test('setViewingAs clears your own selection and refuses to start one', async () => {
+    const f = await scenario()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.priyaId, {
+        canViewOtherAccounts: true,
+        viewingAsMembershipId: f.kevinId,
+      }),
+    )
+    await expect(
+      f.priya.as.mutation(api.memberships.setViewingAs, {
+        businessId: f.businessId,
+        targetMembershipId: f.kevinId,
+      }),
+    ).rejects.toThrow('NO_ACCESS')
+    await f.priya.as.mutation(api.memberships.setViewingAs, {
+      businessId: f.businessId,
+    })
+    const row = await f.t.run((ctx) => ctx.db.get(f.priyaId))
+    expect(row?.viewingAsMembershipId).toBeUndefined()
+  })
+
+  /** For a phone on an older build, which still shows the switch: it comes
+   * back off, whatever was asked, and whoever was refused still is. */
+  test('the old switch only ever clears the grant', async () => {
+    const f = await scenario()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.priyaId, { canViewOtherAccounts: true }),
+    )
+    await f.terence.as.mutation(api.memberships.setCanViewOtherAccounts, {
+      businessId: f.businessId,
+      membershipId: f.priyaId,
+      canViewOtherAccounts: true,
+    })
+    const row = await f.t.run((ctx) => ctx.db.get(f.priyaId))
+    expect(row?.canViewOtherAccounts).toBeUndefined()
+
+    await expect(
+      f.priya.as.mutation(api.memberships.setCanViewOtherAccounts, {
+        businessId: f.businessId,
+        membershipId: f.kevinId,
+        canViewOtherAccounts: false,
+      }),
+    ).rejects.toThrow('NO_ACCESS')
   })
 })
 
@@ -292,7 +298,6 @@ describe('switching into an account', () => {
     expect(env.actor.real._id).toBe(f.ownerMembershipId)
     expect(env.actor.acting._id).toBe(f.kevinId)
     expect(env.readScope._id).toBe(f.kevinId)
-    expect(env.viewingAsLegacy).toBe(false)
 
     const w = await write(f, f.terence)
     expect(w.actor.acting._id).toBe(f.kevinId)
@@ -413,12 +418,10 @@ describe('switching into an account', () => {
     )
     expect(env.actor.acting._id).toBe(other.ownerMembershipId)
     expect(env.actor.degraded).toBeNull()
-    expect(env.viewingAsLegacy).toBe(false)
   })
 
-  /** You cannot be looking through one person's eyes while working in
-   * another's account. */
-  test('wins over a stale legacy selection', async () => {
+  /** A selection left in the retired view-as column changes nothing. */
+  test('reads as its account, whatever a stale view-as selection says', async () => {
     const f = await scenario()
     await f.t.run((ctx) =>
       ctx.db.patch(f.ownerMembershipId, { viewingAsMembershipId: f.priyaId }),
@@ -427,7 +430,6 @@ describe('switching into an account', () => {
 
     const env = await read(f, f.terence)
     expect(env.readScope._id).toBe(f.kevinId)
-    expect(env.viewingAsLegacy).toBe(false)
   })
 
   /** A switch must not launder a toggle: intersecting is what stops someone
@@ -571,41 +573,6 @@ describe('a contractor is a ceiling on their own team', () => {
   })
 })
 
-describe('a write never inherits the read-only view-as', () => {
-  /**
-   * `acting` was only ever half the path. `scope` is the row filter a mutation
-   * author is actually offered, so a write envelope carrying the target's scope
-   * turns the ordinary gate — refuse anything out of scope — into permission
-   * over every row the TARGET can see, with the write attributed to the caller.
-   */
-  test('the write envelope scopes to the writer, not to who they are watching', async () => {
-    const f = await scenario()
-    await f.t.run(async (ctx) => {
-      await ctx.db.patch(f.priyaId, {
-        canViewOtherAccounts: true,
-        viewingAsMembershipId: f.kevinId,
-      })
-      // Jo as well: a subcontractor's sight is ceilinged by their contractor's,
-      // so without this Kevin would not have business scope to inherit.
-      await ctx.db.patch(f.joId, { grants: ALL_ON })
-      await ctx.db.patch(f.kevinId, { grants: ALL_ON })
-    })
-
-    // Reading, she sees through Kevin's eyes — business-wide, because that is
-    // what Kevin can see.
-    const r = await read(f, f.priya)
-    expect(r.readScope._id).toBe(f.kevinId)
-    expect(r.scope).toEqual({ kind: 'business' })
-
-    // Writing, she is nobody but herself.
-    const w = await write(f, f.priya)
-    expect(w.actor.acting._id).toBe(f.priyaId)
-    expect(w.readScope._id).toBe(f.priyaId)
-    expect(w.scope).toEqual({ kind: 'own', membershipId: f.priyaId })
-    expect(w.viewingAsLegacy).toBe(false)
-  })
-})
-
 describe('when a switch stops being valid', () => {
   /**
    * The banner would have said "your switch ended, you are back in your own
@@ -625,7 +592,6 @@ describe('when a switch stops being valid', () => {
     expect(env.actor.degraded).toBe('SWITCH_EXPIRED')
     // Back to Terence — NOT to Priya, whom the legacy column still names.
     expect(env.readScope._id).toBe(f.ownerMembershipId)
-    expect(env.viewingAsLegacy).toBe(false)
 
     await expect(write(f, f.terence)).rejects.toThrow('SWITCH_EXPIRED')
   })
@@ -699,31 +665,6 @@ describe('read scope while switched', () => {
     expect(
       env.scope.kind === 'team' ? [...env.scope.membershipIds].sort() : [],
     ).toEqual([f.joId, f.kevinId].sort())
-  })
-})
-
-describe('the legacy view-as, at the edges', () => {
-  test('never reaches across businesses', async () => {
-    const f = await scenario()
-    const other = await createBusiness(f.t, f.jo, 'Inland Pest')
-    await f.t.run((ctx) =>
-      ctx.db.patch(f.ownerMembershipId, {
-        viewingAsMembershipId: other.ownerMembershipId,
-      }),
-    )
-    expect((await read(f, f.terence)).readScope._id).toBe(f.ownerMembershipId)
-  })
-
-  test('is ignored when it points at someone who was removed', async () => {
-    const f = await scenario()
-    await f.t.run(async (ctx) => {
-      await ctx.db.patch(f.priyaId, {
-        canViewOtherAccounts: true,
-        viewingAsMembershipId: f.kevinId,
-      })
-      await ctx.db.patch(f.kevinId, { status: 'removed' })
-    })
-    expect((await read(f, f.priya)).readScope._id).toBe(f.priyaId)
   })
 })
 
@@ -1841,9 +1782,9 @@ describe('setting someone’s toggles', () => {
   /**
    * The first write is what makes `grantsFromMembership` stop falling back to
    * the legacy column, so anything missing from it silently becomes false.
-   * The legacy column is kept in step for whatever still reads it.
+   * The legacy column itself is retired (schema.ts), and goes with the write.
    */
-  test('materialising grants keeps the legacy column in step', async () => {
+  test('materialising grants clears the retired column', async () => {
     const f = await scenario()
     await f.terence.as.mutation(api.memberships.setGrants, {
       businessId: f.businessId,
@@ -1857,7 +1798,7 @@ describe('setting someone’s toggles', () => {
     })
     const row = await f.t.run((ctx) => ctx.db.get(f.priyaId))
     expect(row?.grants?.otherSchedules).toBe(false)
-    expect(row?.canViewAllJobs).toBe(false)
+    expect(row?.canViewAllJobs).toBeUndefined()
   })
 })
 

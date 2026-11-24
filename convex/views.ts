@@ -167,17 +167,6 @@ export const set = mutation({
       mode: view.kind,
       updatedAt: Date.now(),
     })
-
-    /**
-     * The older read-only "view as" is stored on the membership and no screen
-     * can start one any more — but one left over would otherwise be the thing
-     * he sees the moment he picks Overview. Choosing a view here is the
-     * newer, more deliberate act, so it clears the older one.
-     */
-    const membership = await ctx.db.get(env.actor.real._id)
-    if (membership?.viewingAsMembershipId !== undefined) {
-      await ctx.db.patch(membership._id, { viewingAsMembershipId: undefined })
-    }
     return null
   },
 })

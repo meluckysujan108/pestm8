@@ -375,7 +375,6 @@ function accessMe() {
       : null,
     expiresAt: state.actingAs ? Date.now() + 5 * 3600_000 : null,
     degraded: null,
-    viewingAs: null,
     view: state.view === null ? null : { mode: state.view },
     // The everyone view, and a technician here sees every schedule too: the
     // Job tab pages the whole business (`jobs.listPage`).

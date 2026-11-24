@@ -60,8 +60,7 @@ export async function noteViewer(
     godView:
       env.actor.real.role === 'owner' &&
       env.view === 'everyone' &&
-      env.actor.session === null &&
-      !env.viewingAsLegacy,
+      env.actor.session === null,
     real: env.actor.real,
     scope: env.readScope,
     readRows: env.scope,

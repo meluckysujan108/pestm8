@@ -4443,7 +4443,6 @@ const KEVIN: Member = {
     otherSchedules: false,
     editOthers: false,
   },
-  canViewOtherAccounts: false,
   canManage: true,
   canSetRole: true,
   bookable: true,
