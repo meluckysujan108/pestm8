@@ -161,6 +161,40 @@ export async function addSession(
 }
 
 /**
+ * This actor's device in Overview for a business, as picking it from the
+ * view menu leaves it (`views.set`). Every device opens in My jobs, which
+ * narrows the lists of anyone with the menu to their own work; a test about
+ * what a person may SEE, rather than what they chose to be shown, starts
+ * here.
+ *
+ * Written directly rather than through `views.set`, which also clears a
+ * leftover read-only "view as" and closes a switch: this changes the view
+ * and nothing else. Call it once the person is a member.
+ */
+export async function inOverview(
+  t: TestApp,
+  actor: TestActor,
+  businessId: Id<'businesses'>,
+): Promise<void> {
+  await t.run(async (ctx) => {
+    const membership = await ctx.db
+      .query('memberships')
+      .withIndex('by_user_business', (q) =>
+        q.eq('userId', actor.userId).eq('businessId', businessId),
+      )
+      .unique()
+    if (!membership) throw new Error(`${actor.email} is not a member`)
+    await ctx.db.insert('sessionViews', {
+      sessionId: actor.sessionId,
+      businessId,
+      realMembershipId: membership._id,
+      mode: 'everyone',
+      updatedAt: Date.now(),
+    })
+  })
+}
+
+/**
  * A business owned by `owner`, matching what `businesses.create` produces —
  * including `canViewAllJobs: true` on the owner's own membership.
  */

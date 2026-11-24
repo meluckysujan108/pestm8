@@ -29,7 +29,7 @@ export function useSetView(businessId: Id<'businesses'>) {
  * switch just as Settings' switch does, so no booking kept on the phone goes
  * while it starts, from this tab or another (lib/outbox/switchGate.ts): a
  * switch belongs to the sign-in session every tab shares, and would apply to
- * a send already queued. Everyone and Just my jobs only close one, back to
+ * a send already queued. Everyone and My jobs only close one, back to
  * the person's own account, which every send waits for anyway.
  */
 export function chooseView<T>(

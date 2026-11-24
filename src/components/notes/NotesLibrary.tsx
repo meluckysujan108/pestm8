@@ -43,7 +43,7 @@ export function NotesLibrary({
   const hydrated = useHydrated()
   const { godView, folders } = useLibraryFolders()
   const isOwner = useAccess().role === 'owner'
-  // "Everyone's notes" left in the URL from God view shows My notes in any
+  // "Everyone's notes" left in the URL from Overview shows My notes in any
   // other view, rather than a folder the rail no longer lists.
   const folder: LibraryFilter =
     filter === 'everyone' && !godView ? 'mine' : filter

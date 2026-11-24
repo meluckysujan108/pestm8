@@ -45,7 +45,7 @@ export function ScheduleFilterButton({
   jobs: Array<JobRow>
   members: Array<Member>
   filters: ScheduleFilters<JobRow>
-  /** "Just my jobs": every job on screen is the viewer's, so choosing whose
+  /** My jobs: every job on screen is the viewer's, so choosing whose
    * is no choice at all. Status still filters, and Clear still clears it. */
   hideStaff?: boolean
   /** Until the page hydrates, so a tap is never swallowed by inert markup. */

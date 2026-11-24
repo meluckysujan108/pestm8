@@ -12,9 +12,13 @@ import type { ReactNode } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
- * The owner's "whose work am I looking at": God view, just his own jobs, or
- * somebody else's account — beside the + in the header, on every screen that
- * has one.
+ * "Whose work am I looking at": Overview (everything this person may see),
+ * My jobs (only the jobs they are on), or — for the owner — somebody else's
+ * account. Beside the + in the header, on every screen that has one.
+ *
+ * Everyone whose lists can show more than their own work gets it: the owner,
+ * a contractor with a team, a subcontractor allowed to see all jobs. Each
+ * device opens in My jobs and remembers what was picked on it.
  *
  * Rendered only when `access.me` says this person gets it, so the rule
  * (`canChooseView`) lives on the server and nowhere here. A Radix
@@ -25,8 +29,8 @@ import type { Id } from '../../../convex/_generated/dataModel'
  *
  * The trigger stays the 36px of its neighbours, so the header never grows. On a phone it
  * is a glyph alone; readable at a glance from the ladder, which is the point:
- * a group for everyone, his own initial for his own jobs, an amber ring when
- * he is working in someone else's account.
+ * a group for Overview, their own initial for My jobs, an amber ring when
+ * they are working in someone else's account.
  */
 export function ViewMenu({
   businessId,
@@ -61,15 +65,20 @@ export function ViewMenu({
 
   const label =
     mode === 'everyone'
-      ? 'God view'
+      ? 'Overview'
       : mode === 'mine'
         ? 'My jobs'
         : inside?.name || acting.name || 'Their account'
 
+  // What Overview holds. Until the menu's details land, a contractor's is
+  // more likely their team; it is settled long before the menu is opened.
+  const overview =
+    options?.overview ?? (access.role === 'contractor' ? 'team' : 'everyone')
+
   // One value across all the radio items: a view's own name, or the id of the
   // account being worked in. None of them while an old read-only "view as" is
-  // still on: he is not in God view then, and picking it must be able to take
-  // him there (`views.set` clears the old selection).
+  // still on: they are not in Overview then, and picking it must be able to
+  // take them there (`views.set` clears the old selection).
   const current =
     mode === 'account' ? acting.membershipId : access.viewingAs ? '' : mode
 
@@ -132,22 +141,27 @@ export function ViewMenu({
                   <Users size={16} strokeWidth={2} />
                 </Glyph>
               }
-              title="God view"
-              caption="Everyone’s jobs"
+              title="Overview"
+              caption={
+                overview === 'team' ? 'Your team’s jobs' : 'Everyone’s jobs'
+              }
             />
             <Choice
               value="mine"
               glyph={<Initial name={me?.name ?? ''} colour={me?.colour} />}
-              title={me?.name || 'Me'}
-              caption="Just my jobs"
+              title="My jobs"
+              caption="Only jobs you’re on"
             />
 
             {/* The first open on a slow phone can beat the names here; an
                 empty section would read as "nobody to switch to". Refused
                 by the server, it says so rather than loading for good; a
                 refusal isn't signal, and a refetch would only be refused
-                again. Out of reach, ConnectionNotice says that. */}
+                again. Out of reach, ConnectionNotice says that. Only the
+                owner has accounts to list here; everyone else's menu is
+                whole without them. */}
             {options === undefined &&
+              access.role === 'owner' &&
               (isError ? (
                 <p
                   role="alert"

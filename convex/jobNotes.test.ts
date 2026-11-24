@@ -5,6 +5,7 @@ import {
   createActor,
   createBusiness,
   daysAroundNow,
+  inOverview,
   testApp,
 } from '../test/harness'
 import { MAX_JOB_NOTES_LENGTH } from './lib/jobNotes'
@@ -25,6 +26,9 @@ async function setup() {
   const t = testApp()
   const owner = await createActor(t, { email: 'terence@coastal.test' })
   const { businessId, ownerMembershipId } = await createBusiness(t, owner)
+  // Every device opens in My jobs, and these jobs are Kevin's: the owner reads
+  // them on the whole business's lists, so his phone is in Overview.
+  await inOverview(t, owner, businessId)
   const kevin = await createActor(t, { email: 'kevin@coastal.test' })
   const kevinMembershipId = await join(t, owner, kevin, businessId)
   const propertyId = await t.run(async (ctx) => {

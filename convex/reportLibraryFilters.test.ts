@@ -1,7 +1,12 @@
 /// <reference types="vite/client" />
 import { describe, expect, test } from 'vitest'
 import { api } from './_generated/api'
-import { createActor, createBusiness, testApp } from '../test/harness'
+import {
+  createActor,
+  createBusiness,
+  inOverview,
+  testApp,
+} from '../test/harness'
 import { getTemplate } from '../src/lib/reportTemplates'
 import type { Doc, Id } from './_generated/dataModel'
 import type { TestActor } from '../test/harness'
@@ -59,6 +64,9 @@ async function setup() {
     })
     return { techMembershipId, propertyId, customTemplateId }
   })
+  // Every device opens in My jobs; these tests read the owner's library as
+  // the whole business, so his phone is in Overview.
+  await inOverview(t, owner, businessId)
   return { t, owner, tech, businessId, ownerMembershipId, ...ids }
 }
 

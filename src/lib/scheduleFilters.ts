@@ -389,8 +389,8 @@ export function useScheduleFilters<
   resetKey?: string
 }): ScheduleFilters<T> {
   /**
-   * And start over when the view changes. Filtered to Kevin in God view, then
-   * switched to "Just my jobs", the list would hold only the owner's jobs and
+   * And start over when the view changes. Filtered to Kevin in Overview, then
+   * switched to My jobs, the list would hold only the owner's jobs and
    * the filter would still want Kevin's — "No matching jobs", with the staff
    * picker hidden in that view and so no way to see why. A different view is
    * a different question; its filters begin from nothing. The sort stays:
@@ -488,7 +488,7 @@ export type ScheduleFilters<T> = {
 
 /**
  * The dots under a day. One per person, so the owner sees whose day is loaded
- * — except in "Just my jobs", where every job is his and the colours would
+ * — except in My jobs, where every job is his and the colours would
  * only repeat one another; there a single neutral dot says there is work.
  */
 export function dayDots(

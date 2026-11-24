@@ -86,7 +86,7 @@ test('on the Schedule a card shows the suburb, Call, Text, Email and Map, and no
 }) => {
   const s = await seed('card-schedule')
   // Kevin's job, seen by the owner in the default everyone view — the case
-  // where the name USED to show, since only "Just my jobs" hid it.
+  // where the name USED to show, since only My jobs hid it.
   const at = await bookSpiderTreatment(s)
 
   await signInViaUi(page, s.owner.email)

@@ -15,6 +15,7 @@ import {
   addSession,
   createActor,
   createBusiness,
+  inOverview,
   testApp,
   daysAroundNow,
 } from '../../test/harness'
@@ -204,6 +205,9 @@ describe('the legacy read-only view-as', () => {
     await f.t.run((ctx) =>
       ctx.db.patch(f.ownerMembershipId, { viewingAsMembershipId: f.kevinId }),
     )
+    // My jobs, where every device opens, outranks a leftover view-as as a
+    // choice would; it is only ever looked through from Overview.
+    await inOverview(f.t, f.terence, f.businessId)
 
     const env = await read(f, f.terence)
     expect(env.readScope._id).toBe(f.kevinId)
@@ -225,6 +229,7 @@ describe('the legacy read-only view-as', () => {
     await f.t.run((ctx) =>
       ctx.db.patch(f.ownerMembershipId, { viewingAsMembershipId: f.kevinId }),
     )
+    await inOverview(f.t, f.terence, f.businessId)
 
     const env = await read(f, f.terence)
     expect(env.scope).toEqual({ kind: 'own', membershipId: f.kevinId })

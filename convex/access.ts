@@ -68,17 +68,22 @@ export const me = query({
       degraded: env.actor.degraded,
 
       /**
-       * Which of the owner's views is showing, for the dropdown and for the
-       * screens that simplify in "Just my jobs". Null for anyone who does not
-       * get the dropdown (`canChooseView`), so the client renders it on this
-       * alone and never has to know the rule.
+       * Which view is showing — Overview or My jobs — for the menu and for
+       * the screens that simplify in My jobs. Null for anyone who does not
+       * get the menu (`canChooseView`, on their own scope), so the client
+       * renders it on this alone and never has to know the rule.
        *
-       * 'account' while a switch is open: the chosen view is set aside, not
-       * lost, and resumes when he switches back.
+       * 'account' while the owner is in someone's account, where the menu
+       * is also how he moves between accounts: the chosen view is set aside,
+       * not lost, and resumes when he switches back. Anyone else switches
+       * from Settings and back from the banner, and inside someone's
+       * account has nothing in the menu to pick, so no menu.
        */
-      view: canChooseView(env.actor.real)
-        ? { mode: switched ? ('account' as const) : env.view }
-        : null,
+      view:
+        canChooseView(env.realScope) &&
+        (!switched || env.actor.real.role === 'owner')
+          ? { mode: switched ? ('account' as const) : env.view }
+          : null,
 
       /**
        * Whether lists show the whole business (`listsEverything`). The Job

@@ -197,7 +197,7 @@ test('an archived client stays off Clients, and stays pickable — last, labelle
   ).toBeVisible()
 })
 
-test('"Just my jobs" and back keeps the Job tab whole, with nothing twice', async ({
+test('My jobs and back keeps the Job tab whole, with nothing twice', async ({
   page,
 }) => {
   const s = await setupBusinessWithSub('paging-view')
@@ -227,7 +227,7 @@ test('"Just my jobs" and back keeps the Job tab whole, with nothing twice', asyn
     await page.getByRole('menuitemradio', { name: item }).click()
   }
 
-  await choose(/Just my jobs/)
+  await choose(/My jobs/)
   await expect(jobCards(page)).toHaveCount(19)
 
   // A job booked meanwhile, then back to everyone's.
@@ -240,7 +240,7 @@ test('"Just my jobs" and back keeps the Job tab whole, with nothing twice', asyn
     scheduledAt: Date.now() + 40 * DAY,
     durationMinutes: 60,
   })
-  await choose(/God view/)
+  await choose(/Overview/)
   await expect(page.getByText(/^29 jobs/)).toBeVisible()
   await scrollToEnd(page)
   await expect(jobCards(page)).toHaveCount(29)

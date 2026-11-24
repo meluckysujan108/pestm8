@@ -90,7 +90,7 @@ describe('what the list area shows', () => {
   })
 
   test('never "No jobs yet" while the warmed page still has jobs on it', () => {
-    // "Just my jobs" picked: the paginator has already answered "none", and
+    // My jobs picked: the paginator has already answered "none", and
     // `access.me` with the warmed page arrive a tick later.
     expect(jobListView({ ...settled, confirmedEmpty: false })).toBe('pending')
     expect(

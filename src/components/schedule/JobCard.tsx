@@ -129,7 +129,7 @@ export function JobCard({
   onOpen: (jobId: string) => void
   /** The Schedule. Its side strip is already the technician's colour, and a
    * day is scanned for where and when, not who — in every view mode, not
-   * only "Just my jobs" as before. The Job tab and the Recurring Job view
+   * only My jobs as before. The Job tab and the Recurring Job view
    * keep the name: a list across months without an assignee is less use. */
   hideTechnician?: boolean
   /** The Recurring Job view. Its cards are projections nobody has

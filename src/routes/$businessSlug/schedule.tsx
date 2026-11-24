@@ -500,10 +500,10 @@ function ScheduleBody({
       logConnection('kept-not-here', { what: activeView })
   }, [notKept, requestedKey, activeView])
   /**
-   * The phone opens on your own jobs — for everyone but the owner looking at
-   * his business, whose God view means everyone on the phone as on the
-   * desktop, and whose "Just my jobs" has nothing left to narrow. Inside
-   * somebody's account it opens on theirs, as it would on their phone.
+   * The phone opens on your own jobs — for everyone but those with the view
+   * menu, whose Overview means everyone they may see on the phone as on the
+   * desktop, and whose My jobs has nothing left to narrow. Inside somebody's
+   * account it opens on theirs, as it would on their phone.
    *
    * A desktop opens on everyone, as it always has. Either way the address
    * says only what differs from where the device opens.

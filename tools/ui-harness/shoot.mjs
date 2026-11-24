@@ -196,6 +196,23 @@ const PLAN = {
       await p.waitForTimeout(600)
     },
   },
+  // The owner's Payments in My jobs, saying the figures are his own.
+  'payments-mine': { before: async (p) => p.waitForTimeout(600) },
+  // The view menu, opened: the owner's, then Kevin's (Overview and My jobs).
+  'view-menu': {
+    before: async (p) => {
+      await p.waitForTimeout(400)
+      await p.getByRole('button', { name: 'Whose jobs to show' }).click()
+      await p.waitForTimeout(400)
+    },
+  },
+  'view-menu-kevin': {
+    before: async (p) => {
+      await p.waitForTimeout(400)
+      await p.getByRole('button', { name: 'Whose jobs to show' }).click()
+      await p.waitForTimeout(400)
+    },
+  },
   'analytics-no-prices': {
     full: true,
     before: async (p) => p.waitForTimeout(1200),

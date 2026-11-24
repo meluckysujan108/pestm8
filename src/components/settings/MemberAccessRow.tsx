@@ -627,7 +627,7 @@ function AccessGroup({
       {canGrantSchedules && (
         <SwitchRow
           label="Can view all jobs"
-          description="Read-only view of every schedule and property history."
+          description="Adds Overview to their menu: every job, read-only. Their own stay in My jobs."
           checked={member.grants.otherSchedules}
           disabled={setGrants.isPending || !hydrated}
           onChange={(checked) =>

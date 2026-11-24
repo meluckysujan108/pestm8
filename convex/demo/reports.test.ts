@@ -10,6 +10,7 @@ import {
   validateReport,
 } from '../../src/lib/reportTemplates/validate'
 import { runDemoSteps } from '../../test/demoFixture'
+import { inOverview } from '../../test/harness'
 import { at } from './shared'
 import type { DemoRun } from '../../test/demoFixture'
 import type { TestAs, TestApp } from '../../test/harness'
@@ -154,6 +155,11 @@ describe('the demo reports', () => {
     run = await runDemoSteps('reports')
     seededBy = Date.now()
     rows = await rowsOf(run.t, run.base.businessId)
+    // Every device opens in My jobs; these read the owner's and the
+    // contractor's reports lists as all they may see, so their phones are in
+    // Overview.
+    await inOverview(run.t, run.owner, run.base.businessId)
+    await inOverview(run.t, run.contractor, run.base.businessId)
     // A busy machine running the whole suite beside it can take this past 10 s.
   }, 60_000)
   afterAll(() => {

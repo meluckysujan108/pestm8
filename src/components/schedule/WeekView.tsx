@@ -83,7 +83,7 @@ export function WeekView({
   /** `listWeek`'s days: where the recurring numbers come from, future days
    * included, since `listDay` does not return a projection ahead of its day. */
   week: Array<DayLoad & { dayKey?: string }>
-  /** The team key: off in "Just my jobs", where every job is the viewer's. */
+  /** The team key: off in My jobs, where every job is the viewer's. */
   showTeam: boolean
   /** The Schedule's person filter: a membership's id, or 'all'. */
   staffId?: string
@@ -96,7 +96,7 @@ export function WeekView({
     /** What else draws the week afresh: the filters, the mode, the account
      * worked in. */
     redrawKey: string
-    /** "Just my jobs": the person's own membership. */
+    /** My jobs: the person's own membership. */
     mineOnly: string | null
   }
 }) {

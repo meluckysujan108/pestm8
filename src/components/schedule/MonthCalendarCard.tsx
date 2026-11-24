@@ -58,7 +58,7 @@ export function MonthCalendarCard({
   onSelect: (dayKey: string) => void
   onMonthChange: (monthKey: string) => void
 }) {
-  // "Just my jobs": the legend would list one person, him, and the dots would
+  // My jobs: the legend would list one person, him, and the dots would
   // all be his colour — so neither is per-person there.
   const mine = useViewMode() === 'mine'
 

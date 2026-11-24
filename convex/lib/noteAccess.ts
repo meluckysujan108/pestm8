@@ -35,11 +35,11 @@ export type NoteViewer = {
    * as whoever you are looking at. What writes are checked against. */
   ownRows: RowScope
   /** What the attach-to-job picker OFFERS — `ownRows`, narrowed to their own
-   * jobs when they have chosen "Just my jobs". A choice of what to be shown,
+   * jobs when they have chosen My jobs. A choice of what to be shown,
    * so it is read by the picker and by nothing that decides what is allowed. */
   pickerRows: RowScope
   /**
-   * The owner, standing in God view as himself: not in "Just my jobs", not
+   * The owner, standing in Overview as himself: not in My jobs, not
    * switched into an account, not looking through anyone. Only this LISTS
    * other people's personal notes ("Everyone's notes"). It never decides
    * whether one may be read — `canReadNote` asks the real role for that — so
