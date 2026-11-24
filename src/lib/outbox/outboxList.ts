@@ -94,8 +94,17 @@ export function jobTabShows(filters: {
  * of theirs (`propertyIds`, or the one site their Jobs tab shows), or on a
  * new site for them (`newProperty.clientId`), which has no id yet, so only
  * "every site" lists it. A new client's is nobody's on the phone yet (the
- * server makes the client as it books), nor is one made on a client or site
- * still on the phone itself (2c-I).
+ * server makes the client as it books).
+ *
+ * One made on a client or site another booking on the phone makes (2c-I,
+ * `{ local }`) is theirs as that one is: while it isn't sent, by that one's
+ * own booking (a new site for them, or one of theirs it was changed to);
+ * once it is, by the site the one made on it goes to, as the sender found
+ * it (`result.propertyId`: the site that one made, written as the first
+ * made on it is sent, lib/outbox/sender.ts `siteOf`), else as their jobs
+ * show that one booked (`madeAt`, by request id), which is where that one
+ * is now: until the sender has asked, one the office has moved since is
+ * listed where it went (plan §15).
  */
 export function bookedForClient(
   item: Pick<OutboxItem, 'booking'>,
@@ -104,19 +113,82 @@ export function bookedForClient(
     propertyIds: ReadonlySet<string>
     /** The one site shown; every site where undefined. */
     site?: string
+    /** A booking on the phone by its key, whatever its state, sent before
+     * this page load included (`outbox.get`): what `{ local }` names. */
+    parentOf?: (localId: string) => OutboxItem | undefined
+    /** The site each of their jobs and services is at, by the request id
+     * it was booked under (`clients.summary`'s `clientRequestId`). */
+    madeAt?: ReadonlyMap<string, string>
   },
 ): boolean {
   const property = item.booking.property
-  if ('propertyId' in property) {
-    return client.site !== undefined
-      ? property.propertyId === client.site
-      : client.propertyIds.has(property.propertyId)
-  }
+  const atSite = (propertyId: string) =>
+    client.site !== undefined
+      ? propertyId === client.site
+      : client.propertyIds.has(propertyId)
+  if ('propertyId' in property) return atSite(property.propertyId)
   if ('newProperty' in property) {
     return (
       client.site === undefined &&
       property.newProperty.clientId === client.clientId
     )
   }
-  return false
+  if (!('local' in property)) return false
+  const parent = client.parentOf?.(property.local)
+  // One level: what that one is made on is never asked about in turn.
+  if (!parent || 'local' in parent.booking.property) return false
+  if (parent.state !== 'sent') {
+    return bookedForClient(parent, { ...client, parentOf: undefined })
+  }
+  const went = parent.result?.propertyId ?? client.madeAt?.get(parent.requestId)
+  return went !== undefined && atSite(went)
+}
+
+/**
+ * The site under a client's booking on the phone in their list
+ * (`OutboxVisits`' `siteOf`), the same on their Jobs tab and on their sheet
+ * kept on the phone: where it is (`at`: its job's site once drawn, else its
+ * own) by the client's own list of sites (`siteOf`, which names one only
+ * where they have more than one); else the new site it makes, or, made on a
+ * booking on the phone (2c-I, `{ local }`, whose card has no site id), the
+ * site that one makes or is booked at, as its card shows it
+ * (`display.addressLine`).
+ */
+export function outboxSiteLine(
+  item: Pick<OutboxItem, 'booking' | 'display'>,
+  at: string,
+  client: {
+    /** Whether the client's list of sites has it. */
+    has: (propertyId: string) => boolean
+    siteOf: (propertyId: string) => string | undefined
+  },
+): string | undefined {
+  if (client.has(at)) return client.siteOf(at)
+  const property = item.booking.property
+  return 'newProperty' in property || 'local' in property
+    ? item.display.addressLine
+    : undefined
+}
+
+/**
+ * The site each of a client's jobs and services is at, by the request id a
+ * phone booked it under (`clients.summary`'s `clientRequestId`): where one
+ * made on a booking sent from the phone goes (`bookedForClient`).
+ */
+export function madeAtOf(
+  summary:
+    | {
+        visits: ReadonlyArray<{ propertyId: string; clientRequestId?: string }>
+        series: ReadonlyArray<{ propertyId: string; clientRequestId?: string }>
+      }
+    | null
+    | undefined,
+): Map<string, string> {
+  const made = new Map<string, string>()
+  for (const row of [...(summary?.visits ?? []), ...(summary?.series ?? [])]) {
+    if (row.clientRequestId !== undefined) {
+      made.set(row.clientRequestId, row.propertyId)
+    }
+  }
+  return made
 }

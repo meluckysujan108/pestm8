@@ -163,6 +163,80 @@ export function propertyOptions(
   ]
 }
 
+/** A client or site another booking on the phone makes, not sent yet
+ * (plan part 2c §7), as New Job's Property picker offers it. */
+export type UnsentSite = {
+  /** What the picker holds for it: never a site's id. */
+  value: string
+  clientName: string
+  addressLine: string
+  suburb: string
+  postcode: string
+  phone?: string
+  email?: string
+  /** Where it stands (`unsentStatus`, schedule/newJobEdit.ts). */
+  status: UnsentStatus
+}
+
+/**
+ * Where a client or site booked on the phone stands: not sent yet (waiting,
+ * or needing a look), being sent, needing a look as it may already be
+ * booked (`look`: one New Job sent straight and couldn't take off the
+ * phone, offered only where chosen already), or sent (one chosen stays
+ * offered), `sentNow` while the form has been open, `sent` before it opened.
+ */
+export type UnsentStatus = 'unsent' | 'sending' | 'look' | 'sentNow' | 'sent'
+
+/** What a client or site booked on the phone says under its name in the
+ * picker, by where it stands: the words its card's chip says, and one sent
+ * while the form is open "Sent just now". */
+export const UNSENT_STATUS_WORDS: Record<UnsentStatus, string> = {
+  unsent: 'Not sent yet',
+  sending: 'Sending…',
+  look: 'Needs a look',
+  sentNow: 'Sent just now',
+  sent: 'Sent',
+}
+
+/**
+ * The Property picker's options with the clients and sites on the phone not
+ * sent yet (`unsent`, newest first) at the top of "Added recently", each
+ * saying "Not sent yet" under it (`UNSENT_STATUS_WORDS`), where every other
+ * site there says the day it was added: as its `status`, a line to be read
+ * (ink-2), never the muted `detail`, as it is the one sign the row is a
+ * booking still on the phone. Everyone else is then listed under
+ * "Everyone, A–Z", as with a client added recently. A booking made on one
+ * goes once that one has (lib/outbox/sender.ts).
+ */
+export function withUnsentSites(
+  options: ReadonlyArray<ComboboxOption>,
+  unsent: ReadonlyArray<UnsentSite>,
+): Array<ComboboxOption> {
+  if (unsent.length === 0) return [...options]
+  const rows = unsent.map((u) =>
+    withSearchKeys({
+      value: u.value,
+      label: `${u.clientName} — ${u.addressLine}, ${u.suburb}`,
+      searchText: [
+        u.clientName,
+        u.addressLine,
+        u.suburb,
+        u.postcode,
+        phoneForms(u.phone),
+        u.email ?? '',
+      ].join(' '),
+      group: RECENT_GROUP,
+      status: UNSENT_STATUS_WORDS[u.status],
+    }),
+  )
+  return [
+    ...rows,
+    ...options.map((o) =>
+      o.group === undefined ? { ...o, group: EVERYONE_GROUP } : o,
+    ),
+  ]
+}
+
 /** Archived clients last, then by client name and street. */
 function alphabetical(
   properties: ReadonlyArray<PickableProperty>,

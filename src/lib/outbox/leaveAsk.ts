@@ -140,7 +140,8 @@ export function unsentByBusiness(
     const was = by.get(item.businessId) ?? { count: 0, needsLook: 0 }
     by.set(
       item.businessId,
-      goesOnlyAfterALook(item, now)
+      // One made on a booking that needs a look goes only after that too.
+      goesOnlyAfterALook(item, now, items)
         ? { ...was, needsLook: was.needsLook + 1 }
         : { ...was, count: was.count + 1 },
     )
@@ -394,7 +395,9 @@ export function switchQuestion(
   const n = items.length
   if (n === 0) return null
   const name = nameOf(items[0], 'this business')
-  const look = items.filter((item) => goesOnlyAfterALook(item, now)).length
+  const look = items.filter((item) =>
+    goesOnlyAfterALook(item, now, items),
+  ).length
   const goes = n - look
   const back = `when you’re back in ${name} with signal`
   const body =

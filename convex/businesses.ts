@@ -96,6 +96,12 @@ export const listForUser = query({
            * retired, schema.ts). Kept for phones that still read it. */
           canViewAllJobs: grantsFromMembership(m).otherSchedules,
           businessId: m.businessId,
+          /** Whose list this is, on every row. Added field: the phone's
+           * outbox forgets a business's bookings only on a listing it can
+           * tell is its own person's (src/lib/outbox/sender.ts
+           * `forgetNotListed`), and one sharing none of their memberships
+           * can be theirs only by this. */
+          userId: m.userId,
           name: business?.name ?? '',
           slug: business?.slug ?? '',
           /** The set-up step the owner left off at, while set-up is open —

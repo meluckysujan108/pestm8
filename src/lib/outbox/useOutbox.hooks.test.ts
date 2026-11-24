@@ -4,18 +4,26 @@ import { ConvexError } from 'convex/values'
 import { getFunctionName } from 'convex/server'
 import { api } from '../../../convex/_generated/api'
 import { useNewJobBooking } from '#/components/schedule/useNewJobBooking'
+import { unsentSites, unsentStatus } from '#/components/schedule/newJobEdit'
 import { hookHarness } from '#/lib/offline/hooks.fixtures'
 import { rq } from '#/lib/routeQueries'
 import { FakeLockManager } from './fakeLocks.fixtures'
 import { ADD_AFTER_DRAW_MS } from './latchSlots'
 import { outbox } from './outbox'
-import { KEEP_WAIT_MS, STORE_OP_MS } from './outboxSet'
+import { offerLock } from './outboxLocks'
+import {
+  KEEP_WAIT_MS,
+  OUTBOX_TICK_MS,
+  SENT_KEEP_MS,
+  STORE_OP_MS,
+} from './outboxSet'
 import { replaceItem } from './itemActions'
 import {
   beginEditChange,
   beginSendChange,
   checkOutboxOwner,
   confirmStaleChange,
+  peekOutbox,
   setOutboxBackendForTests,
 } from './outboxStore'
 import {
@@ -36,7 +44,9 @@ import {
   useCanKeep,
   useDraftRequestId,
   useFirstDrawOffer,
+  useHoldOffered,
   useOutboxDay,
+  useOutboxItems,
   useOutboxList,
   useOutboxSettled,
 } from './useOutbox'
@@ -276,7 +286,8 @@ function slowDeletes(backend: MemoryOutboxBackend, ms: number) {
   const real = backend.update.bind(backend)
   backend.update = (epoch, localId, change) => {
     const now = backend.items.get(localId)
-    return now && change(structuredClone(now)) === 'delete'
+    return now &&
+      change(structuredClone(now), [...backend.items.values()]) === 'delete'
       ? sleep(ms).then(() => real(epoch, localId, change))
       : real(epoch, localId, change)
   }
@@ -882,7 +893,10 @@ describe('New Job’s lock and what Book hears of the screen go in one commit (`
     const update = backend.update.bind(backend)
     backend.update = (epoch, id, change) => {
       const now = backend.items.get(id)
-      if (now && change(structuredClone(now)) === 'delete') {
+      if (
+        now &&
+        change(structuredClone(now), [...backend.items.values()]) === 'delete'
+      ) {
         lockedAtDelete.push(form.locks.size)
       }
       return update(epoch, id, change)
@@ -1465,5 +1479,129 @@ describe('the Week View’s first scroll waits for its bookings to come on (`use
     } finally {
       readable.mockRestore()
     }
+  })
+})
+
+describe('New Job’s Edit of a booking made on another, sent before this page load (`useOutboxItems`’ `keep`, 2c-I’s D-I4)', () => {
+  test('every list leaves that one out, but the Edit keeps it, and its picker offers it: the form opens on it, never blank', async () => {
+    const parent = itemFor('u1', {
+      booking: bookingFor({
+        property: {
+          newClient: {
+            clientName: 'Daphne Dalkeith',
+            kind: 'person',
+            addressLine: '4 Victoria Ave',
+            suburb: 'Dalkeith',
+            state: 'WA',
+            postcode: '6009',
+          },
+        },
+      }),
+      state: 'sent',
+      sentAt: NOW - 60_000,
+      result: { id: 'job-1' },
+    })
+    const child = itemFor('u1', {
+      booking: bookingFor({ property: { local: parent.localId } }),
+      dependsOn: parent.localId,
+    })
+    // Read by this page load's first read: sent before it, and kept only
+    // because the one made on it waits (outboxStore.ts `sentAndDone`).
+    const backend = await outboxOf('u1', [parent, child])
+    setOutboxBackendForTests(backend)
+    checkOutboxOwner(personOf('u1'))
+    // The page load's first read, as the store starts it as it loads.
+    await peekOutbox()
+    await flush(3)
+    page.access.current = own
+    stops.push(outbox.start(() => null))
+    await outbox.refresh()
+    await flush()
+    expect(outbox.get(parent.localId)?.state).toBe('sent')
+
+    const read = hookHarness.mount(() => ({
+      lists: useOutboxItems(B1),
+      edit: useOutboxItems(B1, { keep: parent.localId }),
+    }))
+    const ids = (items: ReadonlyArray<{ localId: string }> | null) =>
+      (items ?? []).map((item) => item.localId).sort()
+    expect(ids(read.current().lists)).toEqual([child.localId])
+    expect(ids(read.current().edit)).toEqual(
+      [parent.localId, child.localId].sort(),
+    )
+    // The Edit's picker (NewJobSheet.tsx): the one it opens on is offered,
+    // so the effect that clears a choice no longer offered leaves it.
+    const edit = read.current().edit ?? []
+    expect(
+      unsentSites(edit, child, parent.localId).map((item) => item.localId),
+    ).toEqual([parent.localId])
+    expect(unsentStatus(parent, NOW)).toBe('sent')
+  })
+})
+
+describe('New Job holds what its picker offers on the phone (`useHoldOffered`, 2c-I)', () => {
+  test('a shared lock on each it offers, while it does: let go of as it stops offering one, and of all as the form goes', async () => {
+    await phone()
+    const manager = new FakeLockManager()
+    page.locks.current = manager.forTab('tab-a')
+    let offered = ['one', 'two']
+    const form = hookHarness.mount(() => useHoldOffered(offered))
+    await flush()
+    expect(manager.isHeld(offerLock('one'))).toBe(true)
+    expect(manager.isHeld(offerLock('two'))).toBe(true)
+    offered = ['two']
+    form.rerender()
+    await flush()
+    expect(manager.isHeld(offerLock('one'))).toBe(false)
+    expect(manager.isHeld(offerLock('two'))).toBe(true)
+    form.unmount()
+    await flush()
+    expect(manager.isHeld(offerLock('two'))).toBe(false)
+  })
+
+  test('one sent while New Job is open stays in its picker, chosen, past its ten minutes, and goes from the phone once the form has', async () => {
+    const { backend } = await phone()
+    const openedAt = Date.now()
+    const first = itemFor('u1', {
+      booking: bookingFor({
+        property: {
+          newClient: {
+            clientName: 'Daphne Dalkeith',
+            kind: 'person',
+            addressLine: '4 Waratah Ave',
+            suburb: 'Dalkeith',
+            state: 'WA',
+            postcode: '6009',
+          },
+        },
+      }),
+      state: 'sent',
+      sentAt: openedAt + 1_000,
+      result: { id: 'job-1' },
+    })
+    // As NewJobSheet.tsx wires it: what the picker offers, held.
+    const form = hookHarness.mount(() => {
+      const items = useOutboxItems(B1)
+      const offered =
+        items === null
+          ? []
+          : unsentSites(items, undefined, first.localId, openedAt)
+      useHoldOffered(offered.map((item) => item.localId))
+      return offered
+    })
+    await flush()
+    // Sent from this page load, just after the form opened.
+    backend.items.set(first.localId, structuredClone(first))
+    await outbox.refresh()
+    await flush()
+    expect(form.current().map((item) => item.localId)).toEqual([first.localId])
+    await vi.advanceTimersByTimeAsync(SENT_KEEP_MS + 3 * OUTBOX_TICK_MS)
+    await flush()
+    expect(backend.items.has(first.localId)).toBe(true)
+    expect(form.current().map((item) => item.localId)).toEqual([first.localId])
+    form.unmount()
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    await flush()
+    expect(backend.items.has(first.localId)).toBe(false)
   })
 })

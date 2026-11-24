@@ -9,10 +9,12 @@ import { rq } from '#/lib/routeQueries'
 import { flagIfTwoStepNeeded, isTwoStepNeeded } from '#/lib/twoStep'
 import { FakeLockManager } from './fakeLocks.fixtures'
 import { OutboxModel } from './outbox'
+import { bookedForClient } from './outboxList'
 import {
   SEND_LOCK,
   holdTabLock,
   itemLock,
+  offerLock,
   tabLock,
   takeLock,
 } from './outboxLocks'
@@ -291,6 +293,38 @@ function series(scheduledAt: number, extra: Partial<OutboxItem> = {}) {
     booking: bookingFor({ scheduledAt, repeat: { count: 3, unit: 'month' } }),
     ...extra,
   })
+}
+
+/** One of u1's for a new client, saved a minute ago. */
+function newClientBooking(extra: Partial<OutboxItem> = {}): OutboxItem {
+  return waiting({
+    booking: bookingFor({
+      property: {
+        newClient: {
+          clientName: 'Priya Shah',
+          kind: 'person',
+          addressLine: '88 Marine Parade',
+          suburb: 'Cottesloe',
+          state: 'WA',
+          postcode: '6011',
+          phone: '0412 345 678',
+        },
+      },
+    }),
+    ...extra,
+  })
+}
+
+/** One of u1's made on `parent`'s client, not sent yet (2c-I). */
+function dependantOf(parent: OutboxItem, createdAt = NOW - 60_000) {
+  return itemFor(
+    'u1',
+    {
+      booking: bookingFor({ property: { local: parent.localId } }),
+      dependsOn: parent.localId,
+    },
+    createdAt,
+  )
 }
 
 /** One sent with no answer heard, `ago` ms back, as `kinds`. */
@@ -929,94 +963,395 @@ describe('the gates', () => {
 
   test('G8: one made on a booking not sent yet waits for it', async () => {
     const parent = waiting({ state: 'needsLook', problem: { code: 'X' } })
-    const child = waiting({
-      booking: bookingFor({ property: { local: parent.localId } }),
-      dependsOn: parent.localId,
-    })
+    const child = dependantOf(parent)
     const p = await phone([parent, child])
     await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
     expect(p.convex.calls).toEqual([])
   })
 
-  test('once that one is sent, the site it made is asked for, and it goes there; with none to be had, it needs a look', async () => {
-    const parent = waiting({
-      booking: bookingFor({
-        property: {
-          newClient: {
-            clientName: 'Priya Shah',
-            kind: 'person',
-            addressLine: '88 Marine Parade',
-            suburb: 'Cottesloe',
-            state: 'WA',
-            postcode: '6011',
-            phone: '0412 345 678',
-          },
-        },
-      }),
+  test('G8: behind one waiting or being sent, it says what holds that one; held behind one needing a look', async () => {
+    const parent = newClientBooking()
+    const child = dependantOf(parent, NOW - 30_000)
+    const p = await phone()
+    p.keeper.live = false
+    for (const item of [parent, child]) {
+      p.backend.items.set(item.localId, structuredClone(item))
+    }
+    p.broadcast.fromAnotherTab()
+    await flush()
+    // Whatever holds the first holds this one: here, the line.
+    expect(p.sender.heldReason(parent.localId)).toBe('line')
+    expect(p.sender.heldReason(child.localId)).toBe('line')
+
+    // The first being sent: this one waits behind it, and goes in a moment.
+    p.keeper.live = true
+    p.keeper.notify()
+    await flush()
+    expect(p.convex.calls).toHaveLength(1)
+    expect(stored(p, parent)?.state).toBe('sending')
+    expect(p.sender.heldReason(child.localId)).toBeNull()
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    expect(p.convex.calls).toHaveLength(1)
+
+    // Refused: it needs a look, and this one is held behind it.
+    p.convex.calls[0].reject(new ConvexError('INVALID_ASSIGNEE'))
+    await flush()
+    expect(stored(p, parent)?.state).toBe('needsLook')
+    expect(p.sender.heldReason(child.localId)).toBe('parent')
+    expect(stored(p, child)?.state).toBe('waiting')
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    expect(p.convex.calls).toHaveLength(1)
+    expect(p.convex.watches).toEqual([])
+    // Counted with those needing a look, never as going once there’s signal.
+    expect(p.sender.notice()).toMatchObject({ count: 0, needsLook: 2 })
+  })
+
+  test('G8: behind one sent and never answered, it goes after that one, never “in a moment”: that one may take a while to settle', async () => {
+    // Its call went with a page since closed: no call out for it here or in
+    // another tab, and too new to settle yet. Its own sheet says it may
+    // already be booked.
+    const parent = unanswered(1_000, ['job'], {
+      booking: newClientBooking().booking,
     })
-    const child = itemFor(
-      'u1',
-      {
-        booking: bookingFor({ property: { local: parent.localId } }),
-        dependsOn: parent.localId,
-      },
-      NOW - 30_000,
-    )
+    const child = dependantOf(parent)
+    const p = await phone([parent, child])
+    expect(p.sender.sendingHere(parent.localId)).toBe(false)
+    expect(p.sender.sendingElsewhere(parent.localId)).toBe(false)
+    expect(p.sender.heldReason(parent.localId)).toBeNull()
+    expect(p.sender.heldReason(child.localId)).toBe('parent')
+    expect(p.convex.calls).toEqual([])
+  })
+
+  test('the site it goes to is written on the first too: a client’s sheet, the kept one with no signal included, lists it there, never where the first’s job is now (2c-I)', async () => {
+    const parent = newClientBooking()
+    const child = dependantOf(parent, NOW - 30_000)
+    const p = await phone([parent, child])
+    p.convex.calls[0].resolve('job-1')
+    await flush()
+    // Heard as it went: a one-off has no site of its own on the phone.
+    expect(stored(p, parent)?.result).toEqual({ id: 'job-1' })
+    p.convex.answerFind('site', {
+      kind: 'site',
+      id: 'p-new',
+      propertyId: 'p-new',
+    })
+    await flush()
+    expect(stored(p, parent)?.result).toEqual({
+      id: 'job-1',
+      propertyId: 'p-new',
+    })
+    // Refused, it stays on the phone, needing a look.
+    p.convex.calls[1].reject(new ConvexError('INVALID_ASSIGNEE'))
+    await flush()
+    const still = stored(p, child) as OutboxItem
+    expect(still.state).toBe('needsLook')
+    const parentOf = (localId: string) => p.backend.items.get(localId)
+    // Priya's kept sheet, which has no `madeAt`: listed.
+    expect(
+      bookedForClient(still, {
+        clientId: 'c-priya',
+        propertyIds: new Set(['p-new']),
+        parentOf,
+      }),
+    ).toBe(true)
+    // The first moved by the office to Jane's site since: her jobs say it
+    // is there, but this one goes to Priya's, and is listed on hers alone.
+    expect(
+      bookedForClient(still, {
+        clientId: 'c-jane',
+        propertyIds: new Set(['p-jane']),
+        parentOf,
+        madeAt: new Map([[parent.requestId, 'p-jane']]),
+      }),
+    ).toBe(false)
+  })
+
+  test('once that one is sent, the site it made is asked for by its id, and it goes there', async () => {
+    const parent = newClientBooking()
+    const child = dependantOf(parent, NOW - 30_000)
     const p = await phone([parent, child])
     expect(p.convex.calls).toHaveLength(1)
     p.convex.calls[0].resolve('job-1')
     await flush()
-    // Asked once, on the line it went on, before the next one goes.
+    // Asked as the next one goes, before it does: the site the first made,
+    // under the first one's own request id.
     expect(p.convex.calls).toHaveLength(1)
-    p.convex.answerFind('job', {
-      kind: 'job',
-      id: 'job-1',
+    const [ask] = p.convex.open('site')
+    expect(ask.args).toEqual({
+      businessId: B1,
+      clientRequestId: parent.requestId,
+      kind: 'site',
+    })
+    p.convex.answerFind('site', {
+      kind: 'site',
+      id: 'p-new',
+      propertyId: 'p-new',
+    })
+    await flush()
+    expect(p.convex.calls).toHaveLength(2)
+    expect(p.convex.calls[1].args).toMatchObject({
+      propertyId: 'p-new',
+      clientRequestId: child.requestId,
+    })
+    expect(p.convex.calls[1].args).not.toHaveProperty('local')
+    expect(p.convex.calls[1].stored?.booking.property).toEqual({
+      local: parent.localId,
+    })
+    // Never the booking's own: where it is now may not be the site it made.
+    expect(p.convex.watches.filter((w) => w.args.kind === 'job')).toEqual([])
+    expect(notes('outbox-site')).toEqual([{ made: true }])
+  })
+
+  test('no site under its id (sent to a backend from before): where the first booking is now', async () => {
+    const parent = newClientBooking({
+      state: 'sent',
+      sentAt: NOW - 1_000,
+      result: { id: 'job-1' },
+      sentKinds: ['job'],
+    })
+    const child = dependantOf(parent)
+    const p = await phone()
+    for (const item of [parent, child]) {
+      p.backend.items.set(item.localId, structuredClone(item))
+    }
+    p.broadcast.fromAnotherTab()
+    await flush()
+    p.convex.answerFind('site', null)
+    await flush()
+    expect(p.convex.open('job')).toHaveLength(1)
+    p.convex.answerFind('job', { kind: 'job', id: 'job-1', propertyId: 'p7' })
+    await flush()
+    expect(p.convex.calls).toHaveLength(1)
+    expect(p.convex.calls[0].args).toMatchObject({ propertyId: 'p7' })
+    expect(notes('outbox-site')).toEqual([{ made: false }])
+  })
+
+  test('what the first made wiped for good since, or the first gone from the phone: it needs a look (NOT_FOUND)', async () => {
+    const parent = newClientBooking({
+      state: 'sent',
+      sentAt: NOW - 5 * 60_000,
+      result: { id: 'job-1' },
+    })
+    const child = dependantOf(parent)
+    const p = await phone()
+    for (const item of [parent, child]) {
+      p.backend.items.set(item.localId, structuredClone(item))
+    }
+    p.broadcast.fromAnotherTab()
+    await flush()
+    // Made, and only its id left.
+    p.convex.answerFind('site', { kind: 'site', id: 'p-new' })
+    await flush()
+    expect(p.convex.calls).toEqual([])
+    expect(stored(p, child)).toMatchObject({
+      state: 'needsLook',
+      problem: { code: 'NOT_FOUND' },
+    })
+
+    const lost = newClientBooking({ state: 'sent', result: { id: 'job-2' } })
+    const orphan = dependantOf(lost)
+    const q = await phone([orphan])
+    expect(q.convex.calls).toEqual([])
+    expect(q.convex.watches).toEqual([])
+    expect(stored(q, orphan)?.problem).toEqual({ code: 'NOT_FOUND' })
+  })
+
+  test('its answer came in with the line down: the site is asked for once there is signal, and never given up on for that (D-I3)', async () => {
+    const parent = newClientBooking()
+    const child = dependantOf(parent, NOW - 30_000)
+    const p = await phone([parent, child])
+    p.keeper.live = false
+    p.convex.calls[0].resolve('job-1')
+    await flush()
+    expect(stored(p, parent)?.state).toBe('sent')
+    await vi.advanceTimersByTimeAsync(2 * OUTBOX_TICK_MS)
+    expect(p.convex.watches).toEqual([])
+    expect(stored(p, child)?.state).toBe('waiting')
+
+    // Back, and the ask runs out unanswered: asked again on a later run.
+    p.keeper.live = true
+    p.keeper.conn++
+    p.keeper.notify()
+    await flush()
+    expect(p.convex.open('site')).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(FIND_WAIT_MS)
+    expect(p.convex.open('site')).toEqual([])
+    expect(stored(p, child)?.state).toBe('waiting')
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    expect(p.convex.open('site')).toHaveLength(1)
+    p.convex.answerFind('site', {
+      kind: 'site',
+      id: 'p-new',
       propertyId: 'p-new',
     })
     await flush()
     expect(p.convex.calls).toHaveLength(2)
     expect(p.convex.calls[1].args).toMatchObject({ propertyId: 'p-new' })
-    expect(p.convex.calls[1].args).not.toHaveProperty('local')
-
-    // The one it was made on sent long ago, and what it made unknown.
-    const lost = waiting({
-      state: 'sent',
-      sentAt: NOW - 5 * 60_000,
-      result: { id: 'job-2' },
-    })
-    const orphan = waiting({
-      booking: bookingFor({ property: { local: lost.localId } }),
-      dependsOn: lost.localId,
-    })
-    const q = await phone([orphan])
-    q.backend.items.set(lost.localId, structuredClone(lost))
-    q.broadcast.fromAnotherTab()
-    await flush()
-    expect(q.convex.calls).toEqual([])
-    expect(stored(q, orphan)?.problem).toEqual({ code: 'NOT_FOUND' })
   })
 
-  test('the one it was made on just sent from another tab, its site not yet known there: it waits, and needs a look only once that has had its time', async () => {
-    const parent = waiting({
+  test('behind one held for reasons of its own (its retry, a hold the server put on it, an Edit of it): said to go after that one, never in that one’s words', async () => {
+    // Those are worded from the booking's own fields (its retry's time, its
+    // hold), which this one doesn't have: its sheet would tell the time now
+    // as the retry's, or a pause as a sign-in check.
+    const parent = newClientBooking({ retryAt: NOW + 5 * 60_000 })
+    const child = dependantOf(parent, NOW - 30_000)
+    const p = await phone([parent, child])
+    expect(p.sender.heldReason(parent.localId)).toBe('retry')
+    expect(p.sender.heldReason(child.localId)).toBe('parent')
+
+    p.backend.items.set(parent.localId, {
+      ...structuredClone(parent),
+      retryAt: null,
+      holdUntil: NOW + 15 * 60_000,
+    })
+    p.broadcast.fromAnotherTab()
+    await flush()
+    expect(p.sender.heldReason(parent.localId)).toBe('hold')
+    expect(p.sender.heldReason(child.localId)).toBe('parent')
+
+    p.backend.items.set(parent.localId, structuredClone(parent))
+    p.model.editingHere.add(parent.localId)
+    p.broadcast.fromAnotherTab()
+    await flush()
+    expect(p.sender.heldReason(parent.localId)).toBe('editing')
+    expect(p.sender.heldReason(child.localId)).toBe('parent')
+    expect(p.convex.calls).toEqual([])
+  })
+
+  test('two made on each other, by two tabs at once: each says it waits on the other, and the sheet opens (asked once, never further)', async () => {
+    const first = newClientBooking()
+    const second = newClientBooking({ createdAt: NOW - 30_000 })
+    const p = await phone([
+      {
+        ...first,
+        booking: bookingFor({ property: { local: second.localId } }),
+        dependsOn: second.localId,
+      },
+      {
+        ...second,
+        booking: bookingFor({ property: { local: first.localId } }),
+        dependsOn: first.localId,
+      },
+    ])
+    expect(p.sender.heldReason(first.localId)).toBe('parent')
+    expect(p.sender.heldReason(second.localId)).toBe('parent')
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    expect(p.convex.calls).toEqual([])
+  })
+
+  test('its site ask refused: it waits and is asked again next run, two-step owed is said, and the refusal noted once per change of its code', async () => {
+    const parent = newClientBooking({
       state: 'sent',
       sentAt: NOW - 1_000,
       result: { id: 'job-1' },
     })
-    const child = waiting({
-      booking: bookingFor({ property: { local: parent.localId } }),
-      dependsOn: parent.localId,
+    const child = dependantOf(parent)
+    const p = await phone()
+    for (const item of [parent, child]) {
+      p.backend.items.set(item.localId, structuredClone(item))
+    }
+    p.broadcast.fromAnotherTab()
+    await flush()
+    const broken = new ConvexError('SERVER_BROKE')
+    p.convex.refuseFind('site', broken)
+    await flush()
+    expect(stored(p, child)?.state).toBe('waiting')
+    expect(p.convex.calls).toEqual([])
+    expect(vi.mocked(flagIfTwoStepNeeded)).toHaveBeenCalledWith(broken)
+    expect(notes('outbox-site')).toEqual([{ refused: 'SERVER_BROKE' }])
+
+    // The same again: asked, and nothing more noted.
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    expect(p.convex.open('site')).toHaveLength(1)
+    p.convex.refuseFind('site', new ConvexError('SERVER_BROKE'))
+    await flush()
+    expect(notes('outbox-site')).toEqual([{ refused: 'SERVER_BROKE' }])
+
+    // Another: noted. Then had, and it goes.
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    p.convex.refuseFind('site', new Error('Server Error'))
+    await flush()
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    p.convex.answerFind('site', {
+      kind: 'site',
+      id: 'p-new',
+      propertyId: 'p-new',
     })
+    await flush()
+    expect(p.convex.calls).toHaveLength(1)
+    expect(notes('outbox-site')).toEqual([
+      { refused: 'SERVER_BROKE' },
+      { refused: 'none' },
+      { made: true },
+    ])
+  })
+
+  test('two made on one sent: its site not had for the older this run, the younger waits for the next too, and they go in the order booked', async () => {
+    const parent = newClientBooking({
+      state: 'sent',
+      sentAt: NOW - 1_000,
+      result: { id: 'job-1' },
+    })
+    const older = dependantOf(parent, NOW - 50_000)
+    const younger = dependantOf(parent, NOW - 40_000)
+    const p = await phone()
+    for (const item of [parent, older, younger]) {
+      p.backend.items.set(item.localId, structuredClone(item))
+    }
+    p.broadcast.fromAnotherTab()
+    await flush()
+    expect(p.convex.open('site')).toHaveLength(1)
+    // The older one's ask runs out: nothing more is asked this run, so the
+    // younger can't be answered first and go first.
+    await vi.advanceTimersByTimeAsync(FIND_WAIT_MS)
+    await flush()
+    expect(p.convex.open('site')).toEqual([])
+    expect(p.convex.calls).toEqual([])
+
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    p.convex.answerFind('site', {
+      kind: 'site',
+      id: 'p-new',
+      propertyId: 'p-new',
+    })
+    await flush()
+    expect(p.convex.calls).toHaveLength(1)
+    expect(p.convex.calls[0].args).toMatchObject({
+      clientRequestId: older.requestId,
+      propertyId: 'p-new',
+    })
+    p.convex.calls[0].resolve('job-2')
+    await flush()
+    expect(p.convex.calls).toHaveLength(2)
+    expect(p.convex.calls[1].args).toMatchObject({
+      clientRequestId: younger.requestId,
+      propertyId: 'p-new',
+    })
+  })
+
+  test('the one it was made on sent from another tab: asked for here, and it goes', async () => {
+    const parent = newClientBooking({
+      state: 'sent',
+      sentAt: NOW - 1_000,
+      result: { id: 'job-1' },
+    })
+    const child = dependantOf(parent)
     const p = await phone()
     p.backend.items.set(parent.localId, structuredClone(parent))
     p.backend.items.set(child.localId, structuredClone(child))
     p.broadcast.fromAnotherTab()
     await flush()
-    expect(stored(p, child)?.state).toBe('waiting')
-    // The next look after that time is up.
-    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    p.convex.answerFind('site', {
+      kind: 'site',
+      id: 'p-new',
+      propertyId: 'p-new',
+    })
     await flush()
-    expect(stored(p, child)?.problem).toEqual({ code: 'NOT_FOUND' })
-    expect(p.convex.calls).toEqual([])
+    expect(p.convex.calls).toHaveLength(1)
+    expect(p.convex.calls[0].args).toMatchObject({ propertyId: 'p-new' })
+    p.convex.calls[0].resolve('job-2')
+    await flush()
+    expect(stored(p, child)?.state).toBe('sent')
   })
 
   test(`one sent ${SENT_KEEP_MS / 60_000} min ago goes from the phone, but not while another made on it is still there`, async () => {
@@ -1046,6 +1381,61 @@ describe('the gates', () => {
     expect(stored(p, alone)).toBeUndefined()
     expect(stored(p, parent)).toBeDefined()
     expect(stored(p, child)).toBeDefined()
+  })
+
+  test('…asked in the forget’s own transaction: one made on it, kept in another tab whose word hasn’t come yet, keeps it, and goes to the site it made (2c-I)', async () => {
+    const parent = newClientBooking({
+      state: 'sent',
+      sentAt: NOW - SENT_KEEP_MS + 1_000,
+      result: { id: 'job-1' },
+    })
+    const p = await phone()
+    p.backend.items.set(parent.localId, structuredClone(parent))
+    p.broadcast.fromAnotherTab()
+    await flush()
+    expect(p.model.get(parent.localId)).toBeDefined()
+    // Kept in another tab on it; its message not here yet.
+    const child = dependantOf(parent)
+    p.backend.items.set(child.localId, structuredClone(child))
+    // Its ten minutes are up.
+    await vi.advanceTimersByTimeAsync(1_000)
+    await flush()
+    expect(stored(p, parent)).toBeDefined()
+    p.convex.answerFind('site', {
+      kind: 'site',
+      id: 'p-new',
+      propertyId: 'p-new',
+    })
+    await flush()
+    expect(stored(p, child)?.problem).toBeNull()
+    expect(p.convex.calls).toHaveLength(1)
+    expect(p.convex.calls[0].args).toMatchObject({ propertyId: 'p-new' })
+  })
+
+  test('one sent ten minutes ago stays while an open New Job in any tab offers it, and goes once none does (2c-I)', async () => {
+    const sent = newClientBooking({
+      state: 'sent',
+      sentAt: NOW - SENT_KEEP_MS - 1,
+      result: { id: 'job-1' },
+    })
+    const locks = new FakeLockManager()
+    const form = await takeLock(
+      locks.forTab('tab-b'),
+      offerLock(sent.localId),
+      { mode: 'shared' },
+    )
+    const p = await phone([], { locks })
+    p.backend.items.set(sent.localId, structuredClone(sent))
+    p.broadcast.fromAnotherTab()
+    await flush()
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS * 3)
+    expect(stored(p, sent)).toBeDefined()
+    expect(p.model.get(sent.localId)).toBeDefined()
+    // The form closed: looked at again within a tick, with nothing else
+    // to wake the sender.
+    form?.release()
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    expect(stored(p, sent)).toBeUndefined()
   })
 
   test('G9: never while two-step sign-in is asked for', async () => {
@@ -1197,6 +1587,49 @@ describe('purges', () => {
     listLive(p, [{ businessId: B2, membershipId: 'm-u2-b2' }])
     await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
     expect(stored(p, mine)).toBeDefined()
+  })
+
+  test('a list of no business forgets nothing, whosever it is: a hand-over can show the last person’s empty list on the socket that carries the next one’s token (D-I2)', async () => {
+    const { p, inB1, inB2 } = await inTwo()
+    listLive(p, [])
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    expect(stored(p, inB1)).toBeDefined()
+    expect(stored(p, inB2)).toBeDefined()
+    expect(notes('outbox-wipe')).toEqual([])
+  })
+
+  test('a list whose rows name them forgets a business it doesn’t list, though it shares no membership with their bookings (D-I2)', async () => {
+    // Taken off their last business, then joined another: the list shows
+    // only the new one, under a membership none of their bookings has.
+    const mine = waiting()
+    const p = await phone()
+    p.keeper.live = false
+    p.backend.items.set(mine.localId, structuredClone(mine))
+    p.broadcast.fromAnotherTab()
+    await flush()
+    listLive(p, [{ businessId: B2, membershipId: 'm-u1-new', userId: 'u1' }])
+    await flush()
+    expect(stored(p, mine)).toBeUndefined()
+    expect(notes('outbox-wipe')).toEqual([
+      expect.objectContaining({ why: 'not-listed', n: 1 }),
+    ])
+  })
+
+  test('a list naming anyone else is never theirs, whatever membership it lists (D-I2)', async () => {
+    const { p, inB1, inB2 } = await inTwo()
+    // The last person’s, still live on this socket a moment after a
+    // hand-over: it can't take anything of u1's.
+    listLive(p, [{ businessId: B2, membershipId: M1_B2, userId: 'u2' }])
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    expect(stored(p, inB1)).toBeDefined()
+    expect(stored(p, inB2)).toBeDefined()
+    // Nor one some of whose rows name nobody.
+    listLive(p, [
+      { businessId: B2, membershipId: M1_B2, userId: 'u1' },
+      { businessId: B1, membershipId: 'm-x' },
+    ])
+    await vi.advanceTimersByTimeAsync(OUTBOX_TICK_MS)
+    expect(stored(p, inB1)).toBeDefined()
   })
 
   test('not when the socket is someone else’s, nor before the list is live on this connection', async () => {

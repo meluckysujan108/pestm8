@@ -24,7 +24,7 @@ import {
   latchForeign,
   latchSlots,
 } from './latchSlots'
-import { browserLocks } from './outboxLocks'
+import { browserLocks, offerLock, takeLock } from './outboxLocks'
 import { firstDrawOffers, listAddRule } from './outboxList'
 import { newRequestId } from './outboxItem'
 import { bookingDay, outboxRow } from './outboxRow'
@@ -35,6 +35,7 @@ import {
   keptBefore,
   localNotesWork,
   outboxReadable,
+  sentBeforeThisLoad,
 } from './outboxStore'
 import { countsOf, outboxHeading } from './outboxRules'
 import { sender } from './sender'
@@ -46,6 +47,7 @@ import type { ItemDeps } from './itemActions'
 import type { DayRow } from '#/lib/offline/keeper'
 import type { DrawnSlot, ForeignLatch, LatchRow, SlotLatch } from './latchSlots'
 import type { BookingCall, OutboxItem } from './outboxItem'
+import type { HeldLock } from './outboxLocks'
 import type { RosterPerson } from './outboxRow'
 
 /**
@@ -67,7 +69,9 @@ function freshDraft(): Omit<BookingDraft, 'stopKeeping' | 'renew'> {
  * press was discarded: the draft goes straight from then on, so no second
  * row ever carries its id, and its key is never kept again while what the
  * phone kept of it may still be coming off.
- * `renew` once the sheet closes on a booking kept or sent.
+ * `renew` once the sheet closes on a booking kept or sent, and after one
+ * made on a client or site not sent yet that the phone couldn't keep
+ * (book.ts `UNSENT_NOT_KEPT`), which went nowhere.
  */
 export function useDraftRequestId(): BookingDraft {
   const [ids, setIds] = useState(freshDraft)
@@ -193,9 +197,19 @@ function useClientRender(): boolean {
  */
 export function useOutboxItems(
   businessId: Id<'businesses'>,
-  /** Those saved by a newer build too, which this one can't read
-   * (`isReadable`): for their sheet and today's group (plan D13). */
-  { foreign = false }: { foreign?: boolean } = {},
+  {
+    foreign = false,
+    keep = null,
+  }: {
+    /** Those saved by a newer build too, which this one can't read
+     * (`isReadable`): for their sheet and today's group (plan D13). */
+    foreign?: boolean
+    /** One booking's key kept whatever has become of it while it is on
+     * the phone, sent before this page load included: the one an Edit of a
+     * booking made on its client or site opens on (2c-I, D-I4), which New
+     * Job's picker offers as that booking's site. */
+    keep?: string | null
+  } = {},
 ): ReadonlyArray<OutboxItem> | null {
   const hydrated = useClientRender()
   const revision = useSyncExternalStore(
@@ -208,16 +222,79 @@ export function useOutboxItems(
     if (!hydrated || revision < 0 || !outbox.readable()) return null
     if (!ownLens) return []
     const userId = signedInUserId()
-    return outbox
-      .all()
-      .filter(
-        (item) =>
-          item.userId === userId &&
-          item.businessId === businessId &&
-          (foreign || isReadable(item)),
-      )
+    return outbox.all().filter(
+      (item) =>
+        item.userId === userId &&
+        item.businessId === businessId &&
+        (foreign || isReadable(item)) &&
+        // Kept only for a booking made on it to be sent (2c-I): its card
+        // is the real one by now.
+        (!sentBeforeThisLoad(item) || item.localId === keep),
+    )
     // `revision` is what says the outbox changed.
-  }, [hydrated, revision, ownLens, businessId, foreign])
+  }, [hydrated, revision, ownLens, businessId, foreign, keep])
+}
+
+/**
+ * Holds the bookings an open New Job's Property picker offers (`localIds`)
+ * on the phone once they are sent, for as long as it offers them: a shared
+ * Web Lock on each (`offerLock`), which the sender's ten-minute forget and
+ * any tab's page-load sweep pass over (`offeredNow`). So a row sent while
+ * the form is open stays in the picker ("Sent just now"), a choice of it
+ * stays chosen, and a booking made on it keeps its site. Let go of each as
+ * the picker stops offering it, and of all as the form goes, when the
+ * sender looks again; taken again on a page back from the back/forward
+ * cache, which let them go. Nothing without Web Locks, where nothing can be
+ * on the phone.
+ */
+export function useHoldOffered(localIds: ReadonlyArray<string>): void {
+  const held = useRef(new Map<string, Promise<HeldLock | null>>())
+  const wanted = [...new Set(localIds)].sort().join('\n')
+  useEffect(() => {
+    const locks = browserLocks()
+    if (locks === null) return
+    const want = new Set(wanted === '' ? [] : wanted.split('\n'))
+    let letGo = false
+    for (const [localId, lock] of held.current) {
+      if (want.has(localId)) continue
+      held.current.delete(localId)
+      void lock.then((taken) => taken?.release())
+      letGo = true
+    }
+    for (const localId of want) {
+      if (held.current.has(localId)) continue
+      held.current.set(
+        localId,
+        takeLock(locks, offerLock(localId), { mode: 'shared' }),
+      )
+    }
+    if (letGo) sender.kick()
+  }, [wanted])
+  useEffect(() => {
+    const page = typeof window === 'undefined' ? null : window
+    const again = (event: PageTransitionEvent) => {
+      const locks = browserLocks()
+      if (!event.persisted || locks === null) return
+      for (const [localId, lock] of held.current) {
+        void lock.then((taken) => taken?.release())
+        held.current.set(
+          localId,
+          takeLock(locks, offerLock(localId), { mode: 'shared' }),
+        )
+      }
+    }
+    page?.addEventListener('pageshow', again)
+    const holding = held.current
+    return () => {
+      page?.removeEventListener('pageshow', again)
+      if (holding.size === 0) return
+      for (const lock of holding.values()) {
+        void lock.then((taken) => taken?.release())
+      }
+      holding.clear()
+      sender.kick()
+    }
+  }, [])
 }
 
 /** One booking on this phone, as `useOutboxItems` would show it (one saved

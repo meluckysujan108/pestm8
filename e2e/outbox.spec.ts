@@ -4,6 +4,7 @@ import {
   FIXTURE_PASSWORD,
   api,
   chooseJobTypes,
+  chooseOverview,
   chooseProperty,
   clickUntil,
   signInViaUi,
@@ -109,6 +110,10 @@ async function business(label: string) {
     { name, state: 'WA', timezone: TZ },
   )
   await inviteAndJoin(owner, sub, businessId)
+  // As setupBusinessWithSub: the owner's own client reads the whole team's
+  // jobs (`jobsFor`), and since Overview for the whole team (#179) a sign-in
+  // opens in My jobs, which would hide Kevin's and Wendy's bookings.
+  await chooseOverview(owner.client, businessId)
   const propertyId = await owner.client.mutation(api.properties.create, {
     businessId,
     clientName: 'Arthur Wellard',
@@ -1765,6 +1770,9 @@ test('a session ended elsewhere: the sign-in screen says whose booking is on the
   await signInViaUi(page, s.sub.email)
   await expect.poll(() => bookingsOnPhone(page)).toEqual([])
   const owner = await signedInAgain(s.owner)
+  // A new session opens in My jobs (#179): in Overview, so "none" means none
+  // booked for anyone, not none of Terence's own.
+  await chooseOverview(owner.client, s.businessId)
   expect(await jobsFor({ ...s, owner }, 'Arthur Wellard', day)).toHaveLength(0)
 })
 
@@ -2091,7 +2099,7 @@ test('switching business: asked first, the booking held in the other, the switch
     .toHaveLength(1)
 })
 
-test('offboarded with a booking on the phone: held, never booked, and gone once the business Kevin joins next lists him', async ({
+test('offboarded with a booking on the phone: never booked, and gone once the list of the business Kevin joins next is live', async ({
   page,
   context,
 }) => {
@@ -2112,8 +2120,26 @@ test('offboarded with a booking on the phone: held, never booked, and gone once 
     await context.setOffline(false)
   }
 
-  // He signs in again, and joins another business.
+  // He signs in again, to a list of no business: the page for someone in
+  // none, drawn and working (its Sign out waits on hydration), then a while
+  // for the sender to act on that list, live on his socket. That page is
+  // set-up's first step where anyone may start a business, as on the e2e
+  // deployment, and the one saying he is in none where sign-up is by
+  // invitation (`NoBusiness`). A list of no business forgets nothing
+  // (sender.ts `forgetNotListed`), so the booking is still on the phone,
+  // and what clears it below is the next business's list.
   await signInViaUi(page, s.sub.email)
+  await expect(page).toHaveURL(/\/onboarding/)
+  await expect(
+    page.getByRole('heading', {
+      name: /^(What’s your business called\?|This account isn’t part of a business)$/,
+    }),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeEnabled()
+  await page.waitForTimeout(5_000)
+  expect((await businessesOnPhone(page)).map((b) => b.businessId)).toEqual([
+    s.businessId,
+  ])
   const kevin = await signedInAgain(s.sub)
   const dana = await signUpActor(
     uniqueEmail('owner-outbox-next'),
@@ -2138,24 +2164,261 @@ test('offboarded with a booking on the phone: held, never booked, and gone once 
   await expect(page).toHaveURL(new RegExp(`/${next.slug}/`))
   await openSchedule(page, next.slug, day)
 
-  // Held: a list that shows none of the memberships his bookings were saved
-  // under can't yet be told apart from someone else's (sender.ts,
-  // `forgetNotListed`), so it forgets nothing.
-  await page.waitForTimeout(5_000)
-  expect((await businessesOnPhone(page)).map((b) => b.businessId)).toEqual([
-    s.businessId,
-  ])
-  expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(0)
-
-  // His first booking in it: the list is his for certain, and the one for
-  // the business that let him go is forgotten, never sent.
-  await bookArthur(page)
-  await expect(page.getByRole('dialog')).toHaveCount(0, { timeout: 30_000 })
+  // Gone once that list is live, with nothing booked there: every row of it
+  // names Kevin (`userId`, businesses.listForUser), so it is his for
+  // certain though it shows none of the memberships his booking was saved
+  // under (sender.ts, `forgetNotListed`, `listIsTheirs`), and the booking
+  // for the business that let him go is forgotten, never sent.
   await expect
     .poll(
       async () => (await businessesOnPhone(page)).map((b) => b.businessId),
       { timeout: 60_000 },
     )
-    .toEqual([next.businessId])
+    .toEqual([])
   expect(await jobsFor(s, 'Arthur Wellard', day)).toHaveLength(0)
+})
+
+// ── Bookings made on one not sent yet (plan §7, 2c-I) ──────────────────────
+
+/** Book job pressed on `sheet` (New Job, or its Edit over a booking's
+ * sheet), and the sheet gone. With no signal the checks answer at once and
+ * the street check gives up without a word, so it normally books on the
+ * first press; should a warning show instead, "Book anyway" books it as
+ * typed. */
+async function pressBook(sheet: Locator) {
+  await sheet.getByRole('button', { name: 'Book job' }).click()
+  const anyway = sheet.getByRole('button', { name: 'Book anyway' })
+  await expect(async () => {
+    if ((await sheet.count()) > 0 && (await anyway.isVisible())) {
+      // Briefly: gone under it, the next round looks again.
+      await anyway.click({ timeout: 2_000 })
+    }
+    expect(await sheet.count()).toBe(0)
+  }).toPass({ timeout: 15_000 })
+}
+
+/** New Job with no signal for a new client, Daphne Dalkeith at 4 Waratah
+ * Ave, at `start`, for `assignee` if given: kept on the phone. */
+async function bookDaphneOffline(
+  page: Page,
+  options: { start: string; assignee?: string },
+) {
+  const sheet = await openNewJob(page)
+  await sheet.getByRole('radio', { name: 'New client' }).click()
+  await sheet.getByLabel('Client name').fill('Daphne Dalkeith')
+  await sheet.getByLabel('Street address').fill('4 Waratah Ave')
+  await sheet.getByLabel('Suburb').fill('Dalkeith')
+  await sheet.getByLabel('Postcode').fill('6009')
+  await chooseJobTypes(page, sheet, ['General Pest Control'])
+  await sheet.getByLabel('Start').fill(options.start)
+  if (options.assignee) {
+    await sheet.getByLabel('Assigned to').selectOption(options.assignee)
+  }
+  await pressBook(sheet)
+  await expect.poll(() => bookingsOnPhone(page)).toHaveLength(1)
+}
+
+/** A second New Job with no signal, on Daphne Dalkeith's site as the
+ * Property picker offers it while the booking that makes it is on the
+ * phone: "Not sent yet" under it, at the top of "Added recently". */
+async function bookOnDaphneNotSent(
+  page: Page,
+  options: { start: string; assignee?: string },
+) {
+  const sheet = await openNewJob(page)
+  await sheet.getByLabel('Property').click()
+  await page
+    .getByRole('textbox', { name: 'Search by name, address, phone or email' })
+    .fill('Daphne')
+  const option = page
+    .getByRole('dialog')
+    .filter({
+      has: page.getByRole('textbox', {
+        name: 'Search by name, address, phone or email',
+      }),
+    })
+    .getByRole('button', { name: /Daphne Dalkeith/ })
+  await expect(option).toContainText('Not sent yet')
+  await option.click()
+  await expect(sheet.getByLabel('Property')).toContainText(/Daphne Dalkeith/)
+  await chooseJobTypes(page, sheet, ['General Pest Control'])
+  await sheet.getByLabel('Start').fill(options.start)
+  if (options.assignee) {
+    await sheet.getByLabel('Assigned to').selectOption(options.assignee)
+  }
+  await pressBook(sheet)
+  await expect.poll(() => bookingsOnPhone(page)).toHaveLength(2)
+}
+
+/** Daphne Dalkeith's card starting at `time` ("8:00am", "11:00am"): its
+ * time range ("8:00am – 9:00am · 1 hr", `formatTimeRange`). */
+const daphneAt = (page: Page, time: string) =>
+  card(page, 'Daphne Dalkeith').filter({ hasText: `${time} –` })
+
+/** The sheet of Daphne Dalkeith's booking at `time`, opened from its card. */
+async function openDaphneAt(page: Page, time: string): Promise<Locator> {
+  await daphneAt(page, time).click()
+  const sheet = page.getByRole('dialog')
+  await expect(sheet).toHaveCount(1)
+  return sheet
+}
+
+/** Daphne Dalkeith's clients and sites on the server. */
+async function daphneOnServer(s: Business) {
+  const directory = await s.owner.client.query(api.clients.directory, {
+    businessId: s.businessId,
+  })
+  const clients = directory.clients.filter((c) => c.name === 'Daphne Dalkeith')
+  const sites = directory.sites.filter((site) =>
+    clients.some((c) => c._id === site.clientId),
+  )
+  return { clients, sites }
+}
+
+test('a new client booked with no signal, then a second job on them as “Not sent yet”: once back, one client, one site, two jobs', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-dependant')
+  await signInViaUi(page, s.owner.email)
+  await readyOffline(page, s.slug, day)
+
+  await context.setOffline(true)
+  try {
+    await bookDaphneOffline(page, { start: '08:00' })
+    await bookOnDaphneNotSent(page, { start: '11:00' })
+    await expect(daphneAt(page, '8:00am')).toContainText('Not sent yet')
+    await expect(daphneAt(page, '11:00am')).toContainText('Not sent yet')
+  } finally {
+    await context.setOffline(false)
+  }
+
+  // The first goes, then the second, on the site the first made: asked of
+  // the server under the first's own request id (`clientRequests.find`,
+  // kind `site`).
+  await expect
+    .poll(() => jobsFor(s, 'Daphne Dalkeith', day), { timeout: 60_000 })
+    .toHaveLength(2)
+  const jobs = await jobsFor(s, 'Daphne Dalkeith', day)
+  expect(new Set(jobs.map((job) => job.scheduledAt))).toEqual(
+    new Set([perthAt(day, 8), perthAt(day, 11)]),
+  )
+  const { clients, sites } = await daphneOnServer(s)
+  expect(clients).toHaveLength(1)
+  expect(sites).toHaveLength(1)
+  expect(jobs.map((job) => job.propertyId)).toEqual([
+    sites[0]._id,
+    sites[0]._id,
+  ])
+  await expect
+    .poll(async () => (await bookingsOnPhone(page)).map((b) => b.state), {
+      timeout: 30_000,
+    })
+    .toEqual(['sent', 'sent'])
+})
+
+test('the first of two needing a look (its assignee taken off the team): the second held behind it, saying so; once the first is fixed, both go', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-dependant-look')
+  await signInViaUi(page, s.owner.email)
+  await readyOffline(page, s.slug, day)
+
+  await context.setOffline(true)
+  try {
+    await bookDaphneOffline(page, {
+      start: '08:00',
+      assignee: s.subMembershipId,
+    })
+    await bookOnDaphneNotSent(page, {
+      start: '11:00',
+      assignee: s.ownerMembershipId,
+    })
+    await s.owner.client.mutation(api.team.remove, {
+      businessId: s.businessId,
+      membershipId: s.subMembershipId,
+    })
+  } finally {
+    await context.setOffline(false)
+  }
+
+  await expect(daphneAt(page, '8:00am')).toContainText('Needs a look', {
+    timeout: 30_000,
+  })
+  // Held, never sent without the site the first makes.
+  const second = await openDaphneAt(page, '11:00am')
+  await expect(second).toContainText(
+    'Not sent yet — it goes after the first booking for Daphne Dalkeith.',
+  )
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(await jobsFor(s, 'Daphne Dalkeith', day)).toHaveLength(0)
+
+  const first = await openDaphneAt(page, '8:00am')
+  await expect(first).toContainText(
+    'Could not book this job: someone on it is no longer on the team.',
+  )
+  await first.getByRole('button', { name: 'Edit' }).click()
+  const edit = editSheet(page)
+  await expect(edit.getByRole('button', { name: 'Book job' })).toBeEnabled()
+  // Kevin was the team's other person, so the owner is the only one left to
+  // book: New Job puts the lead on them by itself, with no choice to make,
+  // and says so.
+  await expect(edit).toContainText('Assigned to you')
+  await pressBook(edit)
+
+  await expect
+    .poll(() => jobsFor(s, 'Daphne Dalkeith', day), { timeout: 60_000 })
+    .toHaveLength(2)
+  const jobs = await jobsFor(s, 'Daphne Dalkeith', day)
+  const { clients, sites } = await daphneOnServer(s)
+  expect(clients).toHaveLength(1)
+  expect(sites).toHaveLength(1)
+  expect(jobs.map((job) => job.propertyId)).toEqual([
+    sites[0]._id,
+    sites[0]._id,
+  ])
+  expect(
+    jobs.find((job) => job.scheduledAt === perthAt(day, 8))
+      ?.assignedMembershipId,
+  ).toBe(s.ownerMembershipId)
+})
+
+test('Discard of a booking another was made on: asked once for both, both gone from the phone, and nothing booked once back', async ({
+  page,
+  context,
+}) => {
+  const day = perthDay(0)
+  const s = await business('outbox-dependant-discard')
+  await signInViaUi(page, s.owner.email)
+  await readyOffline(page, s.slug, day)
+
+  await context.setOffline(true)
+  try {
+    await bookDaphneOffline(page, { start: '08:00' })
+    await bookOnDaphneNotSent(page, { start: '11:00' })
+    const first = await openDaphneAt(page, '8:00am')
+    await first.getByRole('button', { name: 'Discard' }).click()
+    const confirm = page.getByRole('alertdialog')
+    await expect(confirm).toContainText(
+      'Discard this job and the 1 booked after it for Daphne Dalkeith?',
+    )
+    await expect(confirm).toContainText(
+      'Neither has been sent, so they’re only on this phone. This can’t be undone.',
+    )
+    await confirm.getByRole('button', { name: 'Discard both' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(card(page, 'Daphne Dalkeith')).toHaveCount(0)
+    await expect.poll(() => bookingsOnPhone(page)).toEqual([])
+  } finally {
+    await context.setOffline(false)
+  }
+  await expect(newJobButton(page)).toBeEnabled()
+  await page.waitForTimeout(5_000)
+  expect(await jobsFor(s, 'Daphne Dalkeith', day)).toHaveLength(0)
+  const { clients } = await daphneOnServer(s)
+  expect(clients).toHaveLength(0)
 })

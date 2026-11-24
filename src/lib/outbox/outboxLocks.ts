@@ -21,7 +21,14 @@
  *   booking from nobody (itemActions.ts `lapseLeftEdits`). Safari lets it go
  *   as a page enters the back/forward cache too, so a page restored from
  *   there takes it again (`retakeTabLock`).
- *
+ * - **One per booking an open New Job offers**, `pestm8-outbox:offer:{localId}`:
+ *   held shared by each New Job whose Property picker offers it, a client or
+ *   site not sent yet, or sent while that New Job was open (2c-I), for as
+ *   long as it offers it (useOutbox.ts `useHoldOffered`). A sent booking is
+ *   kept on the phone while any tab holds it (`offeredNow`): the sender's
+ *   ten-minute forget and a page load's sweep pass it over, so a row never
+ *   leaves an open picker, nor a choice of it the form, nor a booking made
+ *   on it its site. Let go with the form, or the page.
  * There is no lock over a tab's whole run: a tab sends one booking at a time
  * by itself. Without Web Locks (Safari before 15.4) nothing is kept, so
  * nothing here is needed.
@@ -33,6 +40,13 @@ export const SEND_LOCK = 'pestm8-outbox:send'
 export function itemLock(localId: string): string {
   return `pestm8-outbox:item:${localId}`
 }
+
+/** The lock an open New Job holds, shared, on a booking its picker offers. */
+export function offerLock(localId: string): string {
+  return `pestm8-outbox:offer:${localId}`
+}
+
+const OFFER_PREFIX = offerLock('')
 
 /** The lock a tab holds while its Edits' leases are its own. */
 export function tabLock(tab: string): string {
@@ -147,6 +161,24 @@ export function takeLock(
       if (!granted) resolve(null)
     })
   })
+}
+
+/**
+ * The bookings an open New Job offers now, in any tab, this one included
+ * (`offerLock`): null where there are no Web Locks, or the browser won't
+ * say, when none is held back for it.
+ */
+export async function offeredNow(
+  locks: Locks | null,
+): Promise<Set<string> | null> {
+  if (locks === null) return null
+  const held = await heldLockNames(locks)
+  if (held === null) return null
+  return new Set(
+    [...held].flatMap((name) =>
+      name.startsWith(OFFER_PREFIX) ? [name.slice(OFFER_PREFIX.length)] : [],
+    ),
+  )
 }
 
 /** Whether any tab, this one included, holds `name` now. */

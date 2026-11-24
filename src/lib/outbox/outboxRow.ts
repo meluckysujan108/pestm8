@@ -144,6 +144,9 @@ export function bookingDisplay(
      * can tell (a day it holds lists the site): the client list carries
      * contact people, but not which of them is the one. */
     contactPerson?: { name: string; phone: string }
+    /** For a booking made on a client or site another booking on the phone
+     * makes (2c-I): that one's card, whose whose and where it shows. */
+    parent?: OutboxDisplay
   },
 ): OutboxDisplay {
   const person = (id: string) => from.roster.find((m) => m._id === id)
@@ -200,6 +203,9 @@ export function bookingDisplay(
       propertyState: s.state,
       ...people,
     }
+  }
+  if ('local' in property && from.parent) {
+    return { ...from.parent, ...people }
   }
   const site =
     'propertyId' in property

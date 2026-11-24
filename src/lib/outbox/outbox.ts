@@ -9,7 +9,7 @@ import {
   readOutboxNow,
   stillKept,
 } from './outboxStore'
-import type { Change, StoreResult } from './outboxStore'
+import type { ItemChange, StoreResult } from './outboxStore'
 import type { OutboxItem } from './outboxItem'
 
 /**
@@ -393,7 +393,7 @@ export class OutboxModel {
   async change(
     op: string,
     localId: string,
-    change: (item: OutboxItem) => Change,
+    change: ItemChange,
     landed?: (result: StoreResult<OutboxItem | 'deleted'>) => void,
   ): Promise<StoreResult<OutboxItem | 'deleted'>> {
     let answered = false
@@ -419,6 +419,11 @@ export class OutboxModel {
       this.version++
       this.notify()
       this.post()
+      // The bookings made on it show what it shows now, rewritten in the
+      // same transaction (outboxStore.ts `updateDecision`).
+      if (this.all().some((item) => item.dependsOn === localId)) {
+        void this.refresh()
+      }
     } else if (result === 'deleted' || result === 'gone') {
       const dependants = this.all().some((item) => item.dependsOn === localId)
       if (this.items.delete(localId)) {
@@ -447,7 +452,7 @@ export class OutboxModel {
   changeLanded(
     op: string,
     localId: string,
-    change: (item: OutboxItem) => Change,
+    change: ItemChange,
   ): Promise<StoreResult<OutboxItem | 'deleted'>> {
     return new Promise((resolve) => {
       void this.change(op, localId, change, resolve)

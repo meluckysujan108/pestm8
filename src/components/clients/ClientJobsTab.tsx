@@ -19,7 +19,12 @@ import { formatJobDate } from '#/lib/format'
 import { useBusinessDay } from '#/lib/useBusinessDay'
 import { useHydrated } from '#/lib/useHydrated'
 import { reportsByVisit } from '#/lib/jobHistory'
-import { bookedForClient } from '#/lib/outbox/outboxList'
+import { outbox } from '#/lib/outbox/outbox'
+import {
+  bookedForClient,
+  madeAtOf,
+  outboxSiteLine,
+} from '#/lib/outbox/outboxList'
 import { OUTBOX_ENABLED } from '#/lib/outbox/outboxSet'
 import { useOutboxList, useOutboxSettled } from '#/lib/outbox/useOutbox'
 import { useLineDown } from '#/lib/offline/useLineDown'
@@ -148,11 +153,15 @@ export function ClientJobsTab({
     rows: latchRowsOf(summary),
     redrawKey: propertyId ?? ALL_SITES,
     draws: drawsJobs,
+    // One made on a booking on the phone (2c-I) is theirs as that one is,
+    // sent before this page load or not (`outbox.get`).
     shows: (item) =>
       bookedForClient(item, {
         clientId,
         propertyIds: new Set(summary?.properties.map((p) => p._id)),
         site: propertyId,
+        parentOf: (localId) => outbox.get(localId),
+        madeAt: madeAtOf(summary),
       }),
   })
 
@@ -296,14 +305,19 @@ export function ClientJobsTab({
           list={unsent}
           businessSlug={businessSlug}
           timezone={timezone}
-          siteOf={(slot) => {
-            const at = slot.real?.propertyId ?? slot.card.propertyId
-            if (summary.properties.some((p) => p._id === at)) return siteOf(at)
-            // A new site of theirs, which the booking makes.
-            return 'newProperty' in slot.item.booking.property
-              ? slot.item.display.addressLine
-              : undefined
-          }}
+          // One of their sites, or a new site of theirs, which the booking
+          // makes, or which another booking on the phone makes (2c-I): its
+          // card shows it. The same as their sheet kept on the phone.
+          siteOf={(slot) =>
+            outboxSiteLine(
+              slot.item,
+              slot.real?.propertyId ?? slot.card.propertyId,
+              {
+                has: (at) => summary.properties.some((p) => p._id === at),
+                siteOf,
+              },
+            )
+          }
           reportsOf={(id) => byVisit.get(id) ?? []}
         />
       </Section>

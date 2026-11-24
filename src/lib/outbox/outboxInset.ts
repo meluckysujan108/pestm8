@@ -62,7 +62,8 @@ export const EDITED_ELSEWHERE_WORDS =
  * only once every gate lets it (sender.ts `stepItem`): so Send waits on
  * what holds it now (`held`), named here, never on signal it may have.
  * Edit, then Book, is the look as well, and the sheet has Edit now (one
- * made on a site another booking makes has none, only Discard).
+ * made on a client or site another booking makes too: it opens on that
+ * one, 2c-I's D-I4).
  */
 export function needsALookWords(facts: InsetFacts, now: number): string {
   const { item, timezone, todayKey } = facts
@@ -74,7 +75,7 @@ export function needsALookWords(facts: InsetFacts, now: number): string {
   const why = sessionEndUnanswered(item)
     ? 'Not sent yet — you’ve signed in again since it was saved, so it won’t go by itself.'
     : 'Not sent yet — it’s waited more than three days, so it won’t go by itself.'
-  const or = 'local' in item.booking.property ? 'or discard it' : 'or edit it'
+  const or = 'or edit it'
   const at = (time: number) => when(time, timezone, todayKey)
   switch (facts.held) {
     case 'parent':
@@ -377,12 +378,10 @@ export function outboxFooter(
       ? { fix: null, alsoEdit: false, discard: 'mayHaveGone', locked: false }
       : { fix: 'edit', alsoEdit: false, discard: 'item', locked: true }
   }
-  // Made on a site another booking on the phone makes (2c-I): changed only
-  // once that one is booked, so nothing here but Discard.
-  const changeable = !('local' in item.booking.property)
-  const editOr = (fix: OutboxFix | null): OutboxFix | null =>
-    changeable ? fix : null
-  let fix: OutboxFix | null = editOr('edit')
+  // One made on a client or site another booking on the phone makes
+  // (2c-I) is changed the same way: its Edit opens New Job on that one,
+  // as the Property picker offers it ("Not sent yet").
+  let fix: OutboxFix | null = 'edit'
   let alsoEdit = false
   if (item.state === 'needsLook') {
     switch (item.problem?.code) {
@@ -391,11 +390,11 @@ export function outboxFooter(
         fix = 'send'
         break
       case 'FIRST_VISIT_PAST':
-        fix = editOr('changeDate')
+        fix = 'changeDate'
         break
       case 'SERVER':
         fix = 'tryAgain'
-        alsoEdit = changeable
+        alsoEdit = true
         break
     }
   }
@@ -434,19 +433,69 @@ export const DISCARD_LEFT_ON_PHONE = {
   cancel: 'Keep job',
 } as const
 
+/** A Discard dialog's words (`ConfirmDialog`). */
+export type DiscardWords = {
+  title: string
+  body: string
+  confirm: string
+  cancel: string
+}
+
+/**
+ * Discard of a booking others were made on (plan §7, 2c-I): they go with it,
+ * in the one transaction (outboxStore.ts `updateDecision`), so the dialog
+ * says how many, and for whom. `after`: how many were booked after it on its
+ * client or site, not sent yet (`dependantsOf`); `client`: its client.
+ */
+export function discardCascade(after: number, client: string): DiscardWords {
+  const forWhom = client.trim() === '' ? '' : ` for ${client.trim()}`
+  return after === 1
+    ? {
+        title: `Discard this job and the 1 booked after it${forWhom}?`,
+        body: 'Neither has been sent, so they’re only on this phone. This can’t be undone.',
+        confirm: 'Discard both',
+        cancel: 'Keep jobs',
+      }
+    : {
+        title: `Discard this job and the ${after} booked after it${forWhom}?`,
+        body: 'None of them has been sent, so they’re only on this phone. This can’t be undone.',
+        confirm: `Discard all ${after + 1}`,
+        cancel: 'Keep jobs',
+      }
+}
+
 /** Which dialog Discard asks with (`OutboxFooter.discard`'s, by the
- * booking): only one that can't have gone says it is only on this phone. */
+ * booking): only one that can't have gone says it is only on this phone.
+ * `after`: how many not sent yet were booked after it on its client or
+ * site (2c-I), which go with it, and are said to. */
 export function discardDialog(
   item: OutboxItem,
   discard: 'item' | 'mayHaveGone',
-):
-  | typeof DISCARD_ITEM
-  | typeof DISCARD_MAY_HAVE_GONE
-  | typeof DISCARD_LEFT_ON_PHONE {
-  if (discard === 'mayHaveGone') return DISCARD_MAY_HAVE_GONE
-  return item.problem?.code === LEFT_ON_PHONE
-    ? DISCARD_LEFT_ON_PHONE
-    : DISCARD_ITEM
+  after = 0,
+): DiscardWords {
+  const client = isReadable(item) ? item.display.clientName : ''
+  const own =
+    discard === 'mayHaveGone'
+      ? DISCARD_MAY_HAVE_GONE
+      : item.problem?.code === LEFT_ON_PHONE
+        ? DISCARD_LEFT_ON_PHONE
+        : null
+  if (after === 0) return own ?? DISCARD_ITEM
+  if (own === null) return discardCascade(after, client)
+  // It may have gone; the ones made on it haven't, and go with it: the
+  // title and the buttons count them, as the cascade's do, so neither the
+  // red word nor the way out reads as one job.
+  const forWhom = client.trim() === '' ? '' : ` for ${client.trim()}`
+  const cascade = discardCascade(after, client)
+  return {
+    title: `This may already be booked. Discard it and the ${after} booked after it from this phone?`,
+    body:
+      after === 1
+        ? `${own.body} The job booked after it${forWhom} hasn’t been sent, and goes from this phone too.`
+        : `${own.body} The ${after} jobs booked after it${forWhom} haven’t been sent, and go from this phone too.`,
+    confirm: cascade.confirm,
+    cancel: cascade.cancel,
+  }
 }
 
 /**

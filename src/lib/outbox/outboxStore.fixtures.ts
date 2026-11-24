@@ -3,7 +3,7 @@ import { claimDecision, keepDecision, updateDecision } from './outboxStore'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { BookingArgs, OutboxDisplay, OutboxItem } from './outboxItem'
 import type {
-  Change,
+  ItemChange,
   OutboxBackend,
   OutboxOwner,
   OutboxPeek,
@@ -92,7 +92,7 @@ export class MemoryOutboxBackend implements OutboxBackend {
     return this.run('keep', () => {
       const decided = !wanted()
         ? 'refused'
-        : keepDecision(this.owner, epoch, item, this.items.get(item.localId))
+        : keepDecision(this.owner, epoch, item, this.all())
       if (decided === 'kept')
         this.items.set(item.localId, structuredClone(item))
       return decided
@@ -102,7 +102,7 @@ export class MemoryOutboxBackend implements OutboxBackend {
   update(
     epoch: string,
     localId: string,
-    change: (item: OutboxItem) => Change,
+    change: ItemChange,
   ): Promise<StoreResult<OutboxItem | 'deleted'>> {
     return this.run('update', () => {
       const decided = updateDecision(
@@ -114,6 +114,9 @@ export class MemoryOutboxBackend implements OutboxBackend {
       )
       for (const gone of decided.drop) this.items.delete(gone)
       if (decided.put) this.items.set(localId, structuredClone(decided.put))
+      for (const dependant of decided.also) {
+        this.items.set(dependant.localId, structuredClone(dependant))
+      }
       return decided.result
     })
   }
@@ -134,12 +137,17 @@ export class MemoryOutboxBackend implements OutboxBackend {
   }
 
   removeWhere(
-    match: (item: OutboxItem, owner: OutboxOwner | null) => boolean,
+    match: (
+      item: OutboxItem,
+      owner: OutboxOwner | null,
+      all: ReadonlyArray<OutboxItem>,
+    ) => boolean,
   ): Promise<number | 'error'> {
     return this.run('removeWhere', () => {
       let removed = 0
-      for (const item of this.all()) {
-        if (!match(item, this.owner)) continue
+      const all = this.all()
+      for (const item of all) {
+        if (!match(item, this.owner, all)) continue
         this.items.delete(item.localId)
         removed++
       }

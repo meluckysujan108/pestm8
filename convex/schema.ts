@@ -966,8 +966,11 @@ export default defineSchema({
     importedFrom: v.optional(v.id('clientImports')),
     /** The id the phone gave the save that made this site
      * (convex/lib/clientRequest.ts), so a save sent again finds it instead
-     * of making a second. Only on a site made by `properties.create` or
-     * `createForClient`; one made while booking is covered by the job's. */
+     * of making a second: `properties.create`'s or `createForClient`'s, or,
+     * for a site made while booking, the job's or series' own (the same id
+     * names both, each in its own table), so a booking kept on the phone
+     * behind that one finds the site it made (`clientRequests.find`, kind
+     * 'site'). Sites made before 18 Nov 2026 while booking have none. */
     clientRequestId: v.optional(v.string()),
     ...binFields,
   })
