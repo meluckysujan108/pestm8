@@ -111,6 +111,7 @@ const ALL_ON: Grants = {
   clientDirectory: true,
   prices: true,
   otherSchedules: true,
+  editOthers: false,
 }
 
 describe('demoting a contractor', () => {

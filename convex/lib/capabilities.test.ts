@@ -935,3 +935,73 @@ describe('editing jobs', () => {
     expect(canEditJob(actor, { assignedMembershipId: KEVIN })).toBe(true)
   })
 })
+
+describe('View and edit for other people’s jobs', () => {
+  const editor = (overrides: Partial<Grants> = {}) =>
+    grants({ otherSchedules: true, editOthers: true, ...overrides })
+  const givingContractor = () =>
+    member(CONTRACTOR, 'contractor', {
+      grants: { ...DEFAULT_GRANTS.contractor, editOthers: true },
+    })
+
+  test('rides on seeing them: without View it is nothing', () => {
+    const editOnly = member(PRIYA, 'subcontractor', {
+      grants: editor({ otherSchedules: false }),
+    })
+    expect(capabilitiesOf(editOnly)['jobs.editOthers']).toBe(false)
+    const both = member(PRIYA, 'subcontractor', { grants: editor() })
+    expect(capabilitiesOf(both)['jobs.editOthers']).toBe(true)
+  })
+
+  test('the owner always holds it; a contractor only when given it', () => {
+    expect(capabilitiesOf(owner())['jobs.editOthers']).toBe(true)
+    expect(capabilitiesOf(contractor())['jobs.editOthers']).toBe(false)
+    expect(capabilitiesOf(givingContractor())['jobs.editOthers']).toBe(true)
+  })
+
+  test('a subcontractor holds no more of it than their contractor', () => {
+    const kevin = sub({ grants: editor() })
+    expect(capabilitiesOf(kevin, contractor())['jobs.editOthers']).toBe(false)
+    expect(capabilitiesOf(kevin, givingContractor())['jobs.editOthers']).toBe(
+      true,
+    )
+  })
+
+  test('the clamp never stores it without View, nor past the giver', () => {
+    const kevin = sub()
+    const byOwner = (requested: Grants) =>
+      clampGrants(self(owner()), kevin, requested).editOthers
+    expect(byOwner(editor({ otherSchedules: false }))).toBe(false)
+    expect(byOwner(editor())).toBe(true)
+    expect(clampGrants(self(contractor()), kevin, editor()).editOthers).toBe(
+      false,
+    )
+    expect(
+      clampGrants(self(givingContractor()), kevin, editor()).editOthers,
+    ).toBe(true)
+  })
+
+  test('a team move re-reads it against the new contractor', () => {
+    const kevin = sub({ grants: editor() })
+    expect(recomputeGrants(kevin, contractor()).editOthers).toBe(false)
+    expect(recomputeGrants(kevin, givingContractor()).editOthers).toBe(true)
+    // Back to answering to the owner, who gave it.
+    expect(recomputeGrants(kevin, null).editOthers).toBe(true)
+  })
+
+  test('switched, both accounts must hold it', () => {
+    expect(
+      effectiveCapabilities(switched(owner(), sub({ grants: editor() })))[
+        'jobs.editOthers'
+      ],
+    ).toBe(true)
+    expect(
+      effectiveCapabilities(switched(owner(), sub()))['jobs.editOthers'],
+    ).toBe(false)
+  })
+
+  test('it is not part of whose work a job is, which deleting asks', () => {
+    const kevin = self(sub({ grants: editor() }))
+    expect(canEditJob(kevin, { assignedMembershipId: PRIYA })).toBe(false)
+  })
+})

@@ -176,6 +176,7 @@ const ALL_CAPS = {
   'prices.see': true,
   'clients.directory': true,
   'schedules.seeOthers': true,
+  'jobs.editOthers': true,
   'accounts.switch': false,
 }
 

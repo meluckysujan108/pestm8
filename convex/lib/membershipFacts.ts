@@ -40,7 +40,8 @@ import { DEFAULT_GRANTS } from './capabilities'
  * gives it out explicitly.
  */
 export function grantsFromMembership(m: Doc<'memberships'>): Grants {
-  if (m.grants) return m.grants
+  // A row from before "View and edit" says nothing of it: view only at most.
+  if (m.grants) return { ...m.grants, editOthers: m.grants.editOthers ?? false }
 
   if (m.role === 'owner') return DEFAULT_GRANTS.owner
 
@@ -52,6 +53,7 @@ export function grantsFromMembership(m: Doc<'memberships'>): Grants {
     // The one legacy flag that does map cleanly: both mean "can see work that
     // isn't yours", and both are read-only.
     otherSchedules: m.canViewAllJobs === true,
+    editOthers: false,
   }
 }
 

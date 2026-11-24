@@ -2,8 +2,36 @@ import { forSelf, recordAudit } from './audit'
 import { releasedGrants } from './capabilities'
 import { inviteState } from './inviteTokens'
 import { factsFromMembership } from './membershipFacts'
+import type { Grants } from './capabilities'
 import type { Doc, Id } from '../_generated/dataModel'
 import type { MutationCtx } from '../_generated/server'
+
+/**
+ * A subcontractor's grants as they leave the contractor they work under —
+ * handed back to the owner, moved to another contractor, or made a
+ * contractor themselves: what that contractor let them hold, baked in
+ * (`releasedGrants`).
+ *
+ * A toggle can sit on the row while the contractor's ceiling holds it off:
+ * given before the contractor lost it, or by the owner above that ceiling.
+ * Carried across as it stands, it would come on with nobody giving it — and
+ * since "View and edit" that can be the power to change anyone's job.
+ *
+ * Staying with the same contractor, or never having had one, leaves the row
+ * as it is. `nextParentId` is who they will answer to; null is the owner.
+ */
+export async function leavingGrants(
+  ctx: MutationCtx,
+  member: Doc<'memberships'>,
+  nextParentId: Id<'memberships'> | null,
+): Promise<Grants> {
+  const facts = factsFromMembership(member)
+  const formerId = member.parentMembershipId
+  if (!formerId || formerId === nextParentId) return facts.grants
+  const former = await ctx.db.get(formerId)
+  if (!former) return facts.grants
+  return releasedGrants(facts, factsFromMembership(former))
+}
 
 /**
  * A contractor's team goes back to answering to the owner — the step that has
