@@ -4,6 +4,7 @@ import {
   FIXTURE_PASSWORD,
   api,
   chooseJobTypes,
+  chooseOverview,
   chooseProperty,
   clickUntil,
   signInViaUi,
@@ -109,6 +110,10 @@ async function business(label: string) {
     { name, state: 'WA', timezone: TZ },
   )
   await inviteAndJoin(owner, sub, businessId)
+  // As setupBusinessWithSub: the owner's own client reads the whole team's
+  // jobs (`jobsFor`), and since Overview for the whole team (#179) a sign-in
+  // opens in My jobs, which would hide Kevin's and Wendy's bookings.
+  await chooseOverview(owner.client, businessId)
   const propertyId = await owner.client.mutation(api.properties.create, {
     businessId,
     clientName: 'Arthur Wellard',
