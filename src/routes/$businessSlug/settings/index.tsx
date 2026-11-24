@@ -128,7 +128,8 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
     )
     const team = access?.caps['team.manage'] === true
     const owner = access?.caps['business.manage'] === true
-    const switches = access !== undefined && !access.view
+    // Not "no view menu": a contractor with a crew has one too.
+    const switches = access !== undefined && access.role !== 'owner'
     return settleWithin(
       LOADER_WAIT_MS,
       warm(
@@ -293,8 +294,10 @@ function SettingsHub() {
         </SettingsGroup>
 
         {/* The owner works in other accounts from the view menu beside the
-            +, which lists every one of them; this is for everyone else. */}
-        {!access.view && (
+            +, which lists every one of them; this is for everyone else —
+            a contractor's menu, which only picks Overview or My jobs,
+            included. */}
+        {access.role !== 'owner' && (
           <SwitchAccounts
             businessId={business._id}
             businessSlug={businessSlug}
