@@ -75,6 +75,7 @@ import {
 } from '#/components/schedule/RecurringView'
 import { useBusinessDay } from '#/lib/useBusinessDay'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
+import { JobActivitySection } from '#/components/schedule/JobActivity'
 import {
   NewJobNotOnPhone,
   NewJobSheet,
@@ -194,6 +195,7 @@ import { CLIENTS_PAGE, clientsFirstPage, rq } from '#/lib/routeQueries'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { SwitchBanner } from '#/components/shell/SwitchBanner'
 import { AccessProvider, useAccess } from '#/lib/access'
+import type { Id } from '../../convex/_generated/dataModel'
 import {
   BackLink,
   DANGER_ROW_CLASS,
@@ -405,6 +407,28 @@ function jobDetail(jobId: string) {
 
 /** A job with no note and one service. */
 const JobDetail = jobDetail('j2')
+
+/**
+ * A job's Activity alone, as the foot of its sheet draws it
+ * (`activityFixtures`): the owner's busy job, the same job as Kevin reads it
+ * with no figures, one changed more often than it reads, and a job booked
+ * before its history began.
+ */
+function activity(jobId: string) {
+  return function ActivitySpecimen() {
+    return (
+      <Phone>
+        <div className="px-4 pb-6">
+          <JobActivitySection
+            businessId={bizId}
+            jobId={jobId as Id<'jobs'>}
+            timezone={TZ}
+          />
+        </div>
+      </Phone>
+    )
+  }
+}
 
 /**
  * The Payment section alone, as the sheet draws it, one job per state
@@ -4724,6 +4748,11 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   jobdetail: JobDetail,
   'jobcards-payment': JobCardsPayment,
   'jobdetail-paid': jobDetail('jp1'),
+  activity: activity('ja1'),
+  'activity-all': activity('ja1'),
+  'activity-kevin': activity('ja2'),
+  'activity-older': activity('j_old'),
+  'activity-more': activity('ja3'),
   'jobdetail-completed': jobDetail('jp3'),
   'payment-ask': PaymentAskSpecimen,
   'payment-offered': PaymentOffered,

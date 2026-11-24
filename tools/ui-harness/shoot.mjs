@@ -198,6 +198,19 @@ const PLAN = {
   },
   // The owner's Payments in My jobs, saying the figures are his own.
   'payments-mine': { before: async (p) => p.waitForTimeout(600) },
+  // A job's Activity: the latest four, then every line once Show all is
+  // pressed.
+  activity: { before: async (p) => p.waitForTimeout(500) },
+  'activity-all': {
+    before: async (p) => {
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: /^Show all/ }).click()
+      await p.waitForTimeout(300)
+    },
+  },
+  'activity-kevin': { before: async (p) => p.waitForTimeout(500) },
+  'activity-older': { before: async (p) => p.waitForTimeout(500) },
+  'activity-more': { before: async (p) => p.waitForTimeout(500) },
   // The view menu, opened: the owner's, then Kevin's (Overview and My jobs).
   'view-menu': {
     before: async (p) => {

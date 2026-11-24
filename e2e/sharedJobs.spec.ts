@@ -48,7 +48,7 @@ test('the owner puts Kevin on his job from Edit → Also going', async ({
   })
   expect(job?.alsoGoing.map((p) => p._id)).toEqual([s.subMembershipId])
   // The sheet names them both.
-  await expect(detail.getByText('Kevin')).toBeVisible()
+  await expect(detail.getByText('Kevin', { exact: true })).toBeVisible()
 })
 
 test('Kevin, also going, finds the job on his schedule and may work it', async ({

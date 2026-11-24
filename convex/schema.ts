@@ -286,6 +286,93 @@ export const intervalUnit = v.union(
   v.literal('year'),
 )
 
+/**
+ * What a line of a job's Activity says was done (`jobActivity`). A job's own
+ * writes keep the names `auditLog` gives them (`recordJobWrite` in jobs.ts);
+ * the rest name what changed the job without anyone opening it.
+ */
+export const jobActivityAction = v.union(
+  v.literal('job.create'),
+  v.literal('job.update'),
+  v.literal('job.complete'),
+  v.literal('job.cancel'),
+  v.literal('job.invoice'),
+  v.literal('job.photo.add'),
+  v.literal('job.photo.remove'),
+  v.literal('payment.record'),
+  v.literal('payment.remove'),
+  v.literal('payment.handOver'),
+  /** Made a Recurring Job from this visit. */
+  v.literal('recurrence.convert'),
+  /** Stopped its Recurring Job from this visit, which stays as a one-off. */
+  v.literal('recurrence.leave'),
+  /** A visit still to come, cancelled because its Recurring Job stopped. */
+  v.literal('recurrence.stop'),
+  /** Handed to someone else when its lead left the team, or was removed. */
+  v.literal('membership.handOn'),
+  /** Someone also going taken off it when they left the team, or were
+   * removed. */
+  v.literal('membership.takeOff'),
+  v.literal('bin.delete'),
+  v.literal('bin.restore'),
+)
+
+/**
+ * One fact of a job as a write left it: what it was, and what it became.
+ * Ids rather than names, read into words for whoever opens the job
+ * (`jobActivity.list`), so a renamed person or a site's corrected address
+ * reads as it is now — and a price only for those who may see one.
+ */
+export const jobChange = v.union(
+  // A status as a string, not `jobStatus`: a status retired later (as
+  // `inProgress` was) must not make a schema deploy refuse old history.
+  v.object({
+    field: v.literal('status'),
+    from: v.string(),
+    to: v.string(),
+  }),
+  v.object({
+    field: v.literal('scheduledAt'),
+    from: v.number(),
+    to: v.number(),
+  }),
+  v.object({
+    field: v.literal('durationMinutes'),
+    from: v.number(),
+    to: v.number(),
+  }),
+  v.object({
+    field: v.literal('lead'),
+    from: v.id('memberships'),
+    to: v.id('memberships'),
+  }),
+  v.object({
+    field: v.literal('alsoGoing'),
+    added: v.array(v.id('memberships')),
+    removed: v.array(v.id('memberships')),
+  }),
+  v.object({
+    field: v.literal('propertyId'),
+    from: v.id('properties'),
+    to: v.id('properties'),
+  }),
+  v.object({
+    field: v.literal('jobType'),
+    from: v.string(),
+    to: v.string(),
+  }),
+  v.object({
+    field: v.literal('price'),
+    from: v.number(),
+    to: v.number(),
+  }),
+  v.object({
+    field: v.literal('workOrder'),
+    from: v.optional(v.string()),
+    to: v.optional(v.string()),
+  }),
+)
+
 export const clientKind = v.union(v.literal('person'), v.literal('business'))
 
 /** Whose Xero a connection is: the business's own (connected by the owner)
@@ -1246,6 +1333,61 @@ export default defineSchema({
     .index('by_member', ['membershipId'])
     .index('by_member_date', ['membershipId', 'scheduledAt'])
     .index('by_business_date', ['businessId', 'scheduledAt']),
+
+  /**
+   * A job's history: every change made to it, by whom, from what to what —
+   * the Activity at the foot of its sheet (`jobActivity.list`).
+   *
+   * Written for everyone, unlike `auditLog`'s job rows, which are written
+   * only when someone works in another person's account
+   * (`recordOnBehalf`). With more than one person able to change a job,
+   * "who moved this, and from when" is a question for every job, not only
+   * for a switch.
+   *
+   * Its own table rather than more `auditLog` rows, because it holds what
+   * the audit log must not: the values. The audit log outlives a wipe and so
+   * carries ids and numbers only (bin.ts); a job's history holds its old
+   * work order and the services it was for, so it goes with the job when
+   * the job is wiped from the Recycle bin, as its photos and payments do.
+   *
+   * Begun in November 2026 with nothing copied into it: a job booked earlier
+   * starts with whatever was done to it since, and its sheet says when the
+   * business's history begins (`recordedSince`).
+   */
+  jobActivity: defineTable({
+    businessId: v.id('businesses'),
+    jobId: v.id('jobs'),
+    action: jobActivityAction,
+    /** The person who did it — the real one, never the account they were
+     * working in (`writeAttribution`, as `auditLog`). */
+    actorMembershipId: v.id('memberships'),
+    /** The account it was done in, when that was someone else's. */
+    onBehalfOfMembershipId: v.optional(v.id('memberships')),
+    /** What the write changed, in the order the sheet says it. */
+    changes: v.array(jobChange),
+    /** payment.*: which payment. Read for its amount and method, which the
+     * row keeps after a payment is taken back. */
+    paymentId: v.optional(v.id('payments')),
+    /** recurrence.convert: how often it was set to repeat. */
+    interval: v.optional(v.object({ count: v.number(), unit: intervalUnit })),
+    /** bin.delete: what it went in with — itself, or its Recurring Job,
+     * site or client. */
+    binRoot: v.optional(
+      v.union(
+        v.literal('job'),
+        v.literal('recurrence'),
+        v.literal('property'),
+        v.literal('client'),
+        v.literal('contact'),
+      ),
+    ),
+    at: v.number(),
+  })
+    // A job's history, newest first.
+    .index('by_jobId_and_at', ['jobId', 'at'])
+    // When the business's history begins, and its owner's Settings → Activity
+    // (to come).
+    .index('by_businessId_and_at', ['businessId', 'at']),
 
   // A Recurring Job: the standing arrangement, of which each `jobs` row
   // carrying this row's id is one visit.

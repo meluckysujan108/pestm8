@@ -378,7 +378,7 @@ test('cancelling a job from its status pill asks for confirmation first, with a 
     .getByRole('button', { name: 'Cancel job' })
     .click()
 
-  await expect(detail.getByText('Cancelled')).toBeVisible()
+  await expect(detail.getByText('Cancelled', { exact: true })).toBeVisible()
   const job = await s.owner.client.query(api.jobs.get, {
     businessId: s.businessId,
     jobId: s.ownerJobId,
