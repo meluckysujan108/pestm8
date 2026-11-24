@@ -106,15 +106,10 @@ export const me = query({
        */
       lastRemovedAt: (await ctx.db.get(env.actor.real._id))?.removedAt ?? null,
 
-      /** The older read-only "view as", which still exists and is not the same
-       * thing: it shows another person's rows and grants nothing. */
-      viewingAs:
-        !switched && env.viewingAsLegacy
-          ? {
-              membershipId: env.readScope._id,
-              name: await nameOf(env.readScope._id),
-            }
-          : null,
+      /** The old read-only "view as", retired (schema.ts): always null now.
+       * Kept for phones on a build that still reads it, which treat anything
+       * else as looking through someone's eyes. */
+      viewingAs: null,
     }
   },
 })

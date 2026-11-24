@@ -331,7 +331,6 @@ const own: Access = {
   actingAs: null,
   expiresAt: null,
   degraded: null,
-  viewingAs: null,
   lastRemovedAt: null,
 }
 

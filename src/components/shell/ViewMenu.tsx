@@ -76,11 +76,8 @@ export function ViewMenu({
     options?.overview ?? (access.role === 'contractor' ? 'team' : 'everyone')
 
   // One value across all the radio items: a view's own name, or the id of the
-  // account being worked in. None of them while an old read-only "view as" is
-  // still on: they are not in Overview then, and picking it must be able to
-  // take them there (`views.set` clears the old selection).
-  const current =
-    mode === 'account' ? acting.membershipId : access.viewingAs ? '' : mode
+  // account being worked in.
+  const current = mode === 'account' ? acting.membershipId : mode
 
   const choose = (next: string) => {
     if (next === current || setView.isPending) return

@@ -108,7 +108,6 @@ export const seed = internalMutation({
       userId: source.owner.userId,
       businessId,
       role: 'owner',
-      canViewAllJobs: true,
       grants: DEFAULT_GRANTS.owner,
       colour: MEMBER_COLOURS[0],
       status: 'active',
@@ -609,7 +608,6 @@ async function join(
     userId: person.userId,
     businessId,
     role: 'subcontractor',
-    canViewAllJobs: false,
     grants: NO_GRANTS,
     ...(displayName ? { displayName } : {}),
     colour: nextColour(
@@ -688,7 +686,7 @@ async function setRoleContractor(
     role: 'contractor',
     parentMembershipId: undefined,
     grants: roleGrants,
-    canViewAllJobs: roleGrants.otherSchedules,
+    canViewAllJobs: undefined,
   })
   await recordAudit(ctx, forSelf(owner), {
     businessId: row.businessId,
@@ -726,7 +724,7 @@ async function assignTo(
   await ctx.db.patch(target, {
     parentMembershipId: parent._id,
     grants: nextGrants,
-    canViewAllJobs: nextGrants.otherSchedules,
+    canViewAllJobs: undefined,
   })
   await recordAudit(ctx, forSelf(by), {
     businessId: row.businessId,
@@ -759,7 +757,7 @@ async function setGrants(
   const clamped = clampGrants(env.actor, facts, { ...facts.grants, ...change })
   await ctx.db.patch(target, {
     grants: clamped,
-    canViewAllJobs: clamped.otherSchedules,
+    canViewAllJobs: undefined,
   })
   await recordAudit(ctx, forSelf(by), {
     businessId: row.businessId,
@@ -792,8 +790,8 @@ async function remove(
     status: 'removed',
     removedAt: now,
     removedByMembershipId: owner,
-    canViewAllJobs: false,
-    canViewOtherAccounts: false,
+    canViewAllJobs: undefined,
+    canViewOtherAccounts: undefined,
     viewingAsMembershipId: undefined,
     parentMembershipId: undefined,
     grants: NO_GRANTS,

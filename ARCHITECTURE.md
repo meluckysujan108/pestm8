@@ -296,7 +296,9 @@ businesses: {
 memberships: {
   userId, businessId,
   role: "owner" | "subcontractor",
-  canViewAllJobs: boolean,              // owner-granted, default false
+  canViewAllJobs: boolean,              // owner-granted, default false — RETIRED: now
+                                        // grants.otherSchedules / editOthers
+                                        // (convex/migrations/viewSettingsV1.ts)
   licenceNumber?,                       // free text — state-based, per business
   colour,                               // calendar layer colour
   status: "active" | "invited" | "removed",

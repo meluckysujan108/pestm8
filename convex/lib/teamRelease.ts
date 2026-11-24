@@ -87,7 +87,8 @@ export async function releaseTeam(
     await ctx.db.patch(member._id, {
       parentMembershipId: undefined,
       grants,
-      canViewAllJobs: grants.otherSchedules,
+      // The retired column goes as the row is touched (schema.ts).
+      canViewAllJobs: undefined,
     })
     released += 1
 

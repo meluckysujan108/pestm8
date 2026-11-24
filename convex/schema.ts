@@ -695,16 +695,22 @@ export default defineSchema({
     userId: v.string(),
     businessId: v.id('businesses'),
     role,
-    canViewAllJobs: v.boolean(),
-    // Distinct from canViewAllJobs (a data-scope grant): this governs whether
-    // a subcontractor can also view the app through OTHER members' eyes via
-    // the header account menu's "view as" — never grantable for viewing the
-    // owner, even when this is on (see viewAs.ts's resolveViewScope).
+    /**
+     * RETIRED, all three, and on their way out
+     * (convex/migrations/viewSettingsV1.ts has the sequence).
+     *
+     * - `canViewAllJobs`: the old "Can view all jobs" switch. `grants`
+     *   below is the truth; this is read only as the fallback for a row
+     *   with no `grants`, of which prod has none.
+     * - `canViewOtherAccounts` and `viewingAsMembershipId`: the old
+     *   read-only "view as" (look through another subcontractor's eyes),
+     *   whose menu went with the header account button. Nothing reads them.
+     *
+     * Nothing writes any of them any more except to clear them. Optional so
+     * that the rows can be cleared, and then the fields dropped.
+     */
+    canViewAllJobs: v.optional(v.boolean()),
     canViewOtherAccounts: v.optional(v.boolean()),
-    // The caller's own current "view as" selection — always self-only to
-    // write (see memberships.setViewingAs), and re-validated on every read
-    // rather than trusted, so a revoked grant or archived target silently
-    // self-heals back to viewing your own account.
     viewingAsMembershipId: v.optional(v.id('memberships')),
     /**
      * The contractor this subcontractor works under — the only representation
@@ -718,8 +724,8 @@ export default defineSchema({
     parentMembershipId: v.optional(v.id('memberships')),
     /** The four toggles. Absent = a row from before this model existed; see
      * `grants` above and `recomputeGrants` in lib/capabilities.ts. Readers
-     * fall back to the legacy `canViewAllJobs` / `canViewOtherAccounts`
-     * fields until the migration has run. */
+     * fall back to the legacy `canViewAllJobs` (`grantsFromMembership`)
+     * until migrations/viewSettingsV1 has written one on every row. */
     grants: v.optional(grants),
     /**
      * The name attribution prints, frozen on the membership rather than read

@@ -38,12 +38,6 @@ export function SwitchBanner({ businessId }: { businessId: Id<'businesses'> }) {
     mutationFn: (args: { businessId: Id<'businesses'> }) => convexStop(args),
   })
 
-  const convexSetViewingAs = useConvexMutation(api.memberships.setViewingAs)
-  const exitViewing = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'> }) =>
-      convexSetViewingAs(args),
-  })
-
   /**
    * A switch that ended by itself — revoked, moved team, the person removed —
    * is closed here, not just reported.
@@ -127,25 +121,6 @@ export function SwitchBanner({ businessId }: { businessId: Id<'businesses'> }) {
           className="shrink-0 rounded-full bg-amber-ink/10 px-3 py-1 text-caption font-semibold text-amber-ink transition active:scale-[.95] disabled:opacity-50"
         >
           Switch back
-        </button>
-      </div>
-    )
-  }
-
-  // The older read-only lens, which is on its way out but still shipping.
-  if (access.viewingAs) {
-    return (
-      <div className="flex items-center justify-between gap-2 bg-blue px-4 py-2 text-white">
-        <p className="truncate text-caption font-semibold">
-          Viewing as {access.viewingAs.name}
-        </p>
-        <button
-          type="button"
-          disabled={exitViewing.isPending}
-          onClick={() => exitViewing.mutate({ businessId })}
-          className="shrink-0 rounded-full bg-white/20 px-3 py-1 text-caption font-semibold transition active:scale-[.95] disabled:opacity-50"
-        >
-          Exit
         </button>
       </div>
     )

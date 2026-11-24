@@ -146,6 +146,7 @@ import type * as migrations_recurringIntervalV1 from "../migrations/recurringInt
 import type * as migrations_reportSnapshotsV1 from "../migrations/reportSnapshotsV1.js";
 import type * as migrations_reportsContract from "../migrations/reportsContract.js";
 import type * as migrations_reportsLibrary from "../migrations/reportsLibrary.js";
+import type * as migrations_viewSettingsV1 from "../migrations/viewSettingsV1.js";
 import type * as notes from "../notes.js";
 import type * as notesSync from "../notesSync.js";
 import type * as optionSets from "../optionSets.js";
@@ -164,7 +165,6 @@ import type * as teamJoins from "../teamJoins.js";
 import type * as templateSettings from "../templateSettings.js";
 import type * as twoStepAttempts from "../twoStepAttempts.js";
 import type * as twoStepSetups from "../twoStepSetups.js";
-import type * as viewAs from "../viewAs.js";
 import type * as views from "../views.js";
 import type * as weather from "../weather.js";
 import type * as xero from "../xero.js";
@@ -319,6 +319,7 @@ declare const fullApi: ApiFromModules<{
   "migrations/reportSnapshotsV1": typeof migrations_reportSnapshotsV1;
   "migrations/reportsContract": typeof migrations_reportsContract;
   "migrations/reportsLibrary": typeof migrations_reportsLibrary;
+  "migrations/viewSettingsV1": typeof migrations_viewSettingsV1;
   notes: typeof notes;
   notesSync: typeof notesSync;
   optionSets: typeof optionSets;
@@ -337,7 +338,6 @@ declare const fullApi: ApiFromModules<{
   templateSettings: typeof templateSettings;
   twoStepAttempts: typeof twoStepAttempts;
   twoStepSetups: typeof twoStepSetups;
-  viewAs: typeof viewAs;
   views: typeof views;
   weather: typeof weather;
   xero: typeof xero;

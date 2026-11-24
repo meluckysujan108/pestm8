@@ -2,6 +2,7 @@ import { ConvexError, v } from 'convex/values'
 import { internalQuery, mutation, query } from './_generated/server'
 import { getAuthUserId, requireMembership } from './lib/access'
 import { DEFAULT_GRANTS } from './lib/capabilities'
+import { grantsFromMembership } from './lib/membershipFacts'
 import { MEMBER_COLOURS } from './lib/colours'
 import { forSelf, recordAudit } from './lib/audit'
 import { requireActor, requireCapability } from './lib/actor'
@@ -91,7 +92,9 @@ export const listForUser = query({
           // Live for the sidebar's own-colour dot, which otherwise read the
           // route context's snapshot and kept an old colour after a change.
           colour: m.colour,
-          canViewAllJobs: m.canViewAllJobs,
+          /** "View only" or more, from `grants` (the column of this name is
+           * retired, schema.ts). Kept for phones that still read it. */
+          canViewAllJobs: grantsFromMembership(m).otherSchedules,
           businessId: m.businessId,
           name: business?.name ?? '',
           slug: business?.slug ?? '',
@@ -142,7 +145,8 @@ export const getBySlug = query({
         membership: {
           _id: membership._id,
           role: membership.role,
-          canViewAllJobs: membership.canViewAllJobs,
+          // From `grants`, as `listForUser` above.
+          canViewAllJobs: grantsFromMembership(membership).otherSchedules,
           colour: membership.colour,
           licenceNumber: membership.licenceNumber,
           phone: membership.phone,
@@ -217,12 +221,9 @@ export const create = mutation({
       userId,
       businessId,
       role: 'owner',
-      canViewAllJobs: true,
       // Written rather than left to be derived. `grantsFromMembership` would
-      // fill these in from `canViewAllJobs`, which is the fallback the
-      // migration exists to stop needing — a row created after it ran would
-      // otherwise put the deployment straight back into the state it just
-      // left, and the legacy column could never be dropped.
+      // otherwise fall back to the retired `canViewAllJobs`, which is no
+      // longer written at all (schema.ts).
       grants: DEFAULT_GRANTS.owner,
       colour: MEMBER_COLOURS[0],
       status: 'active',

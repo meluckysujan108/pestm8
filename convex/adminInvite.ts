@@ -164,7 +164,8 @@ export const grantFullVisibility = internalMutation({
     })
     await ctx.db.patch(membershipId, {
       grants: clamped,
-      canViewAllJobs: clamped.otherSchedules,
+      // The retired column goes as the row is touched (schema.ts).
+      canViewAllJobs: undefined,
     })
 
     await recordAudit(ctx, forSelf(env.actor.real._id), {

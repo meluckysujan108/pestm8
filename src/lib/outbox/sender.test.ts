@@ -89,7 +89,6 @@ const own: Access = {
   actingAs: null,
   expiresAt: null,
   degraded: null,
-  viewingAs: null,
   lastRemovedAt: null,
 }
 
@@ -876,17 +875,6 @@ describe('the gates', () => {
   ])('G5: never with %s', async (_what, set) => {
     const { p } = await held(set)
     expect(p.convex.calls).toEqual([])
-  })
-
-  test('G5: looking at the business as someone else (view as) still sends, as the person', async () => {
-    const { p } = await held((q) =>
-      pushAccess(q, {
-        ...own,
-        viewingAs: { membershipId: 'm-u2' as Id<'memberships'>, name: 'Jo' },
-      }),
-    )
-    expect(p.convex.calls).toHaveLength(1)
-    expect(p.convex.calls[0].args.asMembership).toBe(M1)
   })
 
   test('G6: never while an account switch is starting in this tab', async () => {
