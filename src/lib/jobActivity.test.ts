@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'vitest'
 import {
+  activityDayLabel,
   activityWords,
   earlierLine,
+  feedEndLine,
+  feedJobLine,
   originLine,
   paymentWords,
   whoDidIt,
@@ -228,6 +231,44 @@ describe('where a history begins', () => {
     )
     expect(earlierLine(null, TZ, TODAY)).toBe(
       'Earlier changes weren’t recorded.',
+    )
+  })
+})
+
+describe('the business’s Activity (Settings → Activity)', () => {
+  test('a day is Today, Yesterday, or its date', () => {
+    expect(activityDayLabel(TODAY, TODAY)).toBe('Today')
+    expect(activityDayLabel('2026-11-23', TODAY)).toBe('Yesterday')
+    expect(activityDayLabel('2026-11-20', TODAY)).toBe('Fri 20 Nov')
+    expect(activityDayLabel('2025-12-31', TODAY)).toBe('Wed 31 Dec 2025')
+  })
+
+  test('a line names its job: what, for whom, and when', () => {
+    const job = {
+      state: 'open' as const,
+      jobType: 'General Pest Control',
+      client: 'J. Nguyen',
+      suburb: 'Bayswater',
+      scheduledAt: NINE,
+    }
+    expect(feedJobLine(job, TZ, TODAY)).toBe(
+      'General Pest Control · J. Nguyen, Bayswater · Wed 25 Nov',
+    )
+    // A client outside the reader's book is left out, not guessed at.
+    expect(feedJobLine({ ...job, client: null, suburb: null }, TZ, TODAY)).toBe(
+      'General Pest Control · Wed 25 Nov',
+    )
+    expect(feedJobLine({ state: 'gone' }, TZ, TODAY)).toBe(
+      'A job since deleted for good',
+    )
+  })
+
+  test('its foot says where the history begins, or that one person has no more', () => {
+    expect(feedEndLine(NINE, null, TZ, TODAY)).toBe(
+      'Changes before Wed 25 Nov weren’t recorded.',
+    )
+    expect(feedEndLine(NINE, 'Kevin Tran', TZ, TODAY)).toBe(
+      'Nothing earlier by Kevin Tran.',
     )
   })
 })

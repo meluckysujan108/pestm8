@@ -1,5 +1,6 @@
 import { dayKeyOf } from '../../convex/lib/dates'
 import {
+  addDaysToKey,
   formatDuration,
   formatJobDate,
   formatMoney,
@@ -11,6 +12,7 @@ import { PAYMENT_METHOD } from './payments'
 import type {
   ActivityEntry,
   ActivityPerson,
+  FeedJob,
   ShownChange,
 } from '../../convex/jobActivity'
 
@@ -244,4 +246,50 @@ export function earlierLine(
   return recordedSince === null
     ? 'Earlier changes weren’t recorded.'
     : `Changes before ${formatJobDate(dayKeyOf(recordedSince, timezone), today)} weren’t recorded.`
+}
+
+/** "Today", "Yesterday", "Mon 23 Nov": a day's heading in the business's
+ * Activity (Settings → Activity), whose lines say only their time. */
+export function activityDayLabel(dayKey: string, today: string): string {
+  if (dayKey === today) return 'Today'
+  if (dayKey === addDaysToKey(today, -1)) return 'Yesterday'
+  return formatJobDate(dayKey, today)
+}
+
+/**
+ * Which job a line of the business's Activity is about, above what was done
+ * to it: "General Pest Control · J. Nguyen, Bayswater · Tue 25 Nov" — what
+ * it is, for whom, and the day it is booked for. A client outside the
+ * reader's book is left out, as everywhere else.
+ */
+export function feedJobLine(
+  job: FeedJob,
+  timezone: string,
+  today: string,
+): string {
+  if (job.state === 'gone') return 'A job since deleted for good'
+  const whom = [job.client, job.suburb].filter(Boolean).join(', ')
+  return [
+    job.jobType,
+    whom,
+    formatJobDate(dayKeyOf(job.scheduledAt, timezone), today),
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/**
+ * The foot of the business's Activity once every line is in: where its
+ * history begins (the oldest line there is), as a job's own Activity says
+ * for one booked before then — or, narrowed to one person, that there is
+ * nothing older of theirs.
+ */
+export function feedEndLine(
+  oldest: number | null,
+  narrowedTo: string | null,
+  timezone: string,
+  today: string,
+): string {
+  if (narrowedTo !== null) return `Nothing earlier by ${narrowedTo}.`
+  return earlierLine(oldest, timezone, today)
 }

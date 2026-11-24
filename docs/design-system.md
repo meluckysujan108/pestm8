@@ -868,6 +868,14 @@ Every change to a job, by anyone, from what to what: the Activity section at the
 - **Newest first, four at a time,** with "Show all {n}" in the section’s heading row, as History at this property has. It reads the latest fifty; past that the button is "Show latest 50" and the foot says "Showing the latest 50 changes.", since "all" would be untrue.
 - **An address the reader can’t be shown reads "another address"**: a site that is gone, in the Recycle bin, or at a client outside their book.
 
+**The whole business’s, for the owner: Settings → Activity** (`ActivityFeed`, `settings/ActivityFeed.tsx`; `jobActivity.feed`, `business.manage` only, so an owner working in someone else’s account reads "Owners only"). _Added 24 Nov 2026._
+
+- **Each line is the job’s own line, word for word** (`activityWords`, as above), under a caption naming the job: "General Pest Control · J. Nguyen, Bayswater · Wed 25 Nov" (`feedJobLine`). The two read the same row the same way on the server too (`activityReader`), so they never disagree.
+- **A day at a time, newest first:** a `SettingsGroup` per day ("Today", "Yesterday", "Mon 23 Nov", `activityDayLabel`), each line saying only its time.
+- **A line opens its job’s sheet over the list** (`?jobId=`, as the Payments page does), with a chevron. A job in the Recycle bin is still named, then "· In the Recycle bin", and opens nothing; one wiped for good reads "A job since deleted for good".
+- **A long list** (Long lists, above): paged, loading itself as the end nears, "Show more changes" below. Read to its end, its foot says where the history begins, as a job’s does: "Changes before {day} weren’t recorded."
+- **One person’s changes** are the filter icon’s one choice, "Changed by" (`?staff=`): whoever made the change, never whose account it was made in. Narrowed, the caption over the list names them and the foot reads "Nothing earlier by {name}."; with nothing of theirs, `NoMatches` with Clear filters. Nothing at all yet is `EmptyState` "No changes yet".
+
 ### The Payments page
 
 More → **Payments** (`PaymentsView`): what's owing, what's to bill and what came in, for whoever may see the money. Three tabs in the address (`?tab=toBill`, `?tab=paid`, `?month=2026-10`), Owing first.
@@ -1128,6 +1136,7 @@ Counts are digits with their noun ("3 jobs"), singular or plural by count.
 | Team, people in the business      | `Users`                                                                           |
 | Personal (only you can see it)    | `EyeOff`                                                                          |
 | Primary, cover, "the usual"       | `Star`                                                                            |
+| Who changed what (Activity)       | `ScrollText`                                                                      |
 
 ---
 
