@@ -159,7 +159,7 @@ describe('demoting a contractor', () => {
     expect(after['schedules.seeOthers']).toBe(true)
     const kevin = await row(s, s.kevin.id)
     expect(kevin.grants).toEqual({ ...ALL_ON, prices: false })
-    expect(kevin.canViewAllJobs).toBe(true)
+    expect(kevin.canViewAllJobs).toBeUndefined()
   })
 
   test('ends switches between them, and leaves the owner’s alone', async () => {

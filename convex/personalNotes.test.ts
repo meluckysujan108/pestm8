@@ -518,7 +518,7 @@ describe('decided on who is really asking', () => {
     ).rejects.toThrow(/NO_ACCESS/)
   })
 
-  test('Everyone’s notes is empty while the owner works in an account or views as someone', async () => {
+  test('Everyone’s notes is empty while the owner works in an account', async () => {
     const s = await setup()
     const live = await newPersonal(s, s.kevin)
     const binned = await newPersonal(s, s.kevin)
@@ -536,21 +536,15 @@ describe('decided on who is really asking', () => {
     expect(await folder(s, s.terence, 'everyone')).toEqual([])
     expect(await folder(s, s.terence, 'trash')).not.toContain(binned)
 
+    // Back as himself, it is all there again; a leftover selection in the
+    // retired "view as" column (schema.ts) changes nothing.
     await s.terence.as.mutation(api.accountSwitches.stop, {
       businessId: s.businessId,
     })
-    // The older read-only "view as", which leaves the chosen view alone.
     await s.t.run((ctx) =>
       ctx.db.patch(s.ownerMembershipId, { viewingAsMembershipId: s.kevinId }),
     )
-    expect(await folder(s, s.terence, 'everyone')).toEqual([])
-    expect(await folder(s, s.terence, 'trash')).not.toContain(binned)
-    expect(
-      await s.terence.as.query(api.notes.get, {
-        businessId: s.businessId,
-        noteId: live,
-      }),
-    ).toMatchObject({ canEdit: false })
+    expect(await folder(s, s.terence, 'trash')).toContain(binned)
   })
 
   test('the author’s own contractor gets nothing, even working in their account', async () => {

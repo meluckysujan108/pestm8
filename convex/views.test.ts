@@ -673,23 +673,17 @@ describe('who may choose', () => {
   })
 })
 
-describe('the older read-only "view as"', () => {
-  test('a choice made in the dropdown outranks, and clears, a leftover one', async () => {
+describe('the retired read-only "view as"', () => {
+  /** Retired (schema.ts): a selection left on the row is not read. */
+  test('a leftover selection changes nothing, in either view', async () => {
     const f = await business()
     await f.t.run((ctx) =>
       ctx.db.patch(f.ownerMembershipId, { viewingAsMembershipId: f.kevinId }),
     )
-    // My jobs, where his phone opens, outranks it as a choice would.
     expect(await day(f, f.terence)).toEqual(['Owner visit'])
 
-    // In Overview the leftover is what he sees: Kevin's eyes.
     await inOverview(f.t, f.terence, f.businessId)
-    expect(await day(f, f.terence)).toEqual(['Kevin visit'])
-
-    await setView(f, f.terence, { kind: 'mine' })
-    expect(await day(f, f.terence)).toEqual(['Owner visit'])
-    const row = await f.t.run((ctx) => ctx.db.get(f.ownerMembershipId))
-    expect(row?.viewingAsMembershipId).toBeUndefined()
+    expect(await day(f, f.terence)).toEqual(['Kevin visit', 'Owner visit'])
   })
 })
 

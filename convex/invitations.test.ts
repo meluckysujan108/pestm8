@@ -142,8 +142,9 @@ describe('redeeming an invitation', () => {
     expect(memberships).toHaveLength(1)
     expect(memberships[0].role).toBe('subcontractor')
     // A new member sees their own jobs and nothing else until the owner says
-    // otherwise.
-    expect(memberships[0].canViewAllJobs).toBe(false)
+    // otherwise, and nothing writes the retired column (schema.ts).
+    expect(memberships[0].grants?.otherSchedules).toBe(false)
+    expect(memberships[0]).not.toHaveProperty('canViewAllJobs')
 
     // Single use: the same link in a group chat does not admit a second person.
     const someoneElse = await createActor(t, {
@@ -257,8 +258,10 @@ describe('redeeming an invitation', () => {
     // Coming back must not restore what they used to hold.
     expect(membership?.status).toBe('active')
     expect(membership?.role).toBe('subcontractor')
-    expect(membership?.canViewAllJobs).toBe(false)
-    expect(membership?.canViewOtherAccounts).toBe(false)
+    expect(membership?.grants?.otherSchedules).toBe(false)
+    // And the retired columns (schema.ts) go as the row is touched.
+    expect(membership?.canViewAllJobs).toBeUndefined()
+    expect(membership?.canViewOtherAccounts).toBeUndefined()
   })
 })
 

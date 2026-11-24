@@ -48,13 +48,12 @@ export function useLibraryFolders() {
 
 /** Whether "Everyone's notes" is offered — see `useLibraryFolders`. */
 export function offersEveryonesNotes(
-  access: Pick<Access, 'role' | 'actingAs' | 'view' | 'viewingAs'>,
+  access: Pick<Access, 'role' | 'actingAs' | 'view'>,
 ): boolean {
   return (
     access.role === 'owner' &&
     access.actingAs === null &&
-    access.view?.mode === 'everyone' &&
-    access.viewingAs === null
+    access.view?.mode === 'everyone'
   )
 }
 

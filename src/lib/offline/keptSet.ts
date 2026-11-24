@@ -194,7 +194,7 @@ export function inWindow(queryKey: QueryKey, w: KeptWindow): boolean {
  */
 export function lensOf(a: Access | undefined): string | null {
   if (!a) return null
-  if (a.actingAs !== null || a.viewingAs !== null) return null
+  if (a.actingAs !== null) return null
   if (a.view?.mode === 'account') return null
   const lists =
     a.listsEverything === undefined ? '-' : a.listsEverything ? 'all' : 'own'

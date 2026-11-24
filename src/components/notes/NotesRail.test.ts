@@ -10,7 +10,6 @@ import { offersEveryonesNotes } from './NotesRail'
 const owner = {
   role: 'owner' as const,
   actingAs: null,
-  viewingAs: null,
   view: { mode: 'everyone' as const },
 }
 const someone = {
@@ -34,7 +33,6 @@ describe('who is offered Everyone’s notes', () => {
         view: { mode: 'account' },
       }),
     ).toBe(false)
-    expect(offersEveryonesNotes({ ...owner, viewingAs: someone })).toBe(false)
   })
 
   test('not a contractor or subcontractor, even in their own Overview', () => {

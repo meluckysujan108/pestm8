@@ -132,7 +132,7 @@ Before editing Convex code, read `convex/_generated/ai/guidelines.md`. CLAUDE.md
   - `grants {switchInto, clientDirectory, prices, otherSchedules}`.
   - `parentMembershipId` links a subcontractor to their contractor's team.
   - `joinSeenAt` supports join notices.
-  - Legacy fields still present: `canViewAllJobs`, `canViewOtherAccounts`, `viewingAsMembershipId`.
+  - Retired fields, written only to clear them and being dropped: `canViewAllJobs`, `canViewOtherAccounts`, `viewingAsMembershipId` (`convex/migrations/viewSettingsV1.ts` has the sequence).
 - **Invites:** `invitations` (team links, stored as token hashes) and `businessInvites` (start-a-business links, issued from the CLI).
 - **Clients:** `clients` → `clientContacts` and `properties` (sites, site contact, address check).
 - **Jobs:** `jobs` (status `recurring|pending|booked|completed|invoiced|cancelled`, price in cents, job number, work order) and `recurrences` (`intervalCount`/`intervalUnit`).
@@ -169,7 +169,7 @@ Before editing Convex code, read `convex/_generated/ai/guidelines.md`. CLAUDE.md
 
 ### Modules (one line each)
 
-- **Access:** `access` (the `me` query), `accountSwitches`, `views` (owner view: everyone / mine / someone's account), `viewAs` (legacy).
+- **Access:** `access` (the `me` query), `accountSwitches`, `views` (owner view: everyone / mine / someone's account). The old read-only "view as" (`viewAs`) is retired.
 - **Auth:** `auth.ts` (~1080 lines: Better Auth config, breach check, 2FA, invite-only, 400-day sessions), `twoStepAttempts`, `twoStepSetups`, `adminInvite` (a CLI escape hatch).
 - **Business and onboarding:** `businesses`, `businessInvites`, `setupGuide`, `teamJoins`.
 - **Team:** `invitations`, `memberships`, `team` (offboarding, roster, `releaseTeam`), `memberLicences`.
@@ -267,7 +267,7 @@ The repo is about 5 weeks old, from 2026-08-19 to 2026-09-26. 50 PRs are merged.
 
 **Contract steps still owed:**
 
-- Access v3 still needs its contract step: drop `canViewAllJobs`, `canViewOtherAccounts`, `viewingAsMembershipId` and `lib/access.ts`. It is blocked on having no client build telemetry.
+- Access v3's contract step is under way for the three old view fields: they are no longer read (bar `canViewAllJobs` as the fallback for a row with no `grants`) and are cleared by `migrations/viewSettingsV1`; dropping them from the schema, with `setCanViewAllJobs`, `setCanViewOtherAccounts` and `setViewingAs`, is the next release. `lib/access.ts` and `grants.clientDirectory` remain.
 - The "can see all clients" toggle stays inert until then.
 - `recurringIntervalV1`'s contract step (dropping the legacy `frequency`) has no PR.
 
