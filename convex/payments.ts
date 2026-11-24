@@ -528,7 +528,7 @@ export const forJob = query({
       ]),
     )
     const hidden = hidePrices(env.caps)
-    const canEdit = await mayEditThisJob(ctx, env.actor, job)
+    const canEdit = await mayEditThisJob(ctx, env, job)
     const money = moneyOf(rows)
     const business = await ctx.db.get(businessId)
 

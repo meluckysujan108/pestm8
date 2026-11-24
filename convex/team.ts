@@ -6,7 +6,11 @@ import { requireMembership } from './lib/access'
 import { inviteState } from './lib/inviteTokens'
 import { forSelf, recordAudit } from './lib/audit'
 import { recordJobActivity } from './lib/jobActivity'
-import { releaseTeam, revokeInvitationsFrom } from './lib/teamRelease'
+import {
+  leavingGrants,
+  releaseTeam,
+  revokeInvitationsFrom,
+} from './lib/teamRelease'
 import {
   canAssignTo,
   canDispatchTo,
@@ -659,6 +663,7 @@ export const assignTo = mutation({
 
     const moved = {
       ...factsFromMembership(target),
+      grants: await leavingGrants(ctx, target, parent?._id ?? null),
       parentMembershipId: parent?._id ?? null,
     }
     const nextGrants = recomputeGrants(

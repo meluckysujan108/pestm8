@@ -378,6 +378,52 @@ test.describe('job visibility', () => {
     )
   })
 
+  test('sub with View and edit changes another person’s job, and cannot delete it', async () => {
+    const s = await setupBusinessWithSub('edit-others')
+    const team = await s.owner.client.query(api.team.roster, {
+      businessId: s.businessId,
+    })
+    const grants = team.find((m) => m._id === s.subMembershipId)!.grants
+    await s.owner.client.mutation(api.memberships.setGrants, {
+      businessId: s.businessId,
+      membershipId: s.subMembershipId,
+      grants: { ...grants, otherSchedules: true, editOthers: true },
+    })
+
+    const job = await s.sub.client.query(api.jobs.get, {
+      businessId: s.businessId,
+      jobId: s.ownerJobId,
+    })
+    expect(job?.canEdit).toBe(true)
+    expect(job?.canDelete).toBe(false)
+
+    // The fixture's job is 90 minutes; an unchanged value writes no line.
+    await s.sub.client.mutation(api.jobs.update, {
+      businessId: s.businessId,
+      jobId: s.ownerJobId,
+      durationMinutes: 120,
+    })
+    await expectRejected(
+      () =>
+        s.sub.client.mutation(api.bin.deleteJob, {
+          businessId: s.businessId,
+          jobId: s.ownerJobId,
+        }),
+      'NO_ACCESS',
+    )
+
+    // The owner reads who it was on the job's Activity.
+    const activity = await s.owner.client.query(api.jobActivity.list, {
+      businessId: s.businessId,
+      jobId: s.ownerJobId,
+    })
+    expect(activity?.entries[0]).toMatchObject({
+      action: 'job.update',
+      by: { you: false },
+      changes: [{ field: 'durationMinutes', from: 90, to: 120 }],
+    })
+  })
+
   test('sub cannot book work onto another person calendar', async () => {
     const s = await setupBusinessWithSub('assign-guard')
 

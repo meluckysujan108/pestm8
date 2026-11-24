@@ -185,7 +185,7 @@ test('working in Kevin’s account is one pick away, and so is coming back', asy
 })
 
 /**
- * Kevin, given "Can view all jobs" on Settings → Team: his day stays his own,
+ * Kevin, given "View only" for other people's jobs on Settings → Team: his day stays his own,
  * and everyone's is one pick away — the same menu as the owner's, without
  * anyone's account in it.
  */

@@ -7,7 +7,11 @@ import { inviteState } from './lib/inviteTokens'
 import { normalisePhone } from './lib/phone'
 import { grants, role } from './schema'
 import { forSelf, recordAudit } from './lib/audit'
-import { releaseTeam, revokeInvitationsFrom } from './lib/teamRelease'
+import {
+  leavingGrants,
+  releaseTeam,
+  revokeInvitationsFrom,
+} from './lib/teamRelease'
 import {
   hasCapability,
   requireActor,
@@ -375,9 +379,12 @@ export const setCanViewAllJobs = mutation({
      * grant business-wide visibility and then assert it started failing the
      * moment new members began arriving with a grants object.
      */
+    const current = grantsFromMembership(target)
     const nextGrants = {
-      ...grantsFromMembership(target),
+      ...current,
       otherSchedules: args.canViewAllJobs,
+      // Editing other people's jobs goes with seeing them.
+      editOthers: args.canViewAllJobs && current.editOthers,
     }
     await ctx.db.patch(args.membershipId, {
       canViewAllJobs: args.canViewAllJobs,
@@ -496,12 +503,14 @@ export const setRole = mutation({
      * standing in — `canSwitchInto` refuses it on every request, but a grant
      * that reads as live and is not is a worse record than no grant.
      */
+    // A contractor answers to the owner, not to another contractor.
+    const parentMembershipId =
+      args.role === 'subcontractor' ? target.parentMembershipId ?? null : null
     const becoming = {
       ...factsFromMembership(target),
+      grants: await leavingGrants(ctx, target, parentMembershipId),
       role: args.role,
-      // A contractor answers to the owner, not to another contractor.
-      parentMembershipId:
-        args.role === 'subcontractor' ? target.parentMembershipId ?? null : null,
+      parentMembershipId,
     }
     const parentDoc = becoming.parentMembershipId
       ? await ctx.db.get(becoming.parentMembershipId)
@@ -740,7 +749,13 @@ export const setGrants = mutation({
     const facts = factsFromMembership(target)
     if (!canManageMember(env.actor, facts)) throw new ConvexError('NO_ACCESS')
 
-    const clamped = clampGrants(env.actor, facts, args.grants)
+    // A phone from before "View and edit" sends the four grants it knows:
+    // the fifth left out is unchanged, not turned off. (Turning off the view
+    // still takes it with it, in the clamp.)
+    const clamped = clampGrants(env.actor, facts, {
+      ...args.grants,
+      editOthers: args.grants.editOthers ?? facts.grants.editOthers,
+    })
     await ctx.db.patch(args.membershipId, {
       grants: clamped,
       // Kept in step while anything still reads it: the legacy column is the

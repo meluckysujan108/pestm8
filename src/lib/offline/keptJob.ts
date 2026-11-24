@@ -110,7 +110,9 @@ export function lockedNotice(status: string): string {
  * person's own, and whom it may book onto (`bookable`: for a contractor,
  * themselves and their team, the team `canEditJob` reads). Anything unknown
  * (no access or roster in memory, a roster without `bookable`) is taken as
- * the live sheet most often has it: editable, with no line.
+ * the live sheet most often has it: editable, with no line. The owner's
+ * "View and edit" for other people's jobs (`jobs.editOthers`, in the
+ * access's capabilities) makes any job editable, as on the server.
  */
 export function keptJobReadOnly(
   access:
@@ -118,6 +120,7 @@ export function keptJobReadOnly(
         membershipId: string
         role: string
         actingAs: { membershipId: string } | null
+        caps?: Partial<Record<string, boolean>>
       }
     | undefined,
   roster:
@@ -129,6 +132,7 @@ export function keptJobReadOnly(
   },
 ): boolean {
   if (!access) return false
+  if (access.caps?.['jobs.editOthers'] === true) return false
   const acting = access.actingAs?.membershipId ?? access.membershipId
   const role =
     access.actingAs === null

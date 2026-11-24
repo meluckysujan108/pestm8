@@ -558,7 +558,7 @@ async function requireEditableSeries(
   env: WriteEnvelope,
   recurrence: Doc<'recurrences'>,
 ) {
-  if (!(await mayEditJob(ctx, env.actor, recurrence))) {
+  if (!(await mayEditJob(ctx, env, recurrence))) {
     throw new ConvexError('NO_ACCESS')
   }
 }
@@ -655,7 +655,7 @@ export const runningForClient = query({
       (r) => isInScope(env.scope, r),
     )
     const stoppable = await Promise.all(
-      visible.map((r) => mayEditJob(ctx, env.actor, r)),
+      visible.map((r) => mayEditJob(ctx, env, r)),
     )
     return {
       running: visible.length,
@@ -686,7 +686,7 @@ export const stopForClient = mutation({
       (r) => isInScope(env.scope, r),
     )
     for (const recurrence of visible) {
-      if (await mayEditJob(ctx, env.actor, recurrence)) {
+      if (await mayEditJob(ctx, env, recurrence)) {
         await stopSeries(ctx, env, recurrence)
         stopped++
       } else {
