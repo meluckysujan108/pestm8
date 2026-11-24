@@ -1005,25 +1005,44 @@ export function isSelectableAsTechnician(person: MembershipFacts): boolean {
 // ──────────────────────────────────────────────────────────────────── views
 
 /**
- * What someone has chosen to look at: the whole of what they may see, or just
- * the work assigned to them.
+ * What someone has chosen to look at: Overview, the whole of what they may
+ * see ('everyone'), or My jobs, just the work they are on ('mine').
  *
- * A LENS, not a permission. "Just my jobs" narrows the lists a person looks
- * through — the schedule, the dashboard, analytics, the reports list — and
+ * A LENS, not a permission. My jobs narrows the lists a person looks through
+ * — the schedule, the dashboard, analytics, payments, the reports list — and
  * nothing else: not the history on a client or a job they open, and never
- * what they may do. An owner in his own view can still open any job and
- * administer the business; he has only asked not to be shown everyone else's
- * day.
+ * what they may do. An owner in My jobs can still open any job and administer
+ * the business; he has only asked not to be shown everyone else's day.
+ *
+ * My jobs is where everyone starts (`findView` in lib/actor.ts): most of a
+ * day is your own round, and Overview is a deliberate step wider.
  */
 export type ViewMode = 'everyone' | 'mine'
 
 /**
- * Who gets the choice. The owner only, for now: he works jobs himself and has
- * the whole business in view by default. This is the one place to widen it —
- * a contractor would want "my team" and "me" in the same way.
+ * Who gets the choice: anyone whose lists can show more than their own work,
+ * judged on their OWN scope (`realScope` on the envelope) — the owner, a
+ * contractor with a team, and anyone allowed to see everyone's schedule. For
+ * everyone else Overview and My jobs would be the same list, and a menu whose
+ * two answers never differ is clutter.
+ *
+ * A team of one is the contractor alone (`jobScope` always lists them), so a
+ * contractor gets the menu the day their first subcontractor joins.
  */
-export function canChooseView(real: MembershipFacts): boolean {
-  return real.role === 'owner'
+export function canChooseView(ownScope: RowScope): boolean {
+  if (ownScope.kind === 'business') return true
+  if (ownScope.kind === 'team') return ownScope.membershipIds.length > 1
+  return false
+}
+
+/**
+ * Whether a view row is worth reading for this person, before their scope is
+ * known. A cheap superset of `canChooseView`: a subcontractor can only ever
+ * see more than their own work through the `otherSchedules` grant (which a
+ * parent's ceiling may still take away), and everyone else might.
+ */
+export function mightChooseView(real: MembershipFacts): boolean {
+  return real.role !== 'subcontractor' || real.grants.otherSchedules
 }
 
 // ───────────────────────────────────────────────────────────────── licences// ───────────────────────────────────────────────────────────────── licences

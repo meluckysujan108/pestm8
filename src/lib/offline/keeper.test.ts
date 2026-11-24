@@ -729,7 +729,7 @@ describe('live, and what is written', () => {
     expect(h.row(roster())?.lens).toBe(lensIn('everyone'))
     vi.mocked(keepStartPage).mockClear()
 
-    // "Just my jobs": access:me and the day change in the one transition.
+    // My jobs: access:me and the day change in the one transition.
     // The team is the same in both views, so the server sends it no more.
     h.convex.answer(accessKey(), { ...own, view: { mode: 'mine' } })
     h.convex.answer(day(TODAY), [job('mine')])

@@ -128,6 +128,45 @@ export function anonClient() {
 }
 
 /**
+ * This sign-in in Overview for a business, as picking it from the view menu
+ * leaves a device — for anyone who has the menu; nobody else has a view.
+ *
+ * Every device opens in My jobs (`findView` in convex/lib/actor.ts), which
+ * narrows the lists of the owner, contractors and anyone allowed to see all
+ * jobs to their own work. Most specs are about what someone may see and do,
+ * and were written when the owner saw everything, so the fixtures start them
+ * in Overview. viewMenu.spec.ts is about the default itself, and opts out.
+ *
+ * Works against a backend from before Overview for the whole team too: there,
+ * only the owner has a view, and choosing 'everyone' leaves no row.
+ */
+export async function chooseOverview(
+  client: ConvexHttpClient,
+  businessId: Id<'businesses'>,
+): Promise<boolean> {
+  const me = await client.query(api.access.me, { businessId })
+  if (!me.view) return false
+  await client.mutation(api.views.set, {
+    businessId,
+    view: { kind: 'everyone' },
+  })
+  return true
+}
+
+/**
+ * The sign-in a page holds, as a Convex client: the same Better Auth session,
+ * so a view chosen through it is the page's view.
+ */
+async function clientForPage(page: Page): Promise<ConvexHttpClient> {
+  const cookie = (await page.context().cookies(SITE_URL))
+    .map((c) => `${c.name}=${c.value}`)
+    .join('; ')
+  const client = new ConvexHttpClient(CONVEX_URL)
+  client.setAuth(await convexJwtFor(cookie))
+  return client
+}
+
+/**
  * The real way someone joins: the owner mints a single-use link, the invitee
  * redeems it. Nothing else creates a membership any more.
  *
@@ -179,6 +218,7 @@ export async function setupBusinessWithSub(label: string) {
   // Through the real link flow, so every spec that builds on this fixture is
   // standing on the path production actually uses.
   await inviteAndJoin(owner, sub, businessId)
+  await chooseOverview(owner.client, businessId)
 
   const propertyId = await owner.client.mutation(api.properties.create, {
     businessId,
@@ -272,6 +312,9 @@ export async function signInViaUi(
   email: string,
   password = FIXTURE_PASSWORD,
   next?: string,
+  /** 'mine' leaves the device where it opens, in My jobs; by default the
+   * sign-in is put in Overview in every business (`chooseOverview`). */
+  view: 'overview' | 'mine' = 'overview',
 ) {
   await page.goto(
     next === undefined ? '/login' : `/login?next=${encodeURIComponent(next)}`,
@@ -285,6 +328,22 @@ export async function signInViaUi(
   // Returning before the redirect lands would let a caller's goto() race the
   // sign-in and bounce straight back to /login.
   await expect(page).not.toHaveURL(/\/login/)
+
+  if (view === 'overview') {
+    const client = await clientForPage(page)
+    let chose = false
+    for (const business of await client.query(api.businesses.listForUser, {})) {
+      chose = (await chooseOverview(client, business.businessId)) || chose
+    }
+    // The page would follow by itself, over its socket, a moment later; a
+    // check made meanwhile (`toBeHidden`, a count) would be answered by the
+    // My jobs list it had drawn. Loaded again, it draws Overview from the
+    // server's first answer.
+    if (chose) {
+      await page.reload()
+      await expect(page).not.toHaveURL(/\/login/)
+    }
+  }
 }
 
 /**

@@ -70,7 +70,7 @@ export type JobListView = 'pending' | 'failed' | 'empty' | 'noMatches' | 'list'
  * - Done and empty, but not `confirmedEmpty`: still the placeholder. The
  *   paged list's two copies of its first page are delivered a tick apart —
  *   the paginator's at once, the warmed copy with `access.me` a tick later
- *   — so a view change ("Just my jobs") briefly has the paginator saying
+ *   — so a view change (My jobs) briefly has the paginator saying
  *   "none" while everything else still says "everyone's". Only when the
  *   warmed copy agrees is the list really empty.
  * - Then "No jobs yet" for the whole list, "No matches" under a status.

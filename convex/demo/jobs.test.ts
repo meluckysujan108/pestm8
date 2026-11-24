@@ -5,6 +5,7 @@ import { addDaysToKey, dayKeyOf, timeKeyOf } from '../lib/dates'
 import { NOT_STARTED_STATUSES, isCountedJob } from '../lib/jobStatus'
 import { HORIZON_DAYS, intervalOf, occurrencesFrom } from '../lib/recurrence'
 import { runDemoSteps } from '../../test/demoFixture'
+import { inOverview } from '../../test/harness'
 import { NAMED_JOBS, NAMED_VISITS, at } from './shared'
 import type { DemoRun } from '../../test/demoFixture'
 import type { TestApp } from '../../test/harness'
@@ -76,6 +77,9 @@ describe('the demo jobs', () => {
     run = await runDemoSteps('jobs')
     seededBy = Date.now()
     rows = await rowsOf(run.t, run.base.businessId)
+    // Every device opens in My jobs; these read the owner's schedule as the
+    // whole business, so his phone is in Overview.
+    await inOverview(run.t, run.owner, run.base.businessId)
     // A busy machine running the whole suite beside it can take this past 10 s.
   }, 60_000)
 

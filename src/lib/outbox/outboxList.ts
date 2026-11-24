@@ -65,7 +65,7 @@ export function listAddRule(
 /**
  * Which bookings the Job tab's group lists, by the card each will be
  * (`outboxRow`): only under "All statuses", as a booking has no status yet;
- * for the person chosen, and with "Just my jobs" for the person's own
+ * for the person chosen, and with My jobs for the person's own
  * membership, only those they lead or are also going on (`isOnJob`), as the
  * list's own jobs are.
  */
@@ -74,7 +74,7 @@ export function jobTabShows(filters: {
   status: string | undefined
   /** The person chosen; undefined for everyone. */
   person: string | undefined
-  /** "Just my jobs": the person's own membership; null otherwise. */
+  /** My jobs: the person's own membership; null otherwise. */
   mine: string | null
 }): (
   item: OutboxItem,

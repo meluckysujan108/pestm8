@@ -237,6 +237,10 @@ const summaries: Record<string, unknown> = {
 }
 
 export function paymentsSummary(args: { businessId: string }) {
+  // `biz_pay` as the owner sees it in My jobs: his own figures, said so.
+  if (args.businessId === 'biz_pay_mine') {
+    return { ...(summaries.biz_pay as object), scope: 'assignee' }
+  }
   return summaries[args.businessId] ?? summaries.biz_pay
 }
 

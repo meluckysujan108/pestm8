@@ -336,8 +336,8 @@ export function outboxDrawn(day: OutboxDay): boolean {
 /**
  * A day's bookings not sent yet, slotted (`latchSlots`): those of the day
  * shown, under the status filter "All" only (a booking has no status yet),
- * and, like the jobs, only those the staff and service filters or "Just my
- * jobs" would let through (the lead, or someone also going; any of its
+ * and, like the jobs, only those the staff and service filters or My
+ * jobs would let through (the lead, or someone also going; any of its
  * services). Each as the server's
  * answer has it, the moment it is heard (`answeredView`). Today's group
  * also lists every booking of another day that needs a look, with its date
@@ -363,7 +363,7 @@ export function useOutboxDay(at: {
   staffId: string
   /** The service filter's, or 'all'. */
   service?: string
-  /** "Just my jobs": the person's own membership. */
+  /** My jobs: the person's own membership. */
   mineOnly: string | null
   /**
    * The Week View's day (plan §9.3): its own bookings only, as every day of

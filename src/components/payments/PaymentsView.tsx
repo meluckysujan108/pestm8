@@ -14,6 +14,7 @@ import type { api } from '../../../convex/_generated/api'
 import { EmptyState, LoadFailed } from '#/components/primitives/EmptyState'
 import { Segmented } from '#/components/primitives/Segmented'
 import { ListPending } from '#/components/shell/Pending'
+import { FiguresScopeNote } from '#/components/shell/FiguresScopeNote'
 import { formatJobDate, formatMoney } from '#/lib/format'
 import { rq } from '#/lib/routeQueries'
 import {
@@ -116,6 +117,13 @@ export function PaymentsView({
           )
         ) : summary.data === null ? null : (
           <>
+            {/* First, and with the figures so nothing moves: in My jobs,
+                where everyone opens, these totals are only your own. */}
+            <FiguresScopeNote
+              businessId={business._id}
+              scope={summary.data.scope}
+              className="mb-3"
+            />
             <HandOvers
               businessId={business._id}
               pairs={summary.data.toHandOver}

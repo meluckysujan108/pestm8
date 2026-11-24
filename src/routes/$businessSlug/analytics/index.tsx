@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { z } from 'zod'
 import { PageHeader } from '#/components/shell/PageHeader'
+import { FiguresScopeNote } from '#/components/shell/FiguresScopeNote'
 import {
   AnalyticsOverview,
   preloadTrendChart,
@@ -19,8 +20,6 @@ import {
 } from '#/lib/analyticsView'
 import { todayKey } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
-import { useViewMode } from '#/lib/access'
-import { useSetView } from '#/lib/useSetView'
 import {
   loaderWaitMs,
   rq,
@@ -74,8 +73,6 @@ function AnalyticsPage() {
   const { business } = Route.useRouteContext()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
-  const mode = useViewMode()
-  const setView = useSetView(business._id)
   const hydrated = useHydrated()
 
   const today = todayKey(business.timezone)
@@ -162,27 +159,12 @@ function AnalyticsPage() {
           disabled={!hydrated}
         />
         {/* Being explicit beats a subcontractor wondering why the owner's
-            numbers differ from theirs. */}
-        {report.data?.scope === 'assignee' && (
-          <p className="text-caption text-muted">
-            These figures cover your own jobs.
-            {/* The owner narrowed these himself, so the way back is his to
-                take — without hunting for the header menu. */}
-            {mode === 'mine' && (
-              <>
-                {' '}
-                <button
-                  type="button"
-                  disabled={!hydrated || setView.isPending}
-                  onClick={() => setView.mutate({ kind: 'everyone' })}
-                  className="font-semibold text-blue disabled:opacity-50"
-                >
-                  Show the whole business
-                </button>
-              </>
-            )}
-          </p>
-        )}
+            numbers differ from theirs — and in My jobs, where everyone
+            opens, the way to the whole business is right here. */}
+        <FiguresScopeNote
+          businessId={business._id}
+          scope={report.data?.scope}
+        />
       </AnalyticsOverview>
     </>
   )

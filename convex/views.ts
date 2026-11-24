@@ -9,10 +9,15 @@ import { factsFromMembership } from './lib/membershipFacts'
 import { UNASSIGNED_COLOUR } from './lib/colours'
 
 /**
- * The owner's view dropdown: God view, just his own jobs, or somebody else's
+ * The view menu: Overview, My jobs, or — for the owner — somebody else's
  * account.
  *
- * Two of those are a LENS on his own account (`sessionViews`, read by
+ * Everyone whose lists can show more than their own work gets the first two
+ * (`canChooseView`): the owner, a contractor with a team, and anyone allowed
+ * to see everyone's schedule. Working in another account stays the owner's
+ * here; everyone else who may do that does it from Settings, as before.
+ *
+ * Two of those are a LENS on their own account (`sessionViews`, read by
  * `requireActor` into `listScope`) and the third is a switch (`accountSwitches`,
  * which this reaches only through `openSwitch`/`closeSwitches` — that file stays
  * the one place a switch row is made or destroyed). Presenting them as one
@@ -21,7 +26,7 @@ import { UNASSIGNED_COLOUR } from './lib/colours'
  */
 
 /**
- * What the dropdown offers, for the one person who gets it.
+ * What the menu offers, for the people who get it.
  *
  * `accounts` is evaluated as the real person standing in their own account,
  * not as whoever they are working as: the dropdown has to list everyone even
@@ -35,12 +40,16 @@ export const options = query({
   handler: async (ctx, { businessId }) => {
     const env = await requireActor(ctx, businessId)
     const real = env.actor.real
-    if (!canChooseView(real)) return null
+    if (!canChooseView(env.realScope)) return null
 
-    const members = await ctx.db
-      .query('memberships')
-      .withIndex('by_business', (q) => q.eq('businessId', businessId))
-      .collect()
+    // Only the owner's menu lists accounts, so only his reads the team.
+    const members =
+      real.role === 'owner'
+        ? await ctx.db
+            .query('memberships')
+            .withIndex('by_business', (q) => q.eq('businessId', businessId))
+            .collect()
+        : []
 
     const unswitched = { real, acting: real, session: null, degraded: null }
     const allowed = switchTargets(
@@ -53,8 +62,14 @@ export const options = query({
         ? ((await authComponent.getAnyUserById(ctx, userId))?.name ?? '')
         : ''
 
-    const me = byId.get(real._id)
+    const me = byId.get(real._id) ?? (await ctx.db.get(real._id))
     return {
+      /** What Overview holds: the whole business, or a contractor's team.
+       * Added field — an older menu reads only `me` and `accounts`. */
+      overview:
+        env.realScope.kind === 'business'
+          ? ('everyone' as const)
+          : ('team' as const),
       me: {
         membershipId: real._id,
         name: await nameOf(me?.userId),
@@ -88,7 +103,7 @@ export const options = query({
  *
  * One mutation rather than the client calling `stop`, then `start`, then a
  * third thing: each of those is a state the whole UI would re-render into on
- * the way — God view flashing up between Kevin's account and Jo's — and a
+ * the way — Overview flashing up between Kevin's account and Jo's — and a
  * failure halfway would leave him somewhere he did not pick.
  */
 export const set = mutation({
@@ -111,9 +126,10 @@ export const set = mutation({
      */
     const env = await requireActor(ctx, businessId)
 
-    // The REAL person, never the account being worked in. Asked of `acting`,
-    // this would refuse the owner the way back out of Kevin's account.
-    if (!canChooseView(env.actor.real)) throw new ConvexError('NO_ACCESS')
+    // The REAL person's own scope, never the account being worked in. Asked
+    // of `acting`, this would refuse the owner the way back out of Kevin's
+    // account.
+    if (!canChooseView(env.realScope)) throw new ConvexError('NO_ACCESS')
 
     // Like a switch, a view belongs to one sign-in. A token minted before the
     // claim existed must fail rather than fall back to the person, or a choice
@@ -141,20 +157,21 @@ export const set = mutation({
     ).filter((row) => row.businessId === businessId)
     for (const row of existing) await ctx.db.delete(row._id)
 
-    if (view.kind === 'mine') {
-      await ctx.db.insert('sessionViews', {
-        sessionId,
-        businessId,
-        realMembershipId: env.actor.real._id,
-        mode: 'mine',
-        updatedAt: Date.now(),
-      })
-    }
+    // Both choices are written, though no row already reads as My jobs: a
+    // row says what was picked on this device, not what a default happens
+    // to be today.
+    await ctx.db.insert('sessionViews', {
+      sessionId,
+      businessId,
+      realMembershipId: env.actor.real._id,
+      mode: view.kind,
+      updatedAt: Date.now(),
+    })
 
     /**
      * The older read-only "view as" is stored on the membership and no screen
      * can start one any more — but one left over would otherwise be the thing
-     * he sees the moment he picks God view. Choosing a view here is the
+     * he sees the moment he picks Overview. Choosing a view here is the
      * newer, more deliberate act, so it clears the older one.
      */
     const membership = await ctx.db.get(env.actor.real._id)
@@ -166,11 +183,10 @@ export const set = mutation({
 })
 
 /**
- * Forget every chosen view — the runbook's step for rolling the FRONTEND back
- * on its own. A view narrows lists server-side, so a phone left in "Just my
- * jobs" by the newer build would stay narrowed under an older one that has no
- * menu to undo it. Everyone returns to God view, the default; nothing else is
- * touched.
+ * Forget every chosen view — the runbook's step before rolling the BACKEND
+ * back past Overview for the whole team: the older schema refuses the
+ * 'everyone' rows this build writes. Every device returns to My jobs (or,
+ * under the older backend, to its Overview default); nothing else is touched.
  */
 export const clearAll = internalMutation({
   args: {},

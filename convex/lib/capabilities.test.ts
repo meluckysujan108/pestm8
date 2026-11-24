@@ -27,6 +27,7 @@ import {
   joinsUnder,
   licenceStatus,
   mergeDraft,
+  mightChooseView,
   recomputeGrants,
   releasedGrants,
   resolveActorForRead,
@@ -185,10 +186,49 @@ describe('who a booking could go onto, on a backend from before canDispatchTo', 
 })
 
 describe('who chooses a view', () => {
-  test('the owner, and nobody else yet', () => {
-    expect(canChooseView(owner())).toBe(true)
-    expect(canChooseView(contractor())).toBe(false)
-    expect(canChooseView(sub())).toBe(false)
+  /** Their own scope, as the envelope computes it standing in their account. */
+  const chooses = (
+    m: MembershipFacts,
+    parent: MembershipFacts | null = null,
+    team: ReadonlyArray<MembershipFacts> = [],
+  ) => canChooseView(jobScope(capabilitiesOf(m, parent), m, team))
+
+  test('anyone whose lists can show more than their own work', () => {
+    expect(chooses(owner())).toBe(true)
+    // A contractor sees every schedule by default.
+    expect(chooses(contractor())).toBe(true)
+    const kevin = sub({ grants: grants({ otherSchedules: true }) })
+    expect(chooses(kevin, contractor())).toBe(true)
+  })
+
+  test('nobody whose two views would be the same list', () => {
+    expect(chooses(sub())).toBe(false)
+    // A contractor held to their team, with nobody in it yet.
+    const alone = member(CONTRACTOR, 'contractor', {
+      grants: grants({ otherSchedules: false }),
+    })
+    expect(chooses(alone)).toBe(false)
+    const priya = member(PRIYA, 'subcontractor', {
+      parentMembershipId: CONTRACTOR,
+    })
+    expect(chooses(alone, null, [priya])).toBe(true)
+  })
+
+  test("a grant the contractor's ceiling takes away gives no menu", () => {
+    const kevin = sub({ grants: grants({ otherSchedules: true }) })
+    const held = member(CONTRACTOR, 'contractor', {
+      grants: grants({ otherSchedules: false }),
+    })
+    expect(chooses(kevin, held)).toBe(false)
+  })
+
+  test('a view row is read for everyone who might choose one', () => {
+    expect(mightChooseView(owner())).toBe(true)
+    expect(mightChooseView(contractor())).toBe(true)
+    expect(mightChooseView(sub())).toBe(false)
+    expect(
+      mightChooseView(sub({ grants: grants({ otherSchedules: true }) })),
+    ).toBe(true)
   })
 })
 

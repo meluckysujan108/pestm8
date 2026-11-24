@@ -131,7 +131,7 @@ describe('which bookings the Job tab lists (`jobTabShows`)', () => {
     expect(jobTabShows({ ...all, person: 'm-also' })(a, led)).toBe(false)
   })
 
-  test('“Just my jobs”: one the person leads or is also going on', () => {
+  test('My jobs: one the person leads or is also going on', () => {
     expect(jobTabShows({ ...all, mine: 'm-also' })(a, shared)).toBe(true)
     expect(jobTabShows({ ...all, mine: 'm-also' })(a, led)).toBe(false)
     // With a person chosen too, both.

@@ -7,15 +7,18 @@ import {
   addSession,
   createActor,
   createBusiness,
+  inOverview,
   testApp,
 } from '../test/harness'
 import type { Id } from './_generated/dataModel'
 import type { TestActor } from '../test/harness'
 
 /**
- * The owner's view dropdown: God view, "Just my jobs", or someone's account.
+ * The view menu: Overview, My jobs, or — for the owner — someone's account.
+ * Everyone whose lists can show more than their own work gets the first two,
+ * and every device opens in My jobs.
  *
- * What is pinned here is the line the whole feature rests on: "Just my jobs"
+ * What is pinned here is the line the whole feature rests on: My jobs
  * narrows what a LIST shows him, and nothing else. Not a job he opens, not the
  * history of a client, and never what he may do.
  */
@@ -117,13 +120,29 @@ const viewMode = (f: Fixture, actor: TestActor) =>
     .then((me) => me.view?.mode ?? null)
 
 describe('the owner chooses what his lists show', () => {
-  test('God view is the default, and shows everyone', async () => {
+  test('My jobs is where every device opens', async () => {
     const f = await business()
-    expect(await viewMode(f, f.terence)).toBe('everyone')
-    expect(await day(f, f.terence)).toEqual(['Kevin visit', 'Owner visit'])
+    expect(await viewMode(f, f.terence)).toBe('mine')
+    expect(await day(f, f.terence)).toEqual(['Owner visit'])
+    const me = await f.terence.as.query(api.access.me, {
+      businessId: f.businessId,
+    })
+    expect(me.listsEverything).toBe(false)
   })
 
-  test('"Just my jobs" narrows the schedule to his own', async () => {
+  test('Overview shows everyone, and is remembered as picked', async () => {
+    const f = await business()
+    await setView(f, f.terence, { kind: 'everyone' })
+
+    expect(await viewMode(f, f.terence)).toBe('everyone')
+    expect(await day(f, f.terence)).toEqual(['Kevin visit', 'Owner visit'])
+    const rows = await f.t.run((ctx) => ctx.db.query('sessionViews').collect())
+    expect(rows.map((r) => [r.sessionId, r.mode])).toEqual([
+      [f.terence.sessionId, 'everyone'],
+    ])
+  })
+
+  test('My jobs narrows the schedule to his own', async () => {
     const f = await business()
     await setView(f, f.terence, { kind: 'mine' })
 
@@ -200,7 +219,7 @@ describe('the owner chooses what his lists show', () => {
     expect(env.view).toBe('mine')
   })
 
-  test('God view again brings everyone back', async () => {
+  test('Overview again brings everyone back, one row a device', async () => {
     const f = await business()
     await setView(f, f.terence, { kind: 'mine' })
     await setView(f, f.terence, { kind: 'everyone' })
@@ -208,7 +227,7 @@ describe('the owner chooses what his lists show', () => {
     expect(await viewMode(f, f.terence)).toBe('everyone')
     expect(await day(f, f.terence)).toEqual(['Kevin visit', 'Owner visit'])
     const rows = await f.t.run((ctx) => ctx.db.query('sessionViews').collect())
-    expect(rows).toEqual([])
+    expect(rows.map((r) => r.mode)).toEqual(['everyone'])
   })
 })
 
@@ -239,7 +258,7 @@ describe('the reports library and notes follow the same line', () => {
 
   /** The list, its search and its counts must agree, or the rail says 2
    * over a list of 1. */
-  test('"Just my jobs" narrows the library to what he wrote, counts included', async () => {
+  test('My jobs narrows the library to what he wrote, counts included', async () => {
     const f = await business()
     const { ownerReport, kevinReport } = await withReports(f)
     await setView(f, f.terence, { kind: 'mine' })
@@ -266,7 +285,7 @@ describe('the reports library and notes follow the same line', () => {
 
   /**
    * A view is what he is shown, not what he may do: a note on Kevin's job,
-   * opened in "Just my jobs", is exactly as editable as in God view. Only the
+   * opened in My jobs, is exactly as editable as in Overview. Only the
    * attach-to-job picker — a list — narrows.
    */
   test('a note on someone else’s job stays editable; only the job picker narrows', async () => {
@@ -306,11 +325,11 @@ describe('a view belongs to one sign-in', () => {
   test('his phone can sit on his own jobs while the office machine shows everyone', async () => {
     const f = await business()
     const office = await addSession(f.t, f.terence)
-    await setView(f, f.terence, { kind: 'mine' })
+    await setView(f, office, { kind: 'everyone' })
 
     expect(await day(f, f.terence)).toEqual(['Owner visit'])
+    expect(await viewMode(f, f.terence)).toBe('mine')
     expect(await day(f, office)).toEqual(['Kevin visit', 'Owner visit'])
-    expect(await viewMode(f, office)).toBe('everyone')
   })
 
   /** Ids come back when someone is removed and re-added; a view must not. */
@@ -322,19 +341,19 @@ describe('a view belongs to one sign-in', () => {
         sessionId: f.terence.sessionId,
         businessId: f.businessId,
         realMembershipId: f.kevinId,
-        mode: 'mine',
+        mode: 'everyone',
         updatedAt: Date.now(),
       })
       await ctx.db.insert('sessionViews', {
         sessionId: f.terence.sessionId,
         businessId: other.businessId,
         realMembershipId: other.ownerMembershipId,
-        mode: 'mine',
+        mode: 'everyone',
         updatedAt: Date.now(),
       })
     })
-    expect(await viewMode(f, f.terence)).toBe('everyone')
-    expect(await day(f, f.terence)).toEqual(['Kevin visit', 'Owner visit'])
+    expect(await viewMode(f, f.terence)).toBe('mine')
+    expect(await day(f, f.terence)).toEqual(['Owner visit'])
   })
 
   test('someone who does not get the dropdown is unaffected by a row naming them', async () => {
@@ -437,8 +456,8 @@ describe('someone else’s account, from the same dropdown', () => {
     ).rejects.toThrow('NO_CHAINING')
   })
 
-  /** "Switch back" returns him to the view he left, not to God view. */
-  test('switching back resumes "Just my jobs"', async () => {
+  /** "Switch back" returns him to the view he left, not to Overview. */
+  test('switching back resumes My jobs', async () => {
     const f = await business()
     await setView(f, f.terence, { kind: 'mine' })
     await setView(f, f.terence, { kind: 'account', membershipId: f.kevinId })
@@ -450,7 +469,7 @@ describe('someone else’s account, from the same dropdown', () => {
     expect(await day(f, f.terence)).toEqual(['Owner visit'])
   })
 
-  test('God view from inside an account closes the switch', async () => {
+  test('Overview from inside an account closes the switch', async () => {
     const f = await business()
     await setView(f, f.terence, { kind: 'account', membershipId: f.kevinId })
     await setView(f, f.terence, { kind: 'everyone' })
@@ -487,18 +506,28 @@ describe('someone else’s account, from the same dropdown', () => {
   })
 })
 
-describe('rolling the frontend back', () => {
-  test('clearAll returns every device to God view', async () => {
+describe('rolling the backend back', () => {
+  /** An older schema refuses an 'everyone' row, so they go first. */
+  test('clearAll returns every device to My jobs', async () => {
     const f = await business()
-    await setView(f, f.terence, { kind: 'mine' })
+    await setView(f, f.terence, { kind: 'everyone' })
     const { deleted } = await f.t.mutation(internal.views.clearAll, {})
     expect(deleted).toBe(1)
-    expect(await day(f, f.terence)).toEqual(['Kevin visit', 'Owner visit'])
+    expect(await viewMode(f, f.terence)).toBe('mine')
+    expect(await day(f, f.terence)).toEqual(['Owner visit'])
   })
 })
 
 describe('who may choose', () => {
-  test('nobody but the owner', async () => {
+  const allJobs = (on: boolean) => ({
+    switchInto: null,
+    clientDirectory: true,
+    prices: true,
+    otherSchedules: on,
+  })
+
+  /** Jo is a contractor held to her own team, and has nobody on it yet. */
+  test('nobody whose Overview and My jobs would be the same list', async () => {
     const f = await business()
     await expect(setView(f, f.jo, { kind: 'mine' })).rejects.toThrow(
       'NO_ACCESS',
@@ -506,6 +535,108 @@ describe('who may choose', () => {
     expect(
       await f.jo.as.query(api.views.options, { businessId: f.businessId }),
     ).toBeNull()
+    expect(await viewMode(f, f.jo)).toBeNull()
+
+    // Nor Kevin, who may not see all jobs.
+    expect(await viewMode(f, f.kevin)).toBeNull()
+    await expect(setView(f, f.kevin, { kind: 'everyone' })).rejects.toThrow(
+      'NO_ACCESS',
+    )
+    expect(await day(f, f.kevin)).toEqual(['Kevin visit'])
+  })
+
+  test('a subcontractor allowed to see all jobs opens in My jobs, with Overview a tap away', async () => {
+    const f = await business()
+    await f.t.run((ctx) => ctx.db.patch(f.kevinId, { grants: allJobs(true) }))
+
+    expect(await viewMode(f, f.kevin)).toBe('mine')
+    expect(await day(f, f.kevin)).toEqual(['Kevin visit'])
+
+    await setView(f, f.kevin, { kind: 'everyone' })
+    expect(await viewMode(f, f.kevin)).toBe('everyone')
+    expect(await day(f, f.kevin)).toEqual(['Kevin visit', 'Owner visit'])
+
+    // Overview and My jobs, and nobody else's account: working in another
+    // account stays on Settings for everyone but the owner.
+    const options = await f.kevin.as.query(api.views.options, {
+      businessId: f.businessId,
+    })
+    expect(options?.overview).toBe('everyone')
+    expect(options?.accounts).toEqual([])
+    expect(options?.me.membershipId).toBe(f.kevinId)
+  })
+
+  test('a contractor’s Overview is their team', async () => {
+    const f = await business()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.kevinId, { parentMembershipId: f.joId }),
+    )
+
+    expect(await viewMode(f, f.jo)).toBe('mine')
+    expect(await day(f, f.jo)).toEqual([])
+    const options = await f.jo.as.query(api.views.options, {
+      businessId: f.businessId,
+    })
+    expect(options?.overview).toBe('team')
+
+    await setView(f, f.jo, { kind: 'everyone' })
+    expect(await day(f, f.jo)).toEqual(['Kevin visit'])
+  })
+
+  /**
+   * Working in Kevin's account from Settings, Jo has no menu: it couldn't
+   * offer a way back (only the owner's lists accounts), and Overview or My
+   * jobs picked from it would close the switch behind the banner's back.
+   * The banner's Switch back returns the menu as it was left.
+   */
+  test('a contractor working in a team member’s account has no menu until back', async () => {
+    const f = await business()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.kevinId, {
+        parentMembershipId: f.joId,
+        grants: { ...allJobs(false), switchInto: f.joId },
+      }),
+    )
+    await setView(f, f.jo, { kind: 'everyone' })
+
+    await f.jo.as.mutation(api.accountSwitches.start, {
+      businessId: f.businessId,
+      targetMembershipId: f.kevinId,
+    })
+    const inside = await f.jo.as.query(api.access.me, {
+      businessId: f.businessId,
+    })
+    expect(inside.actingAs?.membershipId).toBe(f.kevinId)
+    expect(inside.view).toBeNull()
+
+    await f.jo.as.mutation(api.accountSwitches.stop, {
+      businessId: f.businessId,
+    })
+    expect(await viewMode(f, f.jo)).toBe('everyone')
+    expect(await day(f, f.jo)).toEqual(['Kevin visit'])
+  })
+
+  test('taking the grant away takes the menu, and an Overview left on, with it', async () => {
+    const f = await business()
+    await f.t.run((ctx) => ctx.db.patch(f.kevinId, { grants: allJobs(true) }))
+    await setView(f, f.kevin, { kind: 'everyone' })
+
+    await f.t.run((ctx) => ctx.db.patch(f.kevinId, { grants: allJobs(false) }))
+    expect(await viewMode(f, f.kevin)).toBeNull()
+    expect(await day(f, f.kevin)).toEqual(['Kevin visit'])
+  })
+
+  /** Kevin's contractor can't see every schedule, so neither can Kevin. */
+  test('a grant over the contractor’s ceiling gives no menu', async () => {
+    const f = await business()
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.joId, { grants: allJobs(false) })
+      await ctx.db.patch(f.kevinId, {
+        parentMembershipId: f.joId,
+        grants: allJobs(true),
+      })
+    })
+    expect(await viewMode(f, f.kevin)).toBeNull()
   })
 
   test('and never into the owner, another business or someone who has left', async () => {
@@ -548,7 +679,11 @@ describe('the older read-only "view as"', () => {
     await f.t.run((ctx) =>
       ctx.db.patch(f.ownerMembershipId, { viewingAsMembershipId: f.kevinId }),
     )
-    // Leftover: he is looking through Kevin's eyes.
+    // My jobs, where his phone opens, outranks it as a choice would.
+    expect(await day(f, f.terence)).toEqual(['Owner visit'])
+
+    // In Overview the leftover is what he sees: Kevin's eyes.
+    await inOverview(f.t, f.terence, f.businessId)
     expect(await day(f, f.terence)).toEqual(['Kevin visit'])
 
     await setView(f, f.terence, { kind: 'mine' })
@@ -561,8 +696,8 @@ describe('the older read-only "view as"', () => {
 describe('offboarding', () => {
   test('removing someone removes any view they had chosen', async () => {
     const f = await business()
-    // Only the owner can choose today; the row is inserted directly, as it
-    // would exist once the choice is widened to contractors.
+    // Jo has no menu (a team of one), so the row is inserted directly, as
+    // it exists for any contractor who chose a view.
     await f.t.run((ctx) =>
       ctx.db.insert('sessionViews', {
         sessionId: f.jo.sessionId,

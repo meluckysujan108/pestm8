@@ -1887,8 +1887,14 @@ export default defineSchema({
     .index('by_target', ['targetMembershipId']),
 
   /**
-   * The owner's chosen view on one device: "Just my jobs" instead of the whole
-   * business. No row is God view, which is the default.
+   * The view chosen on one device: Overview ('everyone') or My jobs ('mine').
+   * No row is My jobs, where everyone starts (`findView` in lib/actor.ts).
+   *
+   * 'everyone' rows were added with Overview for the whole team (Nov 2026);
+   * before then no row was the default Overview and only 'mine' was stored.
+   * An older backend's schema refuses an 'everyone' row, so rolling the
+   * backend back past this needs `views:clearAll` first
+   * (docs/deploy-owner-views.md).
    *
    * Keyed by the Better Auth SESSION, like `accountSwitches`, and for the same
    * reason: the phone in a roof void and the desktop in the office are
@@ -1904,7 +1910,7 @@ export default defineSchema({
     sessionId: v.string(),
     businessId: v.id('businesses'),
     realMembershipId: v.id('memberships'),
-    mode: v.literal('mine'),
+    mode: v.union(v.literal('mine'), v.literal('everyone')),
     updatedAt: v.number(),
   })
     .index('by_session', ['sessionId'])

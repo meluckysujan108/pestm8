@@ -13,6 +13,7 @@ import { JobPaymentSection } from '#/components/schedule/JobPayment'
 import { paymentSaveKey } from '#/lib/payments'
 import type { PaymentAsk, PaymentsTab } from '#/lib/payments'
 import { PaymentsView } from '#/components/payments/PaymentsView'
+import { ViewMenu } from '#/components/shell/ViewMenu'
 import {
   KeptClientView,
   NotKeptClient,
@@ -481,9 +482,10 @@ function payment(
  */
 function paymentsPage(
   tab: PaymentsTab,
-  opts: { biz?: string; press?: string } = {},
+  opts: { biz?: string; press?: string; view?: 'mine' } = {},
 ) {
   return function PaymentsSpecimen() {
+    state.view = opts.view ?? 'everyone'
     const [shown, setShown] = useState<{
       tab: PaymentsTab
       month: string | undefined
@@ -536,6 +538,40 @@ const PaymentsHidden = paymentsPage('toBill', { biz: 'biz_pay_hidden' })
 const PaymentsPaidHidden = paymentsPage('paid', { biz: 'biz_pay_hidden' })
 const PaymentsCountsFrom = paymentsPage('owing', { press: 'Count them' })
 const PaymentsHanded = paymentsPage('owing', { press: 'Mark handed over' })
+/** The owner in My jobs, where every device opens: his own figures, said so. */
+const PaymentsMine = paymentsPage('owing', {
+  biz: 'biz_pay_mine',
+  view: 'mine',
+})
+
+/**
+ * The view menu beside the +, in My jobs, where every device opens: the
+ * owner's, with an account to work in; and Kevin's, a subcontractor allowed
+ * to see all jobs, with Overview and My jobs alone. The shot opens it.
+ */
+function viewMenu(technician: boolean) {
+  return function ViewMenuSpecimen() {
+    state.technician = technician
+    state.view = 'mine'
+    return (
+      <Phone>
+        <AccessProvider businessId={bizId}>
+          <header className="chrome-blur sticky top-0 z-30 flex items-end justify-between gap-3 border-b border-hairline px-4 pb-3 pt-3">
+            <div className="min-w-0 flex-1">
+              <p className="section-label mb-0.5 truncate">
+                Pest M8 Pest Control
+              </p>
+              <h1 className="truncate text-page-title text-ink">My jobs</h1>
+            </div>
+            <ViewMenu businessId={bizId} businessSlug="pest-m8" />
+          </header>
+        </AccessProvider>
+      </Phone>
+    )
+  }
+}
+const ViewMenuOwner = viewMenu(false)
+const ViewMenuKevin = viewMenu(true)
 
 const PaymentAskSpecimen = payment('pay_ask')
 const PaymentCash = payment('pay_ask', { press: ['Cash'] })
@@ -4722,6 +4758,9 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'payments-empty': PaymentsEmpty,
   'payments-paid-empty': PaymentsPaidEmpty,
   'payments-hidden': PaymentsHidden,
+  'payments-mine': PaymentsMine,
+  'view-menu': ViewMenuOwner,
+  'view-menu-kevin': ViewMenuKevin,
   'payments-paid-hidden': PaymentsPaidHidden,
   'payments-countsfrom': PaymentsCountsFrom,
   'payments-handed': PaymentsHanded,

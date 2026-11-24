@@ -1,7 +1,12 @@
 /// <reference types="vite/client" />
 import { describe, expect, test } from 'vitest'
 import { api } from './_generated/api'
-import { createActor, createBusiness, testApp } from '../test/harness'
+import {
+  createActor,
+  createBusiness,
+  inOverview,
+  testApp,
+} from '../test/harness'
 import { dayKeyOf } from './lib/dates'
 import type { Id } from './_generated/dataModel'
 import type { TestActor } from '../test/harness'
@@ -18,6 +23,9 @@ async function setup() {
   const t = testApp()
   const owner = await createActor(t, { email: 'terence@coastal.test' })
   const { businessId, ownerMembershipId } = await createBusiness(t, owner)
+  // Every device opens in My jobs; these tests read the owner's Job tab as
+  // the whole business, so his phone is in Overview.
+  await inOverview(t, owner, businessId)
   const propertyId = await t.run(async (ctx) => {
     const now = Date.now()
     const clientId = await ctx.db.insert('clients', {

@@ -8,6 +8,7 @@ import {
   isAssignableRole,
   isSwitched,
   jobScope,
+  mightChooseView,
   resolveActorForRead,
   resolveActorForWrite,
 } from './capabilities'
@@ -90,7 +91,7 @@ export type ActorEnvelope = {
   realScope: RowScope
   /**
    * The rows a LIST should show: `scope`, narrowed to the caller's own work
-   * when they have chosen "Just my jobs" on this device.
+   * when they have chosen My jobs on this device.
    *
    * Only the "my round" surfaces read this — the schedule, the dashboard,
    * analytics, the reports list. Anything that opens one record (a job, a
@@ -101,8 +102,9 @@ export type ActorEnvelope = {
    * may be refused because of which view a screen was left in.
    */
   listScope: RowScope
-  /** The view chosen on this device. Always 'everyone' for anyone who cannot
-   * choose one (`canChooseView`). */
+  /** The view chosen on this device — My jobs ('mine') unless they picked
+   * Overview. Always 'everyone' for anyone who cannot choose one
+   * (`canChooseView`), whose one list is already everything they may see. */
   view: ViewMode
   /** True when `readScope` came from the legacy read-only view-as rather than
    * from a switch. Read access only — never let this reach a write path. */
@@ -139,8 +141,9 @@ type ActorRows = {
   /** The legacy read-only view-as target, if the stored selection still
    * validates under the OLD rule. Never feeds `acting`. */
   legacyTarget: MembershipFacts | null
-  /** The view chosen on this device — 'everyone' unless a `sessionViews` row
-   * applies. Only ever read for someone who may choose one. */
+  /** The view chosen on this device — My jobs unless a `sessionViews` row
+   * says Overview. Only read for someone who might choose one
+   * (`mightChooseView`); the envelope decides whether it applies. */
   view: ViewMode
 }
 
@@ -214,8 +217,9 @@ async function readActorRows(
     parentOf(ctx, real),
     findSwitch(ctx, businessId, real._id),
     legacyViewAsTarget(ctx, membership),
-    // Nobody else has a view to load, so nobody else pays the read.
-    canChooseView(real)
+    // Nobody else has a view to load, so nobody else pays the read. Whether
+    // it applies waits on their scope, which needs the parent above.
+    mightChooseView(real)
       ? findView(ctx, businessId, real._id)
       : Promise.resolve<ViewMode>('everyone'),
   ])
@@ -320,6 +324,14 @@ async function findSwitch(
  * the same membership back, so what keeps their previous stint's view from
  * them is that removing them deletes it (`offboard` in team.ts), not this
  * check. Newest wins if a bug ever leaves two.
+ *
+ * No row is My jobs: every device starts on the person's own round, and
+ * Overview is chosen (`views.set` writes an 'everyone' row).
+ *
+ * Without a session there is no device to remember a choice for, and
+ * `views.set` refuses one — so a view there could never be changed, and a
+ * list narrowed for good would hide work with no way back. Such a request
+ * sees everything it may.
  */
 async function findView(
   ctx: Ctx,
@@ -344,7 +356,7 @@ async function findView(
     )
     .at(0)
 
-  return row ? row.mode : 'everyone'
+  return row ? row.mode : 'mine'
 }
 
 /**
@@ -467,11 +479,25 @@ async function envelope(
   const switched = isSwitched(actor)
 
   /**
-   * "Just my jobs" is in force when it was chosen on this device and nothing
-   * outranks it. A switch does: inside someone else's account you see what
-   * that account sees, and the chosen view resumes when you switch back.
+   * What the person could see standing in their own account. It decides
+   * whether they get a view to choose (`canChooseView`), and it is `scope`
+   * itself whenever they are looking through nobody else's eyes — computed
+   * once, so that case costs no second team read.
    */
-  const ownView = !switched && rows.view === 'mine' && canChooseView(rows.real)
+  const realCaps = capabilitiesOf(rows.real, rows.realParent)
+  const realScope = jobScope(
+    realCaps,
+    rows.real,
+    await teamFor(ctx, businessId, rows.real, realCaps),
+  )
+  const choosesView = canChooseView(realScope)
+
+  /**
+   * My jobs is in force when it is this device's view and nothing outranks
+   * it. A switch does: inside someone else's account you see what that
+   * account sees, and the chosen view resumes when you switch back.
+   */
+  const ownView = !switched && rows.view === 'mine' && choosesView
 
   /**
    * Three-way precedence, and the middle case is the one that is easy to miss.
@@ -504,25 +530,19 @@ async function envelope(
     switched ? readScopeParent : null,
   )
 
-  const scopeCaps = scopeCapsFor(actor, caps, readScope, readScopeParent)
-  const scope = jobScope(
-    scopeCaps,
-    readScope,
-    await teamFor(ctx, businessId, readScope, scopeCaps),
-  )
-
-  // Only computed when it can differ. Looking through nobody's eyes, the
-  // person's own scope IS the scope, and a second team lookup would be a
-  // read on every request to answer a question nobody asked.
+  // Looking through nobody's eyes, the person's own scope IS the scope:
+  // unswitched, `caps` are exactly `realCaps` (`effectiveCapabilities`), and
+  // a second team lookup would be a read on every request to answer a
+  // question already answered.
   const looking = readScope._id !== rows.real._id
-  const realCaps = capabilitiesOf(rows.real, rows.realParent)
-  const realScope = looking
+  const scopeCaps = scopeCapsFor(actor, caps, readScope, readScopeParent)
+  const scope = looking
     ? jobScope(
-        realCaps,
-        rows.real,
-        await teamFor(ctx, businessId, rows.real, realCaps),
+        scopeCaps,
+        readScope,
+        await teamFor(ctx, businessId, readScope, scopeCaps),
       )
-    : scope
+    : realScope
 
   return {
     actor,
@@ -537,7 +557,7 @@ async function envelope(
       ownView && !isMutation(ctx)
         ? { kind: 'own', membershipId: rows.real._id }
         : scope,
-    view: canChooseView(rows.real) ? rows.view : 'everyone',
+    view: choosesView ? rows.view : 'everyone',
     viewingAsLegacy: !switched && looking,
   }
 }

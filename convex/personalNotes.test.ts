@@ -1,7 +1,12 @@
 /// <reference types="vite/client" />
 import { describe, expect, test } from 'vitest'
 import { api } from './_generated/api'
-import { createActor, createBusiness, testApp } from '../test/harness'
+import {
+  createActor,
+  createBusiness,
+  inOverview,
+  testApp,
+} from '../test/harness'
 import type { Id } from './_generated/dataModel'
 import type { TestActor } from '../test/harness'
 
@@ -20,6 +25,10 @@ async function setup() {
     name: 'Terence',
   })
   const { businessId, ownerMembershipId } = await createBusiness(t, terence)
+  // Every device opens in My jobs, where Everyone's notes is empty. These
+  // tests read what the owner may see, so his phone starts in Overview; the
+  // ones about My jobs choose it.
+  await inOverview(t, terence, businessId)
   const kevin = await createActor(t, {
     email: 'kevin@coastal.test',
     name: 'Kevin',
@@ -211,7 +220,7 @@ describe('a personal note', () => {
     ).rejects.toThrow(/NO_ACCESS/)
   })
 
-  test('the owner reads it, read-only, listed in Everyone’s notes in God view', async () => {
+  test('the owner reads it, read-only, listed in Everyone’s notes in Overview', async () => {
     const s = await setup()
     const noteId = await newPersonal(s, s.kevin)
     await writeBody(s.kevin, noteId, 'Van stock')
@@ -272,7 +281,7 @@ describe('a personal note', () => {
     ).rejects.toThrow(/NO_ACCESS/)
   })
 
-  test('Everyone’s notes is empty outside God view, and reads by link stay allowed', async () => {
+  test('Everyone’s notes is empty outside Overview, and reads by link stay allowed', async () => {
     const s = await setup()
     const noteId = await newPersonal(s, s.kevin)
     await s.terence.as.mutation(api.views.set, {
@@ -290,7 +299,7 @@ describe('a personal note', () => {
     expect(await folder(s, s.ann, 'everyone')).toEqual([])
   })
 
-  test('in Recently Deleted: its author’s, and the owner’s in God view only', async () => {
+  test('in Recently Deleted: its author’s, and the owner’s in Overview only', async () => {
     const s = await setup()
     const noteId = await newPersonal(s, s.kevin)
     await s.kevin.as.mutation(api.notes.softDelete, {
@@ -597,7 +606,7 @@ describe('folder edges', () => {
     expect(await folder(s, s.terence, 'mine')).toEqual([his])
   })
 
-  test('searching Everyone’s notes outside God view finds nothing', async () => {
+  test('searching Everyone’s notes outside Overview finds nothing', async () => {
     const s = await setup()
     const noteId = await newPersonal(s, s.kevin)
     await writeBody(s.kevin, noteId, 'Van stock')

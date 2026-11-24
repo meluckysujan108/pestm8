@@ -5,12 +5,12 @@ import type { Role } from '../../../convex/lib/capabilities'
 /**
  * Said before the job disappears, not after.
  *
- * In "Just my jobs" the schedule shows only the owner's own work, so booking
+ * In My jobs the schedule shows only the owner's own work, so booking
  * his subcontractor's next visit from there puts the job somewhere he is not
  * looking — and it vanishes from the screen the instant he saves. Nothing is
  * wrong, and without this it would look as though something was.
  *
- * Only in "Just my jobs". Inside someone's account, what that account shows
+ * Only in My jobs. Inside someone's account, what that account shows
  * depends on what they may see — a contractor sees their team — so "it won't
  * show" would sometimes be false, and a note that is sometimes wrong teaches
  * people to ignore it.

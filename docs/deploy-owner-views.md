@@ -246,4 +246,46 @@ If only the **frontend** is rolled back, clear the views first (step 1), or a
 phone left in "Just my jobs" stays narrowed with no menu to undo it.
 `views:clearAll` returns how many it deleted and touches nothing else. The escape hatch in
 the field is Settings → Profile → Sign out, then sign back in: a view belongs
-to one sign-in.
+to one sign-in. _Superseded by Overview for the whole team, below:_ with that
+backend live, clearing the views and signing out both land in My jobs.
+
+## Overview for the whole team (Nov 2026)
+
+The menu's two views are now **Overview** and **My jobs**, for everyone whose
+lists can show more than their own work (the owner, a contractor with a team,
+a subcontractor with "Can view all jobs"), and **every device opens in My
+jobs**. `sessionViews` now stores `'everyone'` rows for Overview; no row is My
+jobs.
+
+- **Frontend first.** No argument changed, and either order works, but the
+  older frontend on this backend shows its old menu ("God view", "Just my
+  jobs") to everyone who now has one, and offers a contractor or a
+  subcontractor in Overview an "Everyone's notes" folder that is always empty
+  (it is the owner's only). This frontend on the older backend shows the owner
+  Overview by default and nobody else a menu, which is right.
+- **On release, every device opens in My jobs once,** the owner's phone and
+  desktop included. Tell the owner before: Overview is one pick away in the
+  menu beside the +, and Payments and Analytics say when their figures are
+  only his own, with Switch to Overview.
+- **The escape hatch in the field** is the menu itself. Signing out and back
+  in now lands in My jobs, not on everyone's, and so does `views:clearAll`.
+  Rolling the frontend back alone needs nothing: every frontend since Release
+  B has the menu.
+- **The old read-only "view as" is set aside** for anyone with the menu while
+  they are in My jobs (it was only ever looked through from God view, and
+  picking Overview clears it). Prod had none left on 23 Nov 2026.
+
+**Rolling the backend back past this:** clear the views first, while this
+backend is live — the older schema allows only `'mine'`, and the push fails
+schema validation while an `'everyone'` row exists:
+
+```bash
+CONVEX_DEPLOYMENT=prod:rare-retriever-156 npx convex run views:clearAll
+CONVEX_DEPLOYMENT=prod:rare-retriever-156 npx convex run --inline-query \
+  'return (await ctx.db.query("sessionViews").collect()).length'
+```
+
+The second must print `0`. Every device is then in the older backend's
+default, God view. Push the older backend straight away: anyone who picks
+Overview in between writes a new row, and the push is refused over
+`sessionViews` — if it is, clear again and push again.

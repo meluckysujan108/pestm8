@@ -1,7 +1,12 @@
 /// <reference types="vite/client" />
 import { describe, expect, test } from 'vitest'
 import { api } from './_generated/api'
-import { createActor, createBusiness, testApp } from '../test/harness'
+import {
+  createActor,
+  createBusiness,
+  inOverview,
+  testApp,
+} from '../test/harness'
 import { startOfDayInZone, todayKeyInZone } from './lib/dates'
 import type { Id } from './_generated/dataModel'
 import type { TestActor } from '../test/harness'
@@ -23,6 +28,9 @@ async function setup() {
   const t = testApp()
   const owner = await createActor(t, { email: 'terence@coastal.test' })
   const { businessId, ownerMembershipId } = await createBusiness(t, owner)
+  // Every device opens in My jobs; these tests read the owner's Job tab as
+  // the whole business, so his phone is in Overview.
+  await inOverview(t, owner, businessId)
   const propertyId = await t.run(async (ctx) => {
     const now = Date.now()
     const clientId = await ctx.db.insert('clients', {
@@ -286,12 +294,13 @@ describe('which list answers', () => {
     expect(jobs.map((job) => job._id)).toEqual([his])
   })
 
-  test('the owner in "Just my jobs" moves to the bounded list, and back', async () => {
+  test('the owner in My jobs moves to the bounded list, and back', async () => {
     const s = await setup()
     await book(s, Date.now() + DAY)
     const me = () =>
       s.owner.as.query(api.access.me, { businessId: s.businessId })
 
+    // Overview, where setup leaves his phone.
     expect((await me()).listsEverything).toBe(true)
     expect(
       (await page(s.owner, s.businessId, { numItems: 24 })).page,
@@ -327,6 +336,9 @@ describe('which list answers', () => {
         otherSchedules: true,
       },
     })
+    // The grant gives him the view menu, and his phone opens in My jobs like
+    // everyone's: this is about what he may see, so it is in Overview.
+    await inOverview(s.t, kevin, s.businessId)
     await book(s, Date.now() + DAY, kevinId)
     await book(s, Date.now() + 2 * DAY)
 
