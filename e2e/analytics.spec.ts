@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
   api,
+  chooseOverview,
   expectRejected,
   setupBusinessWithSub,
   signUpActor,
@@ -54,6 +55,8 @@ test('revenue counts only completed jobs and leaves out pending ones', async () 
     state: 'WA',
     timezone: 'Australia/Perth',
   })
+  // The owner opens in My jobs; the business's figures are Overview's.
+  await chooseOverview(owner.client, businessId)
   const propertyId = await owner.client.mutation(api.properties.create, {
     businessId,
     clientName: 'J. Nguyen',
