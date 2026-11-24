@@ -12,7 +12,7 @@ import {
   resolveActorForRead,
   resolveActorForWrite,
 } from './capabilities'
-import type { Doc, Id } from '../_generated/dataModel'
+import type { Id } from '../_generated/dataModel'
 import type { QueryCtx, MutationCtx } from '../_generated/server'
 import type {
   Capability,
@@ -49,24 +49,19 @@ import type {
 export type Ctx = QueryCtx | MutationCtx
 
 /**
- * Three membership slots, not two, and the third is the reason this type
- * exists rather than `ReadActor` being returned directly.
+ * Three membership slots:
  *
  * - `actor.real`   — the human. Audit, profile, licence, admin rights.
  * - `actor.acting` — the account being worked in. ONLY ever set by an
  *                    `accountSwitches` row. Write-bearing.
  * - `readScope`    — the account whose rows are being *read*.
  *
- * `readScope` and `acting` are the same thing once switching is the only way
- * to see someone else's data. They are not the same thing today, because the
- * app already ships a read-only "view as" (`memberships.viewingAsMembershipId`)
- * that must keep working through the expand phase.
- *
- * Folding that legacy column into `acting` would compile, pass every existing
- * test, and silently hand every current holder of `canViewOtherAccounts` the
- * right to WRITE in the account they were only ever allowed to look at —
- * including authorship of what they wrote. Keeping it in a third field is what
- * makes that upgrade impossible rather than merely unintended.
+ * `readScope` is `acting` when switched and `real` otherwise: switching is
+ * the only way to see through someone else's account. It was a third thing
+ * while the old read-only "view as" (`memberships.viewingAsMembershipId`)
+ * lasted, which is retired (schema.ts) and no longer read here. The stored
+ * column must never come back as a way into `acting`: it was only ever leave
+ * to look, never to write under someone else's name.
  */
 export type ActorEnvelope = {
   actor: ReadActor
@@ -75,13 +70,12 @@ export type ActorEnvelope = {
    * capabilities already dropped. The authority for every permission check;
    * never re-derive from a role at a call site. */
   caps: CapabilitySet
-  /** Which rows this caller may read. See `scopeCapsFor` for why this is not
-   * simply derived from `caps`. */
+  /** Which rows this caller may read: `jobScope` of `caps`, for the account
+   * in `readScope`. */
   scope: RowScope
   /**
    * The rows the REAL person may read, ignoring any lens they are looking
-   * through. The same object as `scope` unless they are switched or viewing as
-   * someone.
+   * through. The same object as `scope` unless they are switched.
    *
    * For pickers and anything else that offers a choice the caller will act on
    * themselves — attaching a note to a job, say. Offering the target's jobs
@@ -106,27 +100,11 @@ export type ActorEnvelope = {
    * Overview. Always 'everyone' for anyone who cannot choose one
    * (`canChooseView`), whose one list is already everything they may see. */
   view: ViewMode
-  /** True when `readScope` came from the legacy read-only view-as rather than
-   * from a switch. Read access only — never let this reach a write path. */
-  viewingAsLegacy: boolean
 }
 
-/**
- * A write envelope never carries a legacy read scope.
- *
- * `readScope` on a write envelope is always the account being acted in, and
- * `viewingAsLegacy` is always false. Without that, the read-only view-as would
- * reach a mutation through the back door: not as `acting` — which is guarded —
- * but as `scope`, the one row filter a mutation author is offered. A gate as
- * ordinary as `if (!isInScope(env.scope, job)) throw` would then pass for every
- * job the *target* can see, and the write would land attributed to the caller.
- *
- * The invariant is "the legacy column never reaches a write path", and `acting`
- * was only ever half of that path.
- */
-export type WriteEnvelope = Omit<ActorEnvelope, 'actor' | 'viewingAsLegacy'> & {
+/** A write envelope: `readScope` is always the account being acted in. */
+export type WriteEnvelope = Omit<ActorEnvelope, 'actor'> & {
   actor: WriteActor
-  readonly viewingAsLegacy: false
 }
 
 // ────────────────────────────────────────────────────────────── loading rows
@@ -138,9 +116,6 @@ type ActorRows = {
    * `accountSwitches` row applies to this request. */
   target: MembershipFacts | null
   session: SwitchSession | null
-  /** The legacy read-only view-as target, if the stored selection still
-   * validates under the OLD rule. Never feeds `acting`. */
-  legacyTarget: MembershipFacts | null
   /** The view chosen on this device — My jobs unless a `sessionViews` row
    * says Overview. Only read for someone who might choose one
    * (`mightChooseView`); the envelope decides whether it applies. */
@@ -213,10 +188,9 @@ async function readActorRows(
 
   const real = factsFromMembership(membership)
 
-  const [realParent, switchRow, legacyTarget, view] = await Promise.all([
+  const [realParent, switchRow, view] = await Promise.all([
     parentOf(ctx, real),
     findSwitch(ctx, businessId, real._id),
-    legacyViewAsTarget(ctx, membership),
     // Nobody else has a view to load, so nobody else pays the read. Whether
     // it applies waits on their scope, which needs the parent above.
     mightChooseView(real)
@@ -231,7 +205,6 @@ async function readActorRows(
     realParent,
     target,
     session: switchRow?.session ?? null,
-    legacyTarget,
     view,
   }
 }
@@ -381,36 +354,6 @@ export async function currentSessionId(ctx: Ctx): Promise<string | null> {
 }
 
 /**
- * The legacy read-only "view as" selection, re-derived against the CURRENT
- * state of both memberships rather than trusted from the stored column.
- *
- * Fails open on purpose, and that is inherited behaviour, not a new choice: a
- * stale selection (grant revoked, target removed) should stop taking effect,
- * not break the page. The rule is the old one deliberately — this is a feature
- * on its way out, and re-implementing it in terms of the new grants would
- * change who it applies to during the very window it exists to keep stable.
- */
-async function legacyViewAsTarget(
-  ctx: Ctx,
-  caller: Doc<'memberships'>,
-): Promise<MembershipFacts | null> {
-  if (!caller.viewingAsMembershipId) return null
-
-  const target = await ctx.db.get(caller.viewingAsMembershipId)
-  if (!target) return null
-  if (target.businessId !== caller.businessId) return null
-  if (target.status !== 'active') return null
-  if (target._id === caller._id) return null
-  // The owner is never a view-as target, whatever else is true.
-  if (target.role === 'owner') return null
-  if (caller.role !== 'owner' && caller.canViewOtherAccounts !== true) {
-    return null
-  }
-
-  return factsFromMembership(target)
-}
-
-/**
  * A contractor's team, by index rather than by scanning the business and
  * filtering in memory — which is both slower and, per the note on the index in
  * schema.ts, how an owner row gets included by accident.
@@ -439,42 +382,11 @@ export async function teamOf(
 
 // ───────────────────────────────────────────────────────────────── resolving
 
-/**
- * Which capabilities decide READ SCOPE — which is not always the same set that
- * decides permissions, and conflating the two breaks the older feature.
- *
- * Switching intersects: a subcontractor who cannot see everyone's schedule must
- * not acquire that by switching into someone who can. `caps` is already the
- * intersection, so scope uses it directly.
- *
- * The legacy read-only view-as does the opposite, and must. Its entire purpose
- * is "show me what Kevin sees". Scoping it by the viewer's own capabilities
- * would mean an owner — who can see everything — viewing as Kevin and being
- * shown the whole business, which is not a narrower answer to the wrong
- * question, it is the feature not working at all. So scope comes from the
- * target's own capabilities, exactly as `jobVisibility(target)` computes it
- * today.
- *
- * The two rules agree whenever nobody is viewing or switching, which is every
- * request in production right now.
- */
-function scopeCapsFor(
-  actor: ReadActor,
-  caps: CapabilitySet,
-  readScope: MembershipFacts,
-  readScopeParent: MembershipFacts | null,
-): CapabilitySet {
-  if (isSwitched(actor)) return caps
-  if (readScope._id === actor.real._id) return caps
-  return capabilitiesOf(readScope, readScopeParent)
-}
-
 async function envelope(
   ctx: Ctx,
   businessId: Id<'businesses'>,
   rows: ActorRows,
   actor: ReadActor,
-  { forWrite }: { forWrite: boolean },
 ): Promise<ActorEnvelope> {
   const switched = isSwitched(actor)
 
@@ -500,29 +412,16 @@ async function envelope(
   const ownView = !switched && rows.view === 'mine' && choosesView
 
   /**
-   * Three-way precedence, and the middle case is the one that is easy to miss.
-   *
-   * A live switch wins: you cannot be looking through one person's eyes while
-   * working in another's account.
-   *
-   * A switch that was ATTEMPTED and dropped returns you to yourself — not to
-   * whatever stale view-as selection happens to be sitting on your membership
-   * row. Falling through to the legacy target would have the banner say "your
-   * switch into Kevin ended, you are back in your own account" while the server
-   * quietly served Priya's rows.
-   *
-   * Only with no switch in play at all does the legacy selection apply. And
-   * never on a write — nor over a view the owner has chosen since, which is
-   * the newer and more deliberate of the two (`views.set` also clears it).
+   * A live switch is the only lens: inside someone else's account you read
+   * what that account may read. A switch that was attempted and dropped
+   * (`actor.degraded`) is not a switch, so it reads as the real person. The
+   * stored "view as" selection is retired (schema.ts) and deliberately not
+   * consulted, whatever a row still holds.
    */
-  const legacyTarget =
-    forWrite || actor.degraded || ownView ? null : rows.legacyTarget
-  const readScope = switched ? actor.acting : (legacyTarget ?? rows.real)
+  const readScope = switched ? actor.acting : rows.real
   const readScopeParent = switched
     ? await parentOf(ctx, actor.acting)
-    : legacyTarget
-      ? await parentOf(ctx, legacyTarget)
-      : rows.realParent
+    : rows.realParent
 
   const caps = effectiveCapabilities(
     actor,
@@ -534,14 +433,13 @@ async function envelope(
   // unswitched, `caps` are exactly `realCaps` (`effectiveCapabilities`), and
   // a second team lookup would be a read on every request to answer a
   // question already answered.
+  //
+  // Switched, scope is `caps` — the intersection, so a subcontractor who
+  // cannot see everyone's schedule does not acquire it by switching into
+  // someone who can.
   const looking = readScope._id !== rows.real._id
-  const scopeCaps = scopeCapsFor(actor, caps, readScope, readScopeParent)
   const scope = looking
-    ? jobScope(
-        scopeCaps,
-        readScope,
-        await teamFor(ctx, businessId, readScope, scopeCaps),
-      )
+    ? jobScope(caps, readScope, await teamFor(ctx, businessId, readScope, caps))
     : realScope
 
   return {
@@ -558,7 +456,6 @@ async function envelope(
         ? { kind: 'own', membershipId: rows.real._id }
         : scope,
     view: choosesView ? rows.view : 'everyone',
-    viewingAsLegacy: !switched && looking,
   }
 }
 
@@ -596,7 +493,7 @@ export async function requireActor(
     rows.session,
     now(ctx),
   )
-  return envelope(ctx, businessId, rows, actor, { forWrite: false })
+  return envelope(ctx, businessId, rows, actor)
 }
 
 /**
@@ -626,10 +523,8 @@ export async function requireWriteActor(
   )
   if (!result.ok) throw new ConvexError(result.reason)
 
-  const env = await envelope(ctx, businessId, rows, result.actor, {
-    forWrite: true,
-  })
-  return { ...env, actor: result.actor, viewingAsLegacy: false }
+  const env = await envelope(ctx, businessId, rows, result.actor)
+  return { ...env, actor: result.actor }
 }
 
 /**
@@ -637,7 +532,7 @@ export async function requireWriteActor(
  * demo seeder (convex/demo), which writes as the member each record says
  * wrote it. Built by the same `envelope` a request uses, from that member's
  * own row, exactly as `requireWriteActor` would find them on a device with no
- * switch, no chosen view and no legacy lens.
+ * switch and no chosen view.
  *
  * Only for internal functions. Handing one to a public function would let a
  * caller write as anyone, which is the whole of what `requireWriteActor`
@@ -657,15 +552,12 @@ export async function writeEnvelopeForMember(
     realParent: await parentOf(ctx, real),
     target: null,
     session: null,
-    legacyTarget: null,
     view: 'everyone',
   }
   const result = resolveActorForWrite(real, null, null, Date.now())
   if (!result.ok) throw new ConvexError(result.reason)
-  const env = await envelope(ctx, membership.businessId, rows, result.actor, {
-    forWrite: true,
-  })
-  return { ...env, actor: result.actor, viewingAsLegacy: false }
+  const env = await envelope(ctx, membership.businessId, rows, result.actor)
+  return { ...env, actor: result.actor }
 }
 
 /**

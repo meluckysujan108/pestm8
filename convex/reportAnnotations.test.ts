@@ -253,34 +253,6 @@ describe('listForReport: who may read the marks', () => {
   })
 
   /**
-   * The case the viewer has to survive. Looking through Priya's eyes, Kevin
-   * can open her report, but the marks come with a pen and looking has never
-   * granted authorship — so the markup read refuses him, exactly as the
-   * per-page read always has, and the viewer shows the report without marks.
-   */
-  test('looking through a colleague’s account opens her report but not its marks', async () => {
-    const s = await setup()
-    await draw(s, s.priya, s.priyaReport)
-    await s.t.run((ctx) =>
-      ctx.db.patch(s.kevinId, {
-        canViewOtherAccounts: true,
-        viewingAsMembershipId: s.priyaId,
-      }),
-    )
-
-    const opened = await s.kevin.as.query(api.reports.get, {
-      businessId: s.businessId,
-      reportId: s.priyaReport,
-    })
-    expect(opened?._id).toBe(s.priyaReport)
-
-    await expect(marks(s, s.kevin, s.priyaReport)).rejects.toThrow('NO_ACCESS')
-    await expect(pageMarks(s, s.kevin, s.priyaReport)).rejects.toThrow(
-      'NO_ACCESS',
-    )
-  })
-
-  /**
    * Working in Kevin's account, Terence reads with his own (whole-business)
    * scope, and `mine` is still Terence: his undo must never be offered for a
    * mark Kevin drew, whose account he happens to be in.
@@ -901,7 +873,8 @@ describe('removeStroke: Undo takes the mark it named, and only that', () => {
     )
   })
 
-  test('looking through a colleague’s account does not lend her pen', async () => {
+  /** The retired "view as" (schema.ts), left on a row: lends nothing. */
+  test('a leftover view-as selection does not lend her pen', async () => {
     const s = await setup()
     const priyas = await draw(s, s.priya, s.priyaReport)
     await s.t.run((ctx) =>

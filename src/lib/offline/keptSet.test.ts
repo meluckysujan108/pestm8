@@ -170,7 +170,6 @@ function access(extra: Partial<Access> = {}): Access {
     actingAs: null,
     expiresAt: null,
     degraded: null,
-    viewingAs: null,
     ...extra,
   }
 }
@@ -225,9 +224,8 @@ describe('lensOf', () => {
     )
   })
 
-  test('nobody while working in or looking at someone else’s account', () => {
+  test('nobody while working in someone else’s account', () => {
     expect(lensOf(access({ actingAs: other }))).toBeNull()
-    expect(lensOf(access({ viewingAs: other }))).toBeNull()
     expect(lensOf(access({ view: { mode: 'account' } }))).toBeNull()
     expect(lensOf(undefined)).toBeNull()
   })

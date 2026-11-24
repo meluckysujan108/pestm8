@@ -398,8 +398,9 @@ export const redeemByHash = internalMutation({
       await ctx.db.patch(existing._id, {
         status: 'active',
         role: invitation.role,
-        canViewAllJobs: false,
-        canViewOtherAccounts: false,
+        // The retired columns (schema.ts) go as the row is touched.
+        canViewAllJobs: undefined,
+        canViewOtherAccounts: undefined,
         viewingAsMembershipId: undefined,
         colour,
         // Their team, like everything else, comes from this invitation. The
@@ -421,10 +422,8 @@ export const redeemByHash = internalMutation({
         userId: user._id,
         businessId: invitation.businessId,
         role: invitation.role,
-        canViewAllJobs: false,
         // Nothing, until somebody grants it. A new joiner arrives with no
-        // access to anyone else's work, which is what NO_GRANTS means and what
-        // `canViewAllJobs: false` beside it has always meant.
+        // access to anyone else's work, which is what NO_GRANTS means.
         grants: NO_GRANTS,
         // On the team of the contractor who invited them; nobody's, when the
         // owner did (`joinsUnder`).

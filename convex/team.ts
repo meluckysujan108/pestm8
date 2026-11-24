@@ -313,8 +313,9 @@ async function offboard(
     status: 'removed',
     removedAt: now,
     removedByMembershipId: actor._id,
-    canViewAllJobs: false,
-    canViewOtherAccounts: false,
+    // The retired columns (schema.ts) go with them.
+    canViewAllJobs: undefined,
+    canViewOtherAccounts: undefined,
     viewingAsMembershipId: undefined,
     // And their place on a team. Left behind, it came back with them: a rejoin
     // landed them under their old contractor whoever re-invited them.
@@ -364,17 +365,6 @@ async function offboard(
   // books now — which is what the connect disclosure and the removal dialog
   // both told them and the owner.
   await disconnectXeroFor(ctx, target, actor._id, 'offboarded')
-
-  // Anyone currently looking through this person's eyes stops doing so.
-  const siblings = await ctx.db
-    .query('memberships')
-    .withIndex('by_business', (q) => q.eq('businessId', businessId))
-    .collect()
-  for (const sibling of siblings) {
-    if (sibling.viewingAsMembershipId === target._id) {
-      await ctx.db.patch(sibling._id, { viewingAsMembershipId: undefined })
-    }
-  }
 
   // An outstanding link for their address would let them walk straight back in.
   const user = await authComponent.getAnyUserById(ctx, target.userId)
@@ -554,9 +544,9 @@ export const roster = query({
              */
             grants: facts.grants,
             parentMembershipId: m.parentMembershipId ?? null,
-            /** The legacy read-only view-as, which is a different thing from
-             * `grants.switchInto` and still has its own column. */
-            canViewOtherAccounts: m.canViewOtherAccounts ?? false,
+            /** The old read-only "view as", retired (schema.ts): nobody has
+             * it. Only for a phone still on a build that shows its switch. */
+            canViewOtherAccounts: false,
             /** Whether this caller may change any of it — an owner may manage
              * anyone but themselves; a contractor, only their own team. */
             canManage: canManageMember(env.actor, facts),
@@ -674,7 +664,8 @@ export const assignTo = mutation({
     await ctx.db.patch(membershipId, {
       parentMembershipId: parent?._id ?? undefined,
       grants: nextGrants,
-      canViewAllJobs: nextGrants.otherSchedules,
+      // The retired column goes as the row is touched (schema.ts).
+      canViewAllJobs: undefined,
     })
 
     await recordAudit(ctx, forSelf(env.actor.real._id), {

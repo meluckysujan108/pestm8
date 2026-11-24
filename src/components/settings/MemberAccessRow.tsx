@@ -42,7 +42,6 @@ export type Member = {
   email: string
   role: Role
   grants: Grants
-  canViewOtherAccounts: boolean
   /** From the roster: whether this viewer may change this person's access at
    * all (`canManageMember`) — the owner, anyone but themselves; a contractor,
    * their own team. Every control below the licence sits behind it. */
@@ -598,17 +597,6 @@ function AccessGroup({
   const canGrantEdits = useCan('jobs.editOthers')
   const canGrantPrices = useCan('prices.see')
 
-  const convexSetViewOthers = useConvexMutation(
-    api.memberships.setCanViewOtherAccounts,
-  )
-  const setViewOthers = useMutation({
-    mutationFn: (args: {
-      businessId: Id<'businesses'>
-      membershipId: Id<'memberships'>
-      canViewOtherAccounts: boolean
-    }) => convexSetViewOthers(args),
-  })
-
   const convexSetGrants = useConvexMutation(api.memberships.setGrants)
   const setGrants = useMutation({
     mutationFn: (args: {
@@ -618,11 +606,11 @@ function AccessGroup({
     }) => convexSetGrants(args),
   })
 
-  const failed = setGrants.isError
-    ? setGrants.error
-    : setViewOthers.isError
-      ? setViewOthers.error
-      : null
+  const failed = setGrants.isError ? setGrants.error : null
+
+  // A contractor holding neither has nothing here to hand on, and an empty
+  // group would read as access that failed to load.
+  if (!canGrantSchedules && !canGrantPrices) return null
 
   return (
     <SettingsGroup title="Access">
@@ -662,19 +650,6 @@ function AccessGroup({
           }
         />
       )}
-      <SwitchRow
-        label="Can view other accounts"
-        description="Switch to other subcontractors’ views — never the owner’s."
-        checked={member.canViewOtherAccounts}
-        disabled={setViewOthers.isPending || !hydrated}
-        onChange={(checked) =>
-          setViewOthers.mutate({
-            businessId,
-            membershipId: member._id,
-            canViewOtherAccounts: checked,
-          })
-        }
-      />
       {failed !== null && (
         <div className="px-3.5 py-3">
           <FormAlert error={failed} />

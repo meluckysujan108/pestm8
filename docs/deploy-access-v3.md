@@ -136,6 +136,13 @@ changed in the new UI in the meantime.
 `viewingAsMembershipId`, `grants.clientDirectory` (inert since the client
 book opened to everyone) and `lib/access.ts`.
 
+(Update, November 2026: the three view fields are under way. Nothing writes
+them except to clear them, the old "view as" is gone, and `canViewAllJobs` is
+read only as `grantsFromMembership`'s fallback for a row with no `grants`.
+`convex/migrations/viewSettingsV1.ts` clears them, with the sequence in its
+header. The old setters stay, harmless, for phones on older builds, until the
+fields are dropped. `grants.clientDirectory` and `lib/access.ts` remain.)
+
 It is meant to be gated on telemetry rather than a date, and **that telemetry
 does not exist yet**. There is no `__APP_BUILD__`, and no legacy function
 counts its own callers, so today there is no way to answer the only question

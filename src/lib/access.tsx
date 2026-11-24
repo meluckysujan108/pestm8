@@ -32,7 +32,6 @@ export type Access = {
   actingAs: { membershipId: Id<'memberships'>; name: string } | null
   expiresAt: number | null
   degraded: string | null
-  viewingAs: { membershipId: Id<'memberships'>; name: string } | null
   /**
    * The view menu: which view is showing, or null for anyone who does not
    * get one (they see only their own work, or work in someone's account). Optional because this build can meet a
