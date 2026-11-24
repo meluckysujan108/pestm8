@@ -257,7 +257,14 @@ export const record = mutation({
       })
     }
 
-    await recordJobWrite(ctx, env, job, 'payment.record', { paymentId })
+    await recordJobWrite(
+      ctx,
+      env,
+      job,
+      'payment.record',
+      { paymentId },
+      { paymentId },
+    )
     return { paymentId, status }
   },
 })
@@ -294,7 +301,14 @@ export const remove = mutation({
       if (status !== job.status) await followMoney(ctx, job, status)
     }
 
-    await recordJobWrite(ctx, env, job, 'payment.remove', { paymentId })
+    await recordJobWrite(
+      ctx,
+      env,
+      job,
+      'payment.remove',
+      { paymentId },
+      { paymentId },
+    )
     return { status }
   },
 })
@@ -370,7 +384,14 @@ export const setHandOver = mutation({
               handOver,
             ),
     })
-    await recordJobWrite(ctx, env, job, 'payment.handOver', { paymentId })
+    await recordJobWrite(
+      ctx,
+      env,
+      job,
+      'payment.handOver',
+      { paymentId },
+      { paymentId },
+    )
   },
 })
 

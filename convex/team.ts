@@ -5,6 +5,7 @@ import { authComponent } from './auth'
 import { requireMembership } from './lib/access'
 import { inviteState } from './lib/inviteTokens'
 import { forSelf, recordAudit } from './lib/audit'
+import { recordJobActivity } from './lib/jobActivity'
 import { releaseTeam, revokeInvitationsFrom } from './lib/teamRelease'
 import {
   canAssignTo,
@@ -217,14 +218,27 @@ async function offboard(
       await ctx.db.patch(job._id, { assignedMembershipId: successor._id })
       // Leading it now, the successor is no longer also going on it.
       const others = await alsoGoingOf(ctx, job._id)
-      if (others.includes(successor._id)) {
+      const staying = others.filter((id) => id !== successor._id)
+      if (staying.length !== others.length) {
         await setAlsoGoing(
           ctx,
           { ...job, assignedMembershipId: successor._id },
-          others.filter((id) => id !== successor._id),
+          staying,
           actor._id,
         )
       }
+      // By whoever removed them, or by the person leaving: administration,
+      // never done inside anyone else's account.
+      await recordJobActivity(
+        ctx,
+        forSelf(actor._id),
+        job,
+        'membership.handOn',
+        {
+          people: { from: others, to: staying },
+          at: now,
+        },
+      )
     }
     for (const recurrence of recurrences) {
       await ctx.db.patch(recurrence._id, {
@@ -243,7 +257,23 @@ async function offboard(
     )
     .collect()
   for (const row of stillAhead) {
-    if (row.businessId === businessId) await ctx.db.delete(row._id)
+    if (row.businessId !== businessId) continue
+    const job = await ctx.db.get(row.jobId)
+    const going = job ? await alsoGoingOf(ctx, job._id) : []
+    await ctx.db.delete(row._id)
+    // On the job's history, so nobody wonders where they went.
+    if (job) {
+      await recordJobActivity(
+        ctx,
+        forSelf(actor._id),
+        job,
+        'membership.takeOff',
+        {
+          people: { from: going, to: going.filter((id) => id !== target._id) },
+          at: now,
+        },
+      )
+    }
   }
 
   // A half-written Treatment Record is a record the business is required to

@@ -662,6 +662,18 @@ async function seedFiles(
   return [...ids]
 }
 
+/** Every job's history (`jobActivity`), by the business: before the jobs,
+ * so no line outlives the job it is about. */
+const clearJobActivity: Step = (run) =>
+  sweep(run, 'jobActivity', (n) =>
+    run.ctx.db
+      .query('jobActivity')
+      .withIndex('by_businessId_and_at', (q) =>
+        q.eq('businessId', run.business._id),
+      )
+      .take(n),
+  )
+
 const clearAuditLog: Step = (run) =>
   sweep(run, 'auditLog', (n) =>
     run.ctx.db
@@ -755,6 +767,7 @@ const STEPS: Array<Step> = [
   clearCustomTemplates,
   clearReportSettings,
   clearProducts,
+  clearJobActivity,
   clearJobs,
   clearClients,
   clearImports,
@@ -1026,6 +1039,14 @@ export const status = internalQuery({
         await ctx.db
           .query('auditLog')
           .withIndex('by_business', (q) => q.eq('businessId', businessId))
+          .take(STATUS_CAP)
+      ).length,
+      jobActivity: (
+        await ctx.db
+          .query('jobActivity')
+          .withIndex('by_businessId_and_at', (q) =>
+            q.eq('businessId', businessId),
+          )
           .take(STATUS_CAP)
       ).length,
       templateSettings: (
