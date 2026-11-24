@@ -1770,6 +1770,9 @@ test('a session ended elsewhere: the sign-in screen says whose booking is on the
   await signInViaUi(page, s.sub.email)
   await expect.poll(() => bookingsOnPhone(page)).toEqual([])
   const owner = await signedInAgain(s.owner)
+  // A new session opens in My jobs (#179): in Overview, so "none" means none
+  // booked for anyone, not none of Terence's own.
+  await chooseOverview(owner.client, s.businessId)
   expect(await jobsFor({ ...s, owner }, 'Arthur Wellard', day)).toHaveLength(0)
 })
 
