@@ -141,8 +141,21 @@ async function saveRecoveryCodes(
     .check()
   await done.click()
   await expect(page).toHaveURL(new RegExp(`/${slug}/schedule$`))
-  await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
+  await expect(scheduleHeading(page)).toBeVisible()
   return codes
+}
+
+/**
+ * The Schedule page, in either view. A new sign-in opens in My jobs, and
+ * set-up hands over a new session, so the owner may land in either: Overview
+ * is headed "Schedule", My jobs by its own name
+ * (routes/$businessSlug/schedule.tsx).
+ */
+function scheduleHeading(page: Page) {
+  return page.getByRole('heading', {
+    level: 1,
+    name: /^(Schedule|My jobs)$/,
+  })
 }
 
 /** Set-up from Start to the app, with nothing in the way. */
@@ -269,7 +282,7 @@ test('signing in again asks for the code: a slipped digit is refused, the code s
   await expect(code).toHaveValue('')
   await code.fill(await codeNow(uri))
   await expect(page).toHaveURL(new RegExp(`/${slug}/schedule$`))
-  await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
+  await expect(scheduleHeading(page)).toBeVisible()
   expect(await signedInAs(page)).toBe(email)
 })
 

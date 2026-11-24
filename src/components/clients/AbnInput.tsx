@@ -3,9 +3,12 @@ import { isValidAbn } from '../../../convex/lib/abn'
 
 const MESSAGE = 'Check the ABN: it should be 11 digits and pass the ATO check.'
 
+// 16px in both: under 16px iOS zooms the page into the field as it is
+// tapped, and stays zoomed (md was 15px: Job → Edit → Client details' ABN,
+// iOS 27.2, 23 Nov 2026).
 const SIZES = {
   lg: 'h-12 px-3.5 text-[16px]',
-  md: 'h-11 px-3.5 text-body',
+  md: 'h-11 px-3.5 text-[16px]',
 }
 
 /**
