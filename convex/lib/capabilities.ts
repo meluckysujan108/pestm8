@@ -27,6 +27,9 @@ export type MemberStatus = 'active' | 'invited' | 'removed'
  *  - `switchInto`      "can work in my account"
  *  - `prices`          "can see job prices"
  *  - `otherSchedules`  "can see everyone's schedule" (read-only)
+ *  - `editOthers`      "…and change it": Settings → Team's "Other people's
+ *                      jobs: View and edit". Means nothing without
+ *                      `otherSchedules`, and never covers deleting a job.
  *
  * `clientDirectory` ("can see all clients") is retired and INERT: the owner
  * decided the client book is one business's, open to everyone in it, so the
@@ -35,7 +38,7 @@ export type MemberStatus = 'active' | 'invited' | 'removed'
  * legacy columns — removing it first would fail schema validation on every
  * membership that already carries it. */
 export type GrantKey =
-  'switchInto' | 'clientDirectory' | 'prices' | 'otherSchedules'
+  'switchInto' | 'clientDirectory' | 'prices' | 'otherSchedules' | 'editOthers'
 
 /**
  * `switchInto` is an id, not a boolean, and that single choice carries the
@@ -53,6 +56,7 @@ export type Grants = {
   clientDirectory: boolean
   prices: boolean
   otherSchedules: boolean
+  editOthers: boolean
 }
 
 /** Expiry is optional because the schema has no expiry column yet: a licence
@@ -226,6 +230,7 @@ export type Capability =
   | 'prices.see'
   | 'clients.directory'
   | 'schedules.seeOthers'
+  | 'jobs.editOthers'
   | 'accounts.switch'
 
 export type Decision = 'always' | 'never' | { byGrant: GrantKey }
@@ -254,6 +259,7 @@ export const ROLE_POLICY = {
     'prices.see': 'always',
     'clients.directory': 'always',
     'schedules.seeOthers': 'always',
+    'jobs.editOthers': 'always',
     'accounts.switch': 'always',
   },
   contractor: {
@@ -265,6 +271,8 @@ export const ROLE_POLICY = {
     'prices.see': { byGrant: 'prices' },
     'clients.directory': 'always', // one business, one client book
     'schedules.seeOthers': { byGrant: 'otherSchedules' },
+    // Beyond their own team, which `canEditJob` already gives them.
+    'jobs.editOthers': { byGrant: 'editOthers' },
     'accounts.switch': 'always', // downward, into their own team
   },
   subcontractor: {
@@ -276,6 +284,7 @@ export const ROLE_POLICY = {
     'prices.see': { byGrant: 'prices' },
     'clients.directory': 'always', // one business, one client book
     'schedules.seeOthers': { byGrant: 'otherSchedules' },
+    'jobs.editOthers': { byGrant: 'editOthers' },
     'accounts.switch': { byGrant: 'switchInto' }, // upward, one contractor
   },
 } satisfies Record<Role, RolePolicy>
@@ -330,6 +339,9 @@ export function capabilitiesOf(
         isCeilinged(capability) === false ||
         parentCaps[capability])
   }
+  // Changing work you can't see isn't a thing: the edit grant rides on the
+  // view one, whatever a row says.
+  out['jobs.editOthers'] = out['jobs.editOthers'] && out['schedules.seeOthers']
   return out
 }
 
@@ -337,7 +349,11 @@ export function capabilitiesOf(
  * role-inherent and not subject to the parent's grants, and the client book is
  * no longer a toggle at all (see `Grants`). */
 function isCeilinged(capability: Capability): boolean {
-  return capability === 'prices.see' || capability === 'schedules.seeOthers'
+  return (
+    capability === 'prices.see' ||
+    capability === 'schedules.seeOthers' ||
+    capability === 'jobs.editOthers'
+  )
 }
 
 /**
@@ -483,6 +499,15 @@ export function clientScope(caps: CapabilitySet): 'directory' | 'assigned' {
   return caps['clients.directory'] ? 'directory' : 'assigned'
 }
 
+/**
+ * Whether this work is the acting account's own to change: theirs, one
+ * they're also going on, or their crew's. Deleting it asks exactly this.
+ *
+ * Editing asks one more thing, in lib/jobAccess.ts (`mayEditJob`): whether
+ * they hold `jobs.editOthers`, the owner's "View and edit" for other
+ * people's jobs. That lives there and not here because it is a capability,
+ * read from the envelope, and this is a fact about the job.
+ */
 export function canEditJob(
   actor: ReadActor,
   job: {
@@ -500,9 +525,8 @@ export function canEditJob(
   if (acting.role === 'owner') return true
   const onJob = [job.assignedMembershipId, ...(job.alsoGoing ?? [])]
   if (onJob.includes(acting._id)) return true
-  // Read reach has never implied write reach, and "can see everyone's
-  // schedule" is explicitly read-only. Only a contractor's own team is theirs
-  // to edit.
+  // Read reach has never implied write reach: "can see everyone's
+  // schedule" alone is read-only. Only a contractor's own team is theirs.
   return (
     acting.role === 'contractor' &&
     team.some(
@@ -707,6 +731,7 @@ export function grantCeiling(
     clientDirectory: granterCaps['clients.directory'],
     prices: granterCaps['prices.see'],
     otherSchedules: granterCaps['schedules.seeOthers'],
+    editOthers: granterCaps['jobs.editOthers'],
   }
 }
 
@@ -726,6 +751,13 @@ export function clampGrants(
     clientDirectory: requested.clientDirectory && ceiling.clientDirectory,
     prices: requested.prices && ceiling.prices,
     otherSchedules: requested.otherSchedules && ceiling.otherSchedules,
+    // Only with the view it edits: "View and edit" is a step past "View
+    // only", never beside "Hidden".
+    editOthers:
+      requested.editOthers &&
+      requested.otherSchedules &&
+      ceiling.editOthers &&
+      ceiling.otherSchedules,
   }
 }
 
@@ -760,6 +792,7 @@ export const NO_GRANTS: Grants = {
   clientDirectory: false,
   prices: false,
   otherSchedules: false,
+  editOthers: false,
 }
 
 export const DEFAULT_GRANTS = {
@@ -768,6 +801,7 @@ export const DEFAULT_GRANTS = {
     clientDirectory: true,
     prices: true,
     otherSchedules: true,
+    editOthers: true,
   },
   contractor: {
     switchInto: null,
@@ -777,6 +811,9 @@ export const DEFAULT_GRANTS = {
     // dispatching work; leaving it off by default made a subcontractor's
     // reach potentially wider than their own contractor's.
     otherSchedules: true,
+    // Changing other people's work is the owner's to hand out, never a
+    // default: their own team's is theirs already (`canEditJob`).
+    editOthers: false,
   },
   subcontractor: NO_GRANTS,
 } satisfies Record<Role, Grants>
@@ -831,6 +868,9 @@ export function recomputeGrants(
       'schedules.seeOthers',
       member.grants.otherSchedules,
     ),
+    editOthers:
+      ceiling('jobs.editOthers', member.grants.editOthers) &&
+      ceiling('schedules.seeOthers', member.grants.otherSchedules),
   }
 }
 

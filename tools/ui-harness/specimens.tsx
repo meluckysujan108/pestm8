@@ -4388,6 +4388,7 @@ const KEVIN: Member = {
     clientDirectory: false,
     prices: false,
     otherSchedules: false,
+    editOthers: false,
   },
   canViewOtherAccounts: false,
   canManage: true,

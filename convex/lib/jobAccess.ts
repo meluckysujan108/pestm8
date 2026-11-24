@@ -5,7 +5,7 @@ import { alsoGoingOf } from './jobPeople'
 import { requireWriteActor, teamOf } from './actor'
 import { canDispatchTo, canEditJob } from './capabilities'
 import { factsFromMembership } from './membershipFacts'
-import type { Ctx, WriteEnvelope } from './actor'
+import type { ActorEnvelope, Ctx, WriteEnvelope } from './actor'
 import type { ReadActor } from './capabilities'
 import type { Doc, Id } from '../_generated/dataModel'
 import type { MutationCtx } from '../_generated/server'
@@ -29,11 +29,12 @@ import type { MutationCtx } from '../_generated/server'
 /**
  * `canEditJob`, with the contractor's team loaded only when it can change the
  * answer: the acting account is a contractor, and the work is not theirs.
+ * Whose work it is — which is all deleting it asks (lib/bin.ts).
  *
  * Works for a recurrence as well as a job — both are scoped by who the work is
  * assigned to, and that is the only column this reads.
  */
-export async function mayEditJob(
+export async function isTheirWork(
   ctx: Ctx,
   actor: ReadActor,
   work: {
@@ -50,22 +51,47 @@ export async function mayEditJob(
 }
 
 /**
- * `mayEditJob` for a job, counting the people also going on it — read only
+ * `isTheirWork` for a job, counting the people also going on it — read only
  * when they could change the answer: not for the owner, nor the job's lead.
  */
-export async function mayEditThisJob(
+export async function isTheirJob(
   ctx: Ctx,
   actor: ReadActor,
   job: { _id: Id<'jobs'>; assignedMembershipId: Id<'memberships'> },
 ): Promise<boolean> {
   const acting = actor.acting
   if (acting.role === 'owner' || job.assignedMembershipId === acting._id) {
-    return mayEditJob(ctx, actor, job)
+    return isTheirWork(ctx, actor, job)
   }
-  return mayEditJob(ctx, actor, {
+  return isTheirWork(ctx, actor, {
     ...job,
     alsoGoing: await alsoGoingOf(ctx, job._id),
   })
+}
+
+/** Who may change work: whoever it is theirs, and anyone the owner gave
+ * "View and edit" for other people's jobs (`jobs.editOthers`, which comes
+ * only with seeing them, so it reaches no job they couldn't open). */
+type EditEnvelope = Pick<ActorEnvelope, 'actor' | 'caps'>
+
+export async function mayEditJob(
+  ctx: Ctx,
+  env: EditEnvelope,
+  work: {
+    assignedMembershipId: Id<'memberships'>
+    alsoGoing?: ReadonlyArray<Id<'memberships'>>
+  },
+): Promise<boolean> {
+  return env.caps['jobs.editOthers'] || isTheirWork(ctx, env.actor, work)
+}
+
+/** `mayEditJob` for a job, its people also going read only when needed. */
+export async function mayEditThisJob(
+  ctx: Ctx,
+  env: EditEnvelope,
+  job: { _id: Id<'jobs'>; assignedMembershipId: Id<'memberships'> },
+): Promise<boolean> {
+  return env.caps['jobs.editOthers'] || isTheirJob(ctx, env.actor, job)
 }
 
 /**
@@ -82,7 +108,7 @@ export async function requireEditableJob(
   // A job in the Recycle bin is not edited until it is restored (lib/bin.ts).
   const job = unbinned(await ctx.db.get(jobId))
   if (!job || job.businessId !== businessId) throw new ConvexError('NOT_FOUND')
-  if (!(await mayEditThisJob(ctx, env.actor, job))) {
+  if (!(await mayEditThisJob(ctx, env, job))) {
     throw new ConvexError('NO_ACCESS')
   }
 

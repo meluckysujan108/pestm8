@@ -8,7 +8,7 @@ import { dropJobActivity, recordJobActivity } from './lib/jobActivity'
 import { isBinned, unbinned } from './lib/bin'
 import { writeAttribution } from './lib/capabilities'
 import { heldAnywhere } from './lib/fileClaims'
-import { mayEditJob, mayEditThisJob } from './lib/jobAccess'
+import { isTheirJob, isTheirWork } from './lib/jobAccess'
 import { purgeNote } from './notes'
 import { purgeReport, restoredDraftPatch } from './reports'
 import { intervalOf } from './lib/recurrence'
@@ -419,8 +419,9 @@ export const deleteJob = mutation({
     if (!job || job.businessId !== businessId)
       throw new ConvexError('NOT_FOUND')
     // A contractor deletes their own team's work, as they edit it — the
-    // work they, or their team, are also going on included.
-    if (!(await mayEditThisJob(ctx, env.actor, job))) {
+    // work they, or their team, are also going on included. Never through
+    // "View and edit" for other people's jobs, which changes but keeps.
+    if (!(await isTheirJob(ctx, env.actor, job))) {
       throw new ConvexError('NO_ACCESS')
     }
     return putInBin(ctx, businessId, { kind: 'job', id: jobId }, { env })
@@ -440,7 +441,7 @@ export const deleteSeries = mutation({
     if (!series || series.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }
-    if (!(await mayEditJob(ctx, env.actor, series))) {
+    if (!(await isTheirWork(ctx, env.actor, series))) {
       throw new ConvexError('NO_ACCESS')
     }
     return putInBin(
