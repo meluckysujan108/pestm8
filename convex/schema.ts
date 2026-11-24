@@ -1396,8 +1396,15 @@ export default defineSchema({
     // A job's history, newest first.
     .index('by_jobId_and_at', ['jobId', 'at'])
     // When the business's history begins, and its owner's Settings → Activity
-    // (to come).
-    .index('by_businessId_and_at', ['businessId', 'at']),
+    // (`jobActivity.feed`), newest first.
+    .index('by_businessId_and_at', ['businessId', 'at'])
+    // Settings → Activity narrowed to one person: what they changed, newest
+    // first, read a whole page at a time rather than stepped through.
+    .index('by_businessId_and_actorMembershipId_and_at', [
+      'businessId',
+      'actorMembershipId',
+      'at',
+    ]),
 
   // A Recurring Job: the standing arrangement, of which each `jobs` row
   // carrying this row's id is one visit.

@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'vitest'
 import {
+  activityDayLabel,
   activityWords,
   earlierLine,
+  feedCaption,
+  feedEndLine,
+  feedJobLine,
+  feedNothingBy,
   originLine,
   paymentWords,
   whoDidIt,
@@ -228,6 +233,69 @@ describe('where a history begins', () => {
     )
     expect(earlierLine(null, TZ, TODAY)).toBe(
       'Earlier changes weren’t recorded.',
+    )
+  })
+})
+
+describe('the business’s Activity (Settings → Activity)', () => {
+  test('a day is Today, Yesterday, or its date', () => {
+    expect(activityDayLabel(TODAY, TODAY)).toBe('Today')
+    expect(activityDayLabel('2026-11-23', TODAY)).toBe('Yesterday')
+    expect(activityDayLabel('2026-11-20', TODAY)).toBe('Fri 20 Nov')
+    expect(activityDayLabel('2025-12-31', TODAY)).toBe('Wed 31 Dec 2025')
+  })
+
+  test('a line names its job: what, for whom, and when', () => {
+    const job = {
+      state: 'open' as const,
+      jobType: 'General Pest Control',
+      client: 'J. Nguyen',
+      suburb: 'Bayswater',
+      scheduledAt: NINE,
+    }
+    expect(feedJobLine(job, TZ, TODAY)).toBe(
+      'General Pest Control · J. Nguyen, Bayswater · Wed 25 Nov',
+    )
+    // A client outside the reader's book is left out, not guessed at.
+    expect(feedJobLine({ ...job, client: null, suburb: null }, TZ, TODAY)).toBe(
+      'General Pest Control · Wed 25 Nov',
+    )
+    expect(feedJobLine({ state: 'gone' }, TZ, TODAY)).toBe(
+      'A job since deleted for good',
+    )
+  })
+
+  test('its foot: nothing older, and where the history begins when it began after the jobs', () => {
+    const kevinTran = { name: 'Kevin Tran', you: false }
+    const you = { name: 'Terence', you: true }
+    // A business that began with its history holds every change.
+    expect(feedEndLine(null, null, TZ, TODAY)).toBe('That’s every change.')
+    expect(feedEndLine(null, kevinTran, TZ, TODAY)).toBe(
+      'Nothing earlier by Kevin Tran.',
+    )
+    expect(feedEndLine(null, you, TZ, TODAY)).toBe('Nothing earlier by you.')
+    // One whose jobs were booked before it began says when it began.
+    expect(feedEndLine(NINE, null, TZ, TODAY)).toBe(
+      'Changes before Wed 25 Nov weren’t recorded.',
+    )
+    expect(feedEndLine(NINE, kevinTran, TZ, TODAY)).toBe(
+      'Nothing earlier by Kevin Tran. Changes before Wed 25 Nov weren’t recorded.',
+    )
+  })
+
+  test('narrowed to one person, it names them as its lines do', () => {
+    expect(feedCaption(null)).toBe('Every change to every job, newest first.')
+    expect(feedCaption({ name: 'Kevin Tran', you: false })).toBe(
+      'Changes made by Kevin Tran, newest first.',
+    )
+    expect(feedCaption({ name: 'Terence', you: true })).toBe(
+      'Changes you made, newest first.',
+    )
+    expect(feedNothingBy({ name: 'Kevin Tran', you: false })).toBe(
+      'Kevin Tran hasn’t changed a job.',
+    )
+    expect(feedNothingBy({ name: 'Terence', you: true })).toBe(
+      'You haven’t changed a job.',
     )
   })
 })

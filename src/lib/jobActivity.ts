@@ -1,5 +1,6 @@
 import { dayKeyOf } from '../../convex/lib/dates'
 import {
+  addDaysToKey,
   formatDuration,
   formatJobDate,
   formatMoney,
@@ -11,6 +12,7 @@ import { PAYMENT_METHOD } from './payments'
 import type {
   ActivityEntry,
   ActivityPerson,
+  FeedJob,
   ShownChange,
 } from '../../convex/jobActivity'
 
@@ -244,4 +246,78 @@ export function earlierLine(
   return recordedSince === null
     ? 'Earlier changes weren’t recorded.'
     : `Changes before ${formatJobDate(dayKeyOf(recordedSince, timezone), today)} weren’t recorded.`
+}
+
+/** "Today", "Yesterday", "Mon 23 Nov": a day's heading in the business's
+ * Activity (Settings → Activity), whose lines say only their time. */
+export function activityDayLabel(dayKey: string, today: string): string {
+  if (dayKey === today) return 'Today'
+  if (dayKey === addDaysToKey(today, -1)) return 'Yesterday'
+  return formatJobDate(dayKey, today)
+}
+
+/**
+ * Which job a line of the business's Activity is about, above what was done
+ * to it: "General Pest Control · J. Nguyen, Bayswater · Tue 25 Nov" — what
+ * it is, for whom, and the day it is booked for. A client outside the
+ * reader's book is left out, as everywhere else.
+ */
+export function feedJobLine(
+  job: FeedJob,
+  timezone: string,
+  today: string,
+): string {
+  if (job.state === 'gone') return 'A job since deleted for good'
+  const whom = [job.client, job.suburb].filter(Boolean).join(', ')
+  return [
+    job.jobType,
+    whom,
+    formatJobDate(dayKeyOf(job.scheduledAt, timezone), today),
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/**
+ * Whose changes a narrowed Activity shows: a name, or the reader, who reads
+ * "you" (`ActivityPerson`, as each of its lines names them).
+ */
+export type FeedPerson = { name: string; you: boolean }
+
+/** "Changes made by Kevin, newest first." — the top of the business's
+ * Activity, narrowed to one person or not. */
+export function feedCaption(narrowedTo: FeedPerson | null): string {
+  if (narrowedTo === null) return 'Every change to every job, newest first.'
+  return narrowedTo.you
+    ? 'Changes you made, newest first.'
+    : `Changes made by ${narrowedTo.name}, newest first.`
+}
+
+/** "Kevin hasn’t changed a job." — one person's Activity with nothing in it. */
+export function feedNothingBy(narrowedTo: FeedPerson): string {
+  return narrowedTo.you
+    ? 'You haven’t changed a job.'
+    : `${narrowedTo.name} hasn’t changed a job.`
+}
+
+/**
+ * The foot of the business's Activity once every line is in: that there is
+ * nothing older — of anyone's, or of the one person it is narrowed to — and,
+ * for a business whose jobs were booked before its history began
+ * (`jobActivity.feedStart`), the day it began, as a job's own Activity says
+ * for one booked before then.
+ */
+export function feedEndLine(
+  recordedSince: number | null,
+  narrowedTo: FeedPerson | null,
+  timezone: string,
+  today: string,
+): string {
+  const nothingOlder =
+    narrowedTo === null
+      ? null
+      : `Nothing earlier by ${narrowedTo.you ? 'you' : narrowedTo.name}.`
+  if (recordedSince === null) return nothingOlder ?? 'That’s every change.'
+  const began = earlierLine(recordedSince, timezone, today)
+  return nothingOlder === null ? began : `${nothingOlder} ${began}`
 }

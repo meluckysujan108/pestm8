@@ -15,6 +15,7 @@ import {
   ListChecks,
   PenLine,
   Plug,
+  ScrollText,
   ShieldCheck,
   SquarePlus,
   SunMoon,
@@ -433,6 +434,17 @@ function SettingsHub() {
                 title="Xero"
                 value={xeroRowValue(xero.business)}
                 badge={<XeroBadge view={xero.business} />}
+              />
+            )}
+            {/* Who changed which job: the whole business's history, for
+                the owner (Settings → Activity). */}
+            {canManageBusiness && (
+              <SettingsLinkRow
+                to="/$businessSlug/settings/activity"
+                params={{ businessSlug }}
+                icon={ScrollText}
+                tint="blue"
+                title="Activity"
               />
             )}
             {canManageBusiness && (
