@@ -397,10 +397,11 @@ test.describe('job visibility', () => {
     expect(job?.canEdit).toBe(true)
     expect(job?.canDelete).toBe(false)
 
+    // The fixture's job is 90 minutes; an unchanged value writes no line.
     await s.sub.client.mutation(api.jobs.update, {
       businessId: s.businessId,
       jobId: s.ownerJobId,
-      durationMinutes: 90,
+      durationMinutes: 120,
     })
     await expectRejected(
       () =>
@@ -419,7 +420,7 @@ test.describe('job visibility', () => {
     expect(activity?.entries[0]).toMatchObject({
       action: 'job.update',
       by: { you: false },
-      changes: [{ field: 'durationMinutes', to: 90 }],
+      changes: [{ field: 'durationMinutes', from: 90, to: 120 }],
     })
   })
 
