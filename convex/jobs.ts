@@ -21,7 +21,8 @@ import { suggestTemplates } from '../src/lib/reportTemplates/suggest'
 import { canonicalLabelFor, loadJobTypes } from './lib/jobTypeList'
 import { bookedJobStatus, settableJobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
-import { isInScope, writeAttribution } from './lib/capabilities'
+import { canDispatchTo, isInScope, writeAttribution } from './lib/capabilities'
+import { factsFromMembership } from './lib/membershipFacts'
 import {
   jobsInScope,
   jobsNewestFirst,
@@ -62,6 +63,7 @@ import { listsEverything, requireActor, requireWriteActor } from './lib/actor'
 import { recordAudit, recordOnBehalf } from './lib/audit'
 import { recordJobActivity } from './lib/jobActivity'
 import {
+  isTheirWork,
   mayEditJob,
   requireBookable,
   requireEditableJob,
@@ -1271,6 +1273,11 @@ export const get = query({
     const recurrence = job.recurrenceId
       ? await ctx.db.get(job.recurrenceId)
       : null
+    // Granted read access never implies write access (§4.4) — only the
+    // owner's "View and edit" does. The same question `requireEditableJob`
+    // asks, so the button is never an invitation to a refusal — everyone
+    // on the job may edit it.
+    const canEdit = await mayEditJob(ctx, env, { ...job, alsoGoing })
 
     return {
       ...redactJob(env.caps, job),
@@ -1296,10 +1303,22 @@ export const get = query({
       },
       // The people also going, beside the lead, in the order added.
       alsoGoing: people.filter((p) => p !== null),
-      // Granted read access never implies write access (§4.4). The same
-      // question `requireEditableJob` asks, so the button is never an
-      // invitation to a refusal — everyone on the job may edit it.
-      canEdit: await mayEditJob(ctx, env.actor, { ...job, alsoGoing }),
+      canEdit,
+      // Deleting asks whose work it is, never "View and edit"
+      // (bin.deleteJob). Absent from a backend before it; the sheet then
+      // reads `canEdit`, which then meant the same.
+      canDelete:
+        env.caps['clients.manage'] &&
+        (await isTheirWork(ctx, env.actor, { ...job, alsoGoing })),
+      // Making it recurring books its lead on every visit, so it asks what
+      // `recurrences.convertJobToRecurring` does: may this person book them
+      // (`requireBookable`). "View and edit" changes someone else's job; it
+      // doesn't keep booking them. Absent from a backend before it, like
+      // `canDelete`.
+      canRepeat:
+        canEdit &&
+        assignee?.status === 'active' &&
+        canDispatchTo(env.actor, factsFromMembership(assignee)),
     }
   },
 })

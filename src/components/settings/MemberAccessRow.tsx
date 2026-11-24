@@ -4,6 +4,7 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Switch } from 'radix-ui'
 import { api } from '../../../convex/_generated/api'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { Segmented } from '#/components/primitives/Segmented'
 import { fieldInputClass } from '#/components/forms/FormField'
 import { useAccess, useCan } from '#/lib/access'
 import { useAssigneeOptions } from '#/lib/assignees'
@@ -594,6 +595,7 @@ function AccessGroup({
   // A contractor can only give away what they hold (`grantCeiling`); the
   // server clamps anything more to off, so the switch would only flip back.
   const canGrantSchedules = useCan('schedules.seeOthers')
+  const canGrantEdits = useCan('jobs.editOthers')
   const canGrantPrices = useCan('prices.see')
 
   const convexSetViewOthers = useConvexMutation(
@@ -625,16 +627,19 @@ function AccessGroup({
   return (
     <SettingsGroup title="Access">
       {canGrantSchedules && (
-        <SwitchRow
-          label="Can view all jobs"
-          description="Adds Overview to their menu: every job, read-only. Their own stay in My jobs."
-          checked={member.grants.otherSchedules}
+        <OtherJobsRow
+          value={otherJobsOf(member.grants)}
+          canGrantEdits={canGrantEdits}
           disabled={setGrants.isPending || !hydrated}
-          onChange={(checked) =>
+          onChange={(choice) =>
             setGrants.mutate({
               businessId,
               membershipId: member._id,
-              grants: { ...member.grants, otherSchedules: checked },
+              grants: {
+                ...member.grants,
+                otherSchedules: choice !== 'hidden',
+                editOthers: choice === 'edit',
+              },
             })
           }
         />
@@ -676,6 +681,69 @@ function AccessGroup({
         </div>
       )}
     </SettingsGroup>
+  )
+}
+
+type OtherJobs = 'hidden' | 'view' | 'edit'
+
+const OTHER_JOBS_OPTIONS: Array<{ value: OtherJobs; label: string }> = [
+  { value: 'hidden', label: 'Hidden' },
+  { value: 'view', label: 'View only' },
+  { value: 'edit', label: 'View and edit' },
+]
+
+const OTHER_JOBS_HINT: Record<OtherJobs, string> = {
+  hidden: 'Only their own jobs, and the ones they’re also going on.',
+  view: 'Adds Overview to their menu: every job, read-only. Their own stay in My jobs.',
+  edit: 'Adds Overview, and they can change any job, but not delete one. Each change shows in that job’s Activity.',
+}
+
+/** The two grants as the one choice the owner makes: "View and edit" is a
+ * step past "View only", never beside "Hidden" (`clampGrants`). */
+function otherJobsOf(grants: Grants): OtherJobs {
+  if (!grants.otherSchedules) return 'hidden'
+  return grants.editOthers ? 'edit' : 'view'
+}
+
+/**
+ * Other people's jobs: Hidden · View only · View and edit. A contractor
+ * offers "View and edit" only when they hold it themselves (`grantCeiling`),
+ * as the switches below offer only what they hold.
+ */
+function OtherJobsRow({
+  value,
+  canGrantEdits,
+  disabled,
+  onChange,
+}: {
+  value: OtherJobs
+  canGrantEdits: boolean
+  disabled: boolean
+  onChange: (choice: OtherJobs) => void
+}) {
+  const labelId = useId()
+  // Held already, it stays on show, so the control never reads as nothing.
+  const options =
+    canGrantEdits || value === 'edit'
+      ? OTHER_JOBS_OPTIONS
+      : OTHER_JOBS_OPTIONS.filter((option) => option.value !== 'edit')
+  return (
+    <div className="flex flex-col gap-1.5 px-3.5 py-3">
+      <span id={labelId} className="text-body text-ink">
+        Other people’s jobs
+      </span>
+      <Segmented
+        kind="choice"
+        labelledBy={labelId}
+        value={value}
+        options={options}
+        onChange={onChange}
+        disabled={disabled}
+      />
+      <p className="text-caption text-muted" aria-live="polite">
+        {OTHER_JOBS_HINT[value]}
+      </p>
+    </div>
   )
 }
 

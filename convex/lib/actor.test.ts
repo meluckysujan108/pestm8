@@ -514,12 +514,14 @@ const ALL_ON: Grants = {
   clientDirectory: true,
   prices: true,
   otherSchedules: true,
+  editOthers: false,
 }
 const ALL_OFF: Grants = {
   switchInto: null,
   clientDirectory: false,
   prices: false,
   otherSchedules: false,
+  editOthers: false,
 }
 
 describe('a contractor is a ceiling on their own team', () => {

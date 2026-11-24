@@ -155,16 +155,35 @@ test('an owner grants view-all access from settings', async ({ page }) => {
     page.getByRole('heading', { name: 'Kevin', level: 1 }),
   ).toBeVisible()
 
-  // The switches are disabled until this page has hydrated too: a tap on the
+  // The choices are disabled until this page has hydrated too: a tap on the
   // server-rendered one has no handler yet.
-  const toggle = page.getByRole('switch', { name: 'Can view all jobs' })
-  await expect(toggle).toBeEnabled()
-  await expect(toggle).toHaveAttribute('data-state', 'unchecked')
+  const otherJobs = page.getByRole('radiogroup', {
+    name: 'Other people’s jobs',
+  })
+  const choice = (name: string) => otherJobs.getByRole('radio', { name })
+  await expect(choice('View only')).toBeEnabled()
+  await expect(choice('Hidden')).toHaveAttribute('aria-checked', 'true')
   // Retired: the client book is open to everyone in the business.
   await expect(page.getByText('Can see all clients')).toBeHidden()
 
-  await toggle.click()
-  await expect(toggle).toHaveAttribute('data-state', 'checked')
+  const kevinsGrants = async () => {
+    const team = await owner.client.query(api.team.roster, { businessId })
+    return team.find((m) => m.email === subEmail)!.grants
+  }
+
+  await choice('View only').click()
+  await expect(choice('View only')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByText(/every job, read-only/)).toBeVisible()
+  await expect
+    .poll(kevinsGrants)
+    .toMatchObject({ otherSchedules: true, editOthers: false })
+
+  await choice('View and edit').click()
+  await expect(choice('View and edit')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByText(/but not delete one/)).toBeVisible()
+  await expect
+    .poll(kevinsGrants)
+    .toMatchObject({ otherSchedules: true, editOthers: true })
 
   const members = await owner.client.query(api.memberships.listForBusiness, {
     businessId,

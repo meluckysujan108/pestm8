@@ -1070,7 +1070,7 @@ function JobDetailBody({
             timezone={timezone}
           />
 
-          {canDelete && job.canEdit && (
+          {canDelete && offersDelete(job) && (
             <>
               <DeleteButton
                 disabled={!hydrated}
@@ -2017,6 +2017,15 @@ function WeatherRow({
  * up a standing arrangement is not editing the job's details, and it asks
  * its own question.
  */
+/**
+ * Whether the sheet offers Delete. Its own flag, not `canEdit`: "View and
+ * edit" for other people's jobs changes them but never deletes one. An older
+ * backend sends none, and `canEdit` then meant the same.
+ */
+function offersDelete(job: { canEdit: boolean; canDelete?: boolean }) {
+  return job.canDelete ?? job.canEdit
+}
+
 function RepeatsRow({
   businessId,
   timezone,
@@ -2035,6 +2044,9 @@ function RepeatsRow({
     jobType: string
     recurrenceId?: Id<'recurrences'>
     canEdit: boolean
+    /** May make it recurring: books its lead on every visit, so only
+     * someone who may book them. Absent from an older backend. */
+    canRepeat?: boolean
     recurrence: { interval: Interval; active: boolean } | null
   }
   disabled: boolean
@@ -2057,7 +2069,8 @@ function RepeatsRow({
         label="Repeats"
         value="One-off"
         below={
-          changeable && (
+          changeable &&
+          (job.canRepeat ?? true) && (
             <button
               type="button"
               disabled={disabled}

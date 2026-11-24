@@ -137,6 +137,14 @@ describe('whether the live sheet would say the job is someone else’s', () => {
     expect(keptJobReadOnly(JO, ROSTER, job('m_sam', ['m_kev']))).toBe(false)
   })
 
+  test('a job of someone else’s is editable with View and edit for other people’s jobs', () => {
+    const editor = { ...MINE, caps: { 'jobs.editOthers': true } }
+    expect(keptJobReadOnly(editor, undefined, job('m_sam'))).toBe(false)
+    // View only says so too, as the live sheet would.
+    const viewer = { ...MINE, caps: { 'jobs.editOthers': false } }
+    expect(keptJobReadOnly(viewer, undefined, job('m_sam'))).toBe(true)
+  })
+
   test('the account being worked in decides, its role read from the roster', () => {
     const asKevin = {
       membershipId: 'm_owner',

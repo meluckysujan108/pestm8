@@ -70,6 +70,10 @@ export const grants = v.object({
   clientDirectory: v.boolean(),
   prices: v.boolean(),
   otherSchedules: v.boolean(),
+  /** "Other people's jobs: View and edit" (Nov 2026). Optional, read as
+   * false: every row from before it, and every phone still sending the four
+   * fields above, means "view only" at most. Nothing to migrate. */
+  editOthers: v.optional(v.boolean()),
 })
 export const membershipStatus = v.union(
   v.literal('active'),

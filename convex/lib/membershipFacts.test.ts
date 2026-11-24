@@ -94,6 +94,7 @@ describe('reading a row the new model has written', () => {
     clientDirectory: false,
     prices: false,
     otherSchedules: true,
+    editOthers: false,
   }
 
   /**
