@@ -64,6 +64,7 @@ import { JobEditChooser } from './JobEditChooser'
 import type { JobRecordEdit, RecordEditTarget } from './JobRecordEdit'
 import { JobTimeFields, useJobTimes } from './JobTimeFields'
 import { PropertyHistory } from './PropertyHistory'
+import { JobActivitySection } from './JobActivity'
 import { nextVisit } from '#/lib/jobHistory'
 import { Bone, RowPending, SheetPending } from '#/components/shell/Pending'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
@@ -1060,6 +1061,13 @@ function JobDetailBody({
             job={job}
             addressLine={job.property?.addressLine ?? ''}
             clientName={job.property?.client?.name ?? ''}
+          />
+
+          {/* Who changed this job, and how. */}
+          <JobActivitySection
+            businessId={businessId}
+            jobId={job._id}
+            timezone={timezone}
           />
 
           {canDelete && job.canEdit && (

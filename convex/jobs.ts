@@ -56,9 +56,11 @@ import { HORIZON_DAYS, intervalOf } from './lib/recurrence'
 import { contactPersonOf } from './lib/contactPerson'
 import type { RowScope } from './lib/capabilities'
 import type { ActorEnvelope, WriteEnvelope } from './lib/actor'
+import type { JobActivityAction, JobActivityExtra } from './lib/jobActivity'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import { listsEverything, requireActor, requireWriteActor } from './lib/actor'
 import { recordAudit, recordOnBehalf } from './lib/audit'
+import { recordJobActivity } from './lib/jobActivity'
 import {
   mayEditJob,
   requireBookable,
@@ -1511,22 +1513,39 @@ export const create = mutation({
     }
     if (matched) await recordAudit(ctx, writeAttribution(env.actor), entry)
     else await recordOnBehalf(ctx, writeAttribution(env.actor), entry)
+    // The first line of its history: who booked it, and when.
+    const booked = await ctx.db.get(jobId)
+    if (booked) {
+      await recordJobActivity(
+        ctx,
+        writeAttribution(env.actor),
+        booked,
+        'job.create',
+      )
+    }
     return jobId
   },
 })
 
 /**
- * A job write made inside someone else's account, on that account's record.
- * Nothing when the writer was working as themselves — see `recordOnBehalf`.
+ * A job write, on the job's history (`recordJobActivity`) — and, when it was
+ * made inside someone else's account, on that account's record too
+ * (`recordOnBehalf`; nothing there when the writer worked as themselves).
+ *
+ * Called AFTER the write, with `job` as it was read BEFORE it: the history
+ * says what the write changed by comparing the two.
  */
 export async function recordJobWrite(
   ctx: MutationCtx,
   env: WriteEnvelope,
   job: Doc<'jobs'>,
-  action: string,
+  action: JobActivityAction,
   meta?: unknown,
+  activity: JobActivityExtra = {},
 ) {
-  await recordOnBehalf(ctx, writeAttribution(env.actor), {
+  const by = writeAttribution(env.actor)
+  await recordJobActivity(ctx, by, job, action, activity)
+  await recordOnBehalf(ctx, by, {
     businessId: job.businessId,
     action,
     entityType: 'jobs',
@@ -1725,13 +1744,22 @@ export const update = mutation({
       if (moved) await setAlsoGoing(ctx, moved, alsoGoing, env.actor.real._id)
     }
     if (Object.keys(fields).length > 0 || peopleChanged || settles) {
-      await recordJobWrite(ctx, env, job, 'job.update', {
-        fields: [
-          ...Object.keys(fields),
-          ...(settles ? ['status'] : []),
-          ...(peopleChanged ? ['alsoGoing'] : []),
-        ],
-      })
+      await recordJobWrite(
+        ctx,
+        env,
+        job,
+        'job.update',
+        {
+          fields: [
+            ...Object.keys(fields),
+            ...(settles ? ['status'] : []),
+            ...(peopleChanged ? ['alsoGoing'] : []),
+          ],
+        },
+        peopleChanged
+          ? { people: { from: currentAlsoGoing, to: alsoGoing } }
+          : {},
+      )
     }
     if (olderAppNote !== undefined) {
       const updated = await ctx.db.get(jobId)

@@ -8,6 +8,7 @@ import {
   resolveBusy,
 } from './busyFixtures'
 import { JOB_TYPES_LIST, JOB_TYPES_MANAGE } from './jobTypeFixtures'
+import { jobActivityFixture } from './activityFixtures'
 import { resolveMatch } from './matchFixtures'
 import { resolveMergeFixture } from './mergeFixtures'
 import { openWorkFixture, resolveSiteBook } from './siteWorkFixtures'
@@ -1153,6 +1154,8 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   }),
   'jobs:photos': () => [],
   'properties:jobHistory': () => [],
+  'jobActivity:list': (args: { jobId: string }) =>
+    jobActivityFixture(args.jobId),
   'reports:listByProperty': () => [],
   // A finished report's photos: none on the sample.
   'reports:galleryPhotos': () => [],

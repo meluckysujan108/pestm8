@@ -4,6 +4,7 @@ import { internal } from './_generated/api'
 import { authComponent } from './auth'
 import { requireActor, requireCapability, requireWriteActor } from './lib/actor'
 import { recordAudit } from './lib/audit'
+import { dropJobActivity, recordJobActivity } from './lib/jobActivity'
 import { isBinned, unbinned } from './lib/bin'
 import { writeAttribution } from './lib/capabilities'
 import { heldAnywhere } from './lib/fileClaims'
@@ -71,6 +72,10 @@ import {
  * transaction marks the whole group, which is what makes a delete all or
  * nothing — and a client with this many records needs a different tool
  * than a tap on their sheet.
+ *
+ * A job writes twice — its own mark and a line on its Activity
+ * (lib/jobActivity.ts) — so a group of jobs alone is up to 8,000 writes,
+ * half of what one Convex transaction may make.
  */
 export const MAX_GROUP_ROWS = 4000
 
@@ -85,6 +90,8 @@ export const BIN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
  * more (mentions, the sync component, photos), so fewer of them. */
 const HEAVY_BATCH = 25
 const ROW_BATCH = 200
+/** How many rows of jobs' histories one wipe step deletes, at most. */
+const ACTIVITY_BATCH = 1000
 
 type Root = Doc<'binEntries'>['root']
 
@@ -346,6 +353,17 @@ export async function putInBin(
     meta: { counts },
     at: now,
   })
+  // On each job's own history too, which a restore brings back with it:
+  // "deleted with its client" says why a visit was gone for a fortnight.
+  for (const job of group.jobs.values()) {
+    await recordJobActivity(
+      ctx,
+      writeAttribution(by.env.actor),
+      job,
+      'bin.delete',
+      { binRoot: root.kind, at: now },
+    )
+  }
   return binEntryId
 }
 
@@ -591,6 +609,14 @@ export const restore = mutation({
       entityType: TABLE_OF[entry.root.kind],
       entityId: entry.root.id,
     })
+    for (const job of jobs) {
+      await recordJobActivity(
+        ctx,
+        writeAttribution(env.actor),
+        job,
+        'bin.restore',
+      )
+    }
   },
 })
 
@@ -938,7 +964,13 @@ export const wipeStep = internalMutation({
       .withIndex('by_binEntryId', (q) => q.eq('binEntryId', entryId))
       .take(ROW_BATCH)
     if (jobs.length > 0) {
+      // A job's history goes with it, a step's worth of rows at a time: a
+      // job whose history is not all gone is wiped on the next step.
+      let activityLeft = ACTIVITY_BATCH
       for (const job of jobs) {
+        const dropped = await dropJobActivity(ctx, job._id, activityLeft)
+        activityLeft -= dropped.deleted
+        if (!dropped.done) return again()
         const photos = await ctx.db
           .query('jobPhotos')
           .withIndex('by_job', (q) => q.eq('jobId', job._id))

@@ -4,6 +4,7 @@ import { allocateJobNumber } from './jobs'
 import { isBinned, unbinned } from './lib/bin'
 import { requireActor, requireWriteActor } from './lib/actor'
 import { recordAudit, recordOnBehalf } from './lib/audit'
+import { recordJobActivity } from './lib/jobActivity'
 import { insertJobNote } from './notes'
 import { isInScope, writeAttribution } from './lib/capabilities'
 import {
@@ -423,13 +424,24 @@ export const create = mutation({
     // projects only the visits after it.
     const recurrence = await ctx.db.get(recurrenceId)
     if (recurrence && !isBackfill(recurrence.anchorDate, Date.now())) {
-      await insertVisit(
+      const visitId = await insertVisit(
         ctx,
         recurrence,
         recurrence.anchorDate,
         args.durationMinutes,
         'manual',
       )
+      // Booked by hand, so its history starts with whoever booked it, as
+      // a job's from New Job does — not as a visit the series put there.
+      const visit = await ctx.db.get(visitId)
+      if (visit) {
+        await recordJobActivity(
+          ctx,
+          writeAttribution(env.actor),
+          visit,
+          'job.create',
+        )
+      }
     }
     await materialiseOne(ctx, recurrenceId, args.durationMinutes)
     // Onto the series' first visit: the one booked above, or — for a series
@@ -597,9 +609,11 @@ async function stopSeries(
     .withIndex('by_recurrence', (q) => q.eq('recurrenceId', recurrence._id))
     .collect()
   const now = Date.now()
+  const by = writeAttribution(env.actor)
   for (const job of jobs) {
     if (NOT_STARTED_STATUSES.has(job.status) && job.scheduledAt > now) {
       await setJobStatus(ctx, job, 'cancelled')
+      await recordJobActivity(ctx, by, job, 'recurrence.stop')
     }
   }
 }
@@ -901,6 +915,13 @@ export const convertJobToRecurring = mutation({
       jobId,
       interval: describeInterval(interval),
     })
+    await recordJobActivity(
+      ctx,
+      writeAttribution(env.actor),
+      job,
+      'recurrence.convert',
+      { interval },
+    )
 
     return recurrenceId
   },
@@ -939,6 +960,8 @@ export const stopFromJob = mutation({
     // is it LEAVING `recurring`, which is always allowed.
     if (job.status === 'recurring') await setJobStatus(ctx, job, 'pending')
     await ctx.db.patch(recurrenceId, { active: false })
+    const by = writeAttribution(env.actor)
+    await recordJobActivity(ctx, by, job, 'recurrence.leave')
 
     const siblings = await ctx.db
       .query('jobs')
@@ -954,6 +977,7 @@ export const stopFromJob = mutation({
         // Cancelled, not deleted: someone turned up to these, or planned to.
         // A hard delete leaves the owner no way to see what was dropped.
         await setJobStatus(ctx, sibling, 'cancelled')
+        await recordJobActivity(ctx, by, sibling, 'recurrence.stop')
       }
     }
     await recordSeriesWrite(ctx, env, recurrenceId, 'recurrence.stop', {
