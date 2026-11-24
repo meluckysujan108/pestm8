@@ -176,6 +176,9 @@ const JANE_NEW_ADDRESS = {
   postcode: '6053',
 }
 
+/** The narrowest phone a page is checked at: an iPhone SE or mini. */
+const PHONE_375 = { width: 375, height: 812 }
+
 const PLAN = {
   // Analytics: the overview in each state, its two sheets, and Awaiting
   // invoice. The chart is a chunk of its own, so each waits for it.
@@ -209,6 +212,47 @@ const PLAN = {
     },
   },
   'activity-kevin': { before: async (p) => p.waitForTimeout(500) },
+  // The owner's Settings → Activity: the business's changes by day, one
+  // person's, the end of the list, nothing yet, a failed read, loading, and
+  // the filter's sheet.
+  'settings-activity': {
+    viewport: PHONE_375,
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'settings-activity-kevin': {
+    viewport: PHONE_375,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'settings-activity-end': {
+    viewport: PHONE_375,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'settings-activity-empty': {
+    viewport: PHONE_375,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'settings-activity-you': {
+    viewport: PHONE_375,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'settings-activity-failed': {
+    viewport: PHONE_375,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'settings-activity-loading': {
+    viewport: PHONE_375,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'settings-activity-filter': {
+    viewport: PHONE_375,
+    spec: 'settings-activity',
+    before: async (p) => {
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: 'Filters' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
   'activity-older': { before: async (p) => p.waitForTimeout(500) },
   'activity-more': { before: async (p) => p.waitForTimeout(500) },
   // The view menu, opened: the owner's, then Kevin's (Overview and My jobs).

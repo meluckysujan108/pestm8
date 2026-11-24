@@ -202,6 +202,9 @@ export const NOTES_PAGE = 30
 /** 24 fills the Job tab's one, two and three columns evenly. */
 export const JOBS_PAGE = 24
 export const CLIENTS_PAGE = 30
+/** Settings → Activity: a line is a few short sentences, so a page is a
+ * screen or two of them. */
+export const ACTIVITY_PAGE = 30
 
 /**
  * The first page of a library, as a plain query.
@@ -351,6 +354,23 @@ export const jobsFirstPage = (
     ...jobsPageArgs(businessId, status, sort),
     paginationOpts: { numItems: JOBS_PAGE, cursor: null },
   })
+
+/** The owner's Settings → Activity, all of it or one person's changes
+ * (`jobActivity.feed`). */
+export const activityFeedArgs = (businessId: B, staffId?: string) => ({
+  businessId,
+  ...(staffId !== undefined && { staffId }),
+})
+
+export const activityFirstPage = (businessId: B, staffId?: string) =>
+  convexQuery(api.jobActivity.feed, {
+    ...activityFeedArgs(businessId, staffId),
+    paginationOpts: { numItems: ACTIVITY_PAGE, cursor: null },
+  })
+
+/** Where the business's Activity begins, for its foot. */
+export const activityFeedStart = (businessId: B) =>
+  convexQuery(api.jobActivity.feedStart, { businessId })
 
 export const clientsFirstPage = (businessId: B) =>
   convexQuery(api.clients.page, {

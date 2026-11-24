@@ -37,6 +37,7 @@ import { Route as BusinessSlugReportsReportIdRouteImport } from './routes/$busin
 import { Route as BusinessSlugReportsNewRouteImport } from './routes/$businessSlug/reports/new'
 import { Route as BusinessSlugSettingsIndexRouteImport } from './routes/$businessSlug/settings/index'
 import { Route as BusinessSlugSettingsAboutRouteImport } from './routes/$businessSlug/settings/about'
+import { Route as BusinessSlugSettingsActivityRouteImport } from './routes/$businessSlug/settings/activity'
 import { Route as BusinessSlugSettingsAppearanceRouteImport } from './routes/$businessSlug/settings/appearance'
 import { Route as BusinessSlugSettingsBinRouteImport } from './routes/$businessSlug/settings/bin'
 import { Route as BusinessSlugSettingsBusinessRouteImport } from './routes/$businessSlug/settings/business'
@@ -209,6 +210,12 @@ const BusinessSlugSettingsAboutRoute =
     path: '/settings/about',
     getParentRoute: () => BusinessSlugRouteRoute,
   } as any)
+const BusinessSlugSettingsActivityRoute =
+  BusinessSlugSettingsActivityRouteImport.update({
+    id: '/settings/activity',
+    path: '/settings/activity',
+    getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
 const BusinessSlugSettingsAppearanceRoute =
   BusinessSlugSettingsAppearanceRouteImport.update({
     id: '/settings/appearance',
@@ -370,6 +377,7 @@ export interface FileRoutesByFullPath {
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
   '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
   '/$businessSlug/settings/about': typeof BusinessSlugSettingsAboutRoute
+  '/$businessSlug/settings/activity': typeof BusinessSlugSettingsActivityRoute
   '/$businessSlug/settings/appearance': typeof BusinessSlugSettingsAppearanceRoute
   '/$businessSlug/settings/bin': typeof BusinessSlugSettingsBinRoute
   '/$businessSlug/settings/business': typeof BusinessSlugSettingsBusinessRoute
@@ -422,6 +430,7 @@ export interface FileRoutesByTo {
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
   '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
   '/$businessSlug/settings/about': typeof BusinessSlugSettingsAboutRoute
+  '/$businessSlug/settings/activity': typeof BusinessSlugSettingsActivityRoute
   '/$businessSlug/settings/appearance': typeof BusinessSlugSettingsAppearanceRoute
   '/$businessSlug/settings/bin': typeof BusinessSlugSettingsBinRoute
   '/$businessSlug/settings/business': typeof BusinessSlugSettingsBusinessRoute
@@ -476,6 +485,7 @@ export interface FileRoutesById {
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
   '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
   '/$businessSlug/settings/about': typeof BusinessSlugSettingsAboutRoute
+  '/$businessSlug/settings/activity': typeof BusinessSlugSettingsActivityRoute
   '/$businessSlug/settings/appearance': typeof BusinessSlugSettingsAppearanceRoute
   '/$businessSlug/settings/bin': typeof BusinessSlugSettingsBinRoute
   '/$businessSlug/settings/business': typeof BusinessSlugSettingsBusinessRoute
@@ -531,6 +541,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/reports/$reportId'
     | '/$businessSlug/reports/new'
     | '/$businessSlug/settings/about'
+    | '/$businessSlug/settings/activity'
     | '/$businessSlug/settings/appearance'
     | '/$businessSlug/settings/bin'
     | '/$businessSlug/settings/business'
@@ -583,6 +594,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/reports/$reportId'
     | '/$businessSlug/reports/new'
     | '/$businessSlug/settings/about'
+    | '/$businessSlug/settings/activity'
     | '/$businessSlug/settings/appearance'
     | '/$businessSlug/settings/bin'
     | '/$businessSlug/settings/business'
@@ -636,6 +648,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/reports/$reportId'
     | '/$businessSlug/reports/new'
     | '/$businessSlug/settings/about'
+    | '/$businessSlug/settings/activity'
     | '/$businessSlug/settings/appearance'
     | '/$businessSlug/settings/bin'
     | '/$businessSlug/settings/business'
@@ -880,6 +893,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BusinessSlugSettingsAboutRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
+    '/$businessSlug/settings/activity': {
+      id: '/$businessSlug/settings/activity'
+      path: '/settings/activity'
+      fullPath: '/$businessSlug/settings/activity'
+      preLoaderRoute: typeof BusinessSlugSettingsActivityRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
     '/$businessSlug/settings/appearance': {
       id: '/$businessSlug/settings/appearance'
       path: '/settings/appearance'
@@ -1068,6 +1088,7 @@ interface BusinessSlugRouteRouteChildren {
   BusinessSlugReportsReportIdRoute: typeof BusinessSlugReportsReportIdRoute
   BusinessSlugReportsNewRoute: typeof BusinessSlugReportsNewRoute
   BusinessSlugSettingsAboutRoute: typeof BusinessSlugSettingsAboutRoute
+  BusinessSlugSettingsActivityRoute: typeof BusinessSlugSettingsActivityRoute
   BusinessSlugSettingsAppearanceRoute: typeof BusinessSlugSettingsAppearanceRoute
   BusinessSlugSettingsBinRoute: typeof BusinessSlugSettingsBinRoute
   BusinessSlugSettingsBusinessRoute: typeof BusinessSlugSettingsBusinessRoute
@@ -1107,6 +1128,7 @@ const BusinessSlugRouteRouteChildren: BusinessSlugRouteRouteChildren = {
   BusinessSlugReportsReportIdRoute: BusinessSlugReportsReportIdRoute,
   BusinessSlugReportsNewRoute: BusinessSlugReportsNewRoute,
   BusinessSlugSettingsAboutRoute: BusinessSlugSettingsAboutRoute,
+  BusinessSlugSettingsActivityRoute: BusinessSlugSettingsActivityRoute,
   BusinessSlugSettingsAppearanceRoute: BusinessSlugSettingsAppearanceRoute,
   BusinessSlugSettingsBinRoute: BusinessSlugSettingsBinRoute,
   BusinessSlugSettingsBusinessRoute: BusinessSlugSettingsBusinessRoute,
