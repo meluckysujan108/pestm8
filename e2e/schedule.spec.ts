@@ -98,7 +98,7 @@ test('an owner can add a property, book a job, and complete it', async ({
   // Status is changed from the pill itself, not a dedicated button.
   await chooseStatus(page, 'Completed')
 
-  await expect(detail.getByText('Completed')).toBeVisible()
+  await expect(detail.getByText('Completed', { exact: true })).toBeVisible()
 
   // --- and analytics reflects it ------------------------------------------
   await page.goto(`/${slug}/analytics`)
