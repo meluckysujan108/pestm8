@@ -27,8 +27,16 @@ function perthToday() {
 test('a subcontractor who can see the schedule sees the owner by name', async ({
   page,
 }) => {
-  const { owner, sub, businessId, slug, subMembershipId, ownerJobDay } =
-    await setupBusinessWithSub('owner-visible')
+  const {
+    owner,
+    sub,
+    businessId,
+    slug,
+    propertyId,
+    subMembershipId,
+    ownerJobAt,
+    ownerJobDay,
+  } = await setupBusinessWithSub('owner-visible')
 
   // The fixture's job is the owner's; a subcontractor only has it in view once
   // they may see everyone's schedule.
@@ -43,8 +51,21 @@ test('a subcontractor who can see the schedule sees the owner by name', async ({
     },
   })
 
+  // And one of Kevin's at the same moment, so the day has two people on it:
+  // in Overview the phone shows everyone's jobs, and its filter lists only
+  // whoever has one on the day shown.
+  await owner.client.mutation(api.jobs.create, {
+    businessId,
+    propertyId,
+    assignedMembershipId: subMembershipId,
+    jobType: 'General Pest Control',
+    price: 19500,
+    scheduledAt: ownerJobAt,
+    durationMinutes: 60,
+  })
+
   await signInViaUi(page, sub.email)
-  // On the job's own day: the phone's staff filter lists who has a job on
+  // On the jobs' own day: the phone's staff filter lists who has a job on
   // the day shown, and a bare schedule past Perth midnight shows the next.
   await page.goto(`/${slug}/schedule?date=${ownerJobDay}`)
   // The staff filter is in the server-rendered markup, so a tap on it before
@@ -53,9 +74,8 @@ test('a subcontractor who can see the schedule sees the owner by name', async ({
   await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
 
   // Each layout names people in its own place: the desktop month card's team
-  // legend, and the phone's filter sheet (which opens on your own jobs, so
-  // the owner is one of two Technicians there). The desktop's leaves out its
-  // Technician on a day with one, which this is.
+  // legend, and the phone's filter sheet, whose Technicians are the two
+  // people with work today.
   const isPhone = (page.viewportSize()?.width ?? 1280) < 1024
   // Scoped, because the business's name is on screen elsewhere (the sidebar's
   // business switcher) and the check below is only about who a job is for.
