@@ -7,6 +7,7 @@ import { BackLink, SettingsBody } from '#/components/settings/ui'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import { useActing, useCan } from '#/lib/access'
 import {
+  activityFeedStart,
   activityFirstPage,
   rq,
   searchParam,
@@ -42,8 +43,9 @@ export const Route = createFileRoute('/$businessSlug/settings/activity')({
           ? [
               activityFirstPage(
                 business._id,
-                typeof staff === 'string' ? staff : undefined,
+                whose(typeof staff === 'string' ? staff : undefined),
               ),
+              activityFeedStart(business._id),
               // The filter's names, and the name a narrowed list says.
               rq.roster(business._id),
             ]
@@ -54,6 +56,12 @@ export const Route = createFileRoute('/$businessSlug/settings/activity')({
   component: ActivityPage,
 })
 
+/** Whose changes the address asks for: one person's, or — unset, or "all",
+ * as the filter sheet calls everyone — everybody's. */
+function whose(staff: string | undefined): string | undefined {
+  return staff === 'all' ? undefined : staff
+}
+
 /**
  * Settings → Activity: who changed which job, and how, across the whole
  * business (convex/jobActivity.ts `feed`). The owner's, like the Recycle
@@ -61,7 +69,7 @@ export const Route = createFileRoute('/$businessSlug/settings/activity')({
  * until they switch back.
  */
 function ActivityPage() {
-  const { business } = Route.useRouteContext()
+  const { business, membership } = Route.useRouteContext()
   const { staff, jobId } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const canManageBusiness = useCan('business.manage')
@@ -91,7 +99,8 @@ function ActivityPage() {
             businessId={business._id}
             businessSlug={business.slug}
             timezone={business.timezone}
-            staffId={staff}
+            viewerId={membership._id}
+            staffId={whose(staff)}
             onStaff={(next) =>
               navigate({
                 search: (prev) => ({ ...prev, staff: next }),

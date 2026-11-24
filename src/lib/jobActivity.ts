@@ -279,17 +279,45 @@ export function feedJobLine(
 }
 
 /**
- * The foot of the business's Activity once every line is in: where its
- * history begins (the oldest line there is), as a job's own Activity says
- * for one booked before then — or, narrowed to one person, that there is
- * nothing older of theirs.
+ * Whose changes a narrowed Activity shows: a name, or the reader, who reads
+ * "you" (`ActivityPerson`, as each of its lines names them).
+ */
+export type FeedPerson = { name: string; you: boolean }
+
+/** "Changes made by Kevin, newest first." — the top of the business's
+ * Activity, narrowed to one person or not. */
+export function feedCaption(narrowedTo: FeedPerson | null): string {
+  if (narrowedTo === null) return 'Every change to every job, newest first.'
+  return narrowedTo.you
+    ? 'Changes you made, newest first.'
+    : `Changes made by ${narrowedTo.name}, newest first.`
+}
+
+/** "Kevin hasn’t changed a job." — one person's Activity with nothing in it. */
+export function feedNothingBy(narrowedTo: FeedPerson): string {
+  return narrowedTo.you
+    ? 'You haven’t changed a job.'
+    : `${narrowedTo.name} hasn’t changed a job.`
+}
+
+/**
+ * The foot of the business's Activity once every line is in: that there is
+ * nothing older — of anyone's, or of the one person it is narrowed to — and,
+ * for a business whose jobs were booked before its history began
+ * (`jobActivity.feedStart`), the day it began, as a job's own Activity says
+ * for one booked before then.
  */
 export function feedEndLine(
-  oldest: number | null,
-  narrowedTo: string | null,
+  recordedSince: number | null,
+  narrowedTo: FeedPerson | null,
   timezone: string,
   today: string,
 ): string {
-  if (narrowedTo !== null) return `Nothing earlier by ${narrowedTo}.`
-  return earlierLine(oldest, timezone, today)
+  const nothingOlder =
+    narrowedTo === null
+      ? null
+      : `Nothing earlier by ${narrowedTo.you ? 'you' : narrowedTo.name}.`
+  if (recordedSince === null) return nothingOlder ?? 'That’s every change.'
+  const began = earlierLine(recordedSince, timezone, today)
+  return nothingOlder === null ? began : `${nothingOlder} ${began}`
 }

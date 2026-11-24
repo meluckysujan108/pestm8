@@ -501,3 +501,49 @@ describe('one person’s changes', () => {
     ).toEqual({ page: [], isDone: true, continueCursor: '' })
   })
 })
+
+describe('where the history begins', () => {
+  function start(s: Setup, who: TestActor = s.terence) {
+    return who.as.query(api.jobActivity.feedStart, {
+      businessId: s.businessId,
+    })
+  }
+
+  test('a business that began with it holds every change', async () => {
+    const s = await setup()
+    expect(await start(s)).toEqual({ recordedSince: null })
+
+    const jobId = await book(s)
+    await lengthen(s, s.terence, jobId, 90)
+    await book(s, { lead: s.kevinId })
+    expect(await start(s)).toEqual({ recordedSince: null })
+  })
+
+  test('a job booked before the first line: changes before it weren’t recorded', async () => {
+    const s = await setup()
+    const jobId = await book(s)
+    // As the businesses that were running before #181 are: their jobs, and
+    // none of the lines that would have booked them.
+    await s.t.run(async (ctx) => {
+      for (const row of await ctx.db.query('jobActivity').collect()) {
+        await ctx.db.delete(row._id)
+      }
+    })
+    await lengthen(s, s.terence, jobId, 90)
+    await book(s, { lead: s.kevinId })
+
+    const { lines } = await wholeFeed(s, 10)
+    expect(lines.map((line) => line.action)).toEqual([
+      'job.create',
+      'job.update',
+    ])
+    expect(await start(s)).toEqual({ recordedSince: lines[1].at })
+  })
+
+  test('nobody but the owner', async () => {
+    const s = await setup()
+    await book(s)
+    await expect(start(s, s.kevin)).rejects.toThrow(/NO_ACCESS/)
+    await expect(start(s, s.ali)).rejects.toThrow(/NO_ACCESS/)
+  })
+})

@@ -16,18 +16,22 @@ import { formatTime, todayKey } from '#/lib/format'
 import {
   activityDayLabel,
   activityWords,
+  feedCaption,
   feedEndLine,
   feedJobLine,
+  feedNothingBy,
 } from '#/lib/jobActivity'
 import {
   ACTIVITY_PAGE,
   activityFeedArgs,
+  activityFeedStart,
   activityFirstPage,
   rq,
 } from '#/lib/routeQueries'
 import { usePagedList } from '#/lib/usePagedList'
 import { useHydrated } from '#/lib/useHydrated'
 import { dayKeyOf } from '../../../convex/lib/dates'
+import type { FeedPerson } from '#/lib/jobActivity'
 import type { FeedEntry } from '../../../convex/jobActivity'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -50,12 +54,15 @@ export function ActivityFeed({
   businessId,
   businessSlug,
   timezone,
+  viewerId,
   staffId,
   onStaff,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
   timezone: string
+  /** The reader's own membership: narrowed to it, the page says "you". */
+  viewerId: string
   /** Whose changes, from the page's address (`?staff=`); all when unset. */
   staffId: string | undefined
   onStaff: (next: string | undefined) => void
@@ -63,10 +70,9 @@ export function ActivityFeed({
   // Today as the page opened, for the day headings and each job's date.
   const [today] = useState(() => todayKey(timezone))
   const { data: members = [] } = useQuery(rq.roster(businessId))
-  const person =
-    staffId === undefined
-      ? null
-      : (members.find((member) => member._id === staffId)?.name ?? 'Someone')
+  // Cheap, and wanted only at the foot, but asked for with the list so the
+  // foot never arrives a beat after the last page does.
+  const { data: start } = useQuery(activityFeedStart(businessId))
 
   const paged = usePagedList({
     query: api.jobActivity.feed,
@@ -75,6 +81,18 @@ export function ActivityFeed({
     pageSize: ACTIVITY_PAGE,
   })
 
+  // Whose changes, named as the lines name them: from a line once there is
+  // one (a member since removed is still named there), else from the team,
+  // and "you" for the reader.
+  const person: FeedPerson | null =
+    staffId === undefined
+      ? null
+      : (paged.rows.at(0)?.by ?? {
+          name:
+            members.find((member) => member._id === staffId)?.name || 'Someone',
+          you: staffId === viewerId,
+        })
+
   const days: Array<Day> = []
   for (const line of paged.rows) {
     const key = dayKeyOf(line.at, timezone)
@@ -82,16 +100,11 @@ export function ActivityFeed({
     if (last?.key === key) last.lines.push(line)
     else days.push({ key, label: activityDayLabel(key, today), lines: [line] })
   }
-  const oldest = paged.rows.at(-1)?.at ?? null
 
   return (
     <>
       <div className="mb-4 flex min-h-9 items-center justify-between gap-3 px-1">
-        <p className="min-w-0 text-caption text-muted">
-          {person === null
-            ? 'Every change to every job, newest first.'
-            : `Changes made by ${person}, newest first.`}
-        </p>
+        <p className="min-w-0 text-caption text-muted">{feedCaption(person)}</p>
         <ActivityFilterButton
           members={members}
           staffId={staffId}
@@ -111,7 +124,7 @@ export function ActivityFeed({
           />
         ) : (
           <NoMatches
-            hint={`${person} hasn’t changed a job.`}
+            hint={feedNothingBy(person)}
             clearLabel="Clear filters"
             onClear={() => onStaff(undefined)}
           />
@@ -146,9 +159,9 @@ export function ActivityFeed({
             shown={paged.rows.length}
             resetKey={staffId ?? ''}
           />
-          {paged.done && (
+          {paged.done && start !== undefined && (
             <p className="mt-3 px-1 text-caption text-muted">
-              {feedEndLine(oldest, person, timezone, today)}
+              {feedEndLine(start.recordedSince, person, timezone, today)}
             </p>
           )}
         </>

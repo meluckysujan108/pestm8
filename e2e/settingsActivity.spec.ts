@@ -91,11 +91,10 @@ test('the owner reads every change, newest first, and opens a job from it', asyn
   await expect(lengthened).toContainText('Kevin')
   await expect(lengthened).toContainText('General Pest Control · J. Nguyen')
   await expect(lines.first()).toContainText('Changed the price')
-  // Two bookings, a lengthening and a new price; the history began today.
+  // Two bookings, a lengthening and a new price; and as the business began
+  // with its history, that's all there is.
   await expect(lines).toHaveCount(4)
-  await expect(
-    page.getByText(/^Changes before .* weren’t recorded\.$/),
-  ).toBeVisible()
+  await expect(page.getByText('That’s every change.')).toBeVisible()
 
   // A line opens its job's sheet over the list, and closing it comes back.
   const sheet = page.getByRole('dialog')
@@ -145,6 +144,15 @@ test('narrowed to one person, only the changes they made', async ({ page }) => {
   // Opened again from the address, it is still Kevin's.
   await page.reload()
   await expect(lines).toHaveCount(1)
+
+  // "all" is what the filter sheet calls everyone, so an address saying so
+  // is everyone's changes, not nobody's.
+  await page.goto(`/${s.slug}/settings/activity?staff=all`)
+  await expect(lines).toHaveCount(4)
+  await expect(
+    page.getByText('Every change to every job, newest first.'),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Filters' })).toBeVisible()
 })
 
 test('a job in the Recycle bin is named, and opens nothing', async ({

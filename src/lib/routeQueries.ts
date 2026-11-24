@@ -368,6 +368,10 @@ export const activityFirstPage = (businessId: B, staffId?: string) =>
     paginationOpts: { numItems: ACTIVITY_PAGE, cursor: null },
   })
 
+/** Where the business's Activity begins, for its foot. */
+export const activityFeedStart = (businessId: B) =>
+  convexQuery(api.jobActivity.feedStart, { businessId })
+
 export const clientsFirstPage = (businessId: B) =>
   convexQuery(api.clients.page, {
     businessId,

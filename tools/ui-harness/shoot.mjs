@@ -232,6 +232,10 @@ const PLAN = {
     viewport: PHONE_375,
     before: async (p) => p.waitForTimeout(500),
   },
+  'settings-activity-you': {
+    viewport: PHONE_375,
+    before: async (p) => p.waitForTimeout(500),
+  },
   'settings-activity-failed': {
     viewport: PHONE_375,
     before: async (p) => p.waitForTimeout(500),

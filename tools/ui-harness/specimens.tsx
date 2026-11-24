@@ -429,8 +429,8 @@ function activity(jobId: string) {
 /**
  * The owner's Settings → Activity (`activityFixtures`, by business): a busy
  * business with more to load, the same narrowed to Kevin's changes, a short
- * history read to its end, nothing yet, a failed read, and the first page
- * on its way.
+ * history read to its end, nothing yet, the reader's own changes with
+ * nothing in them, a failed read, and the first page on its way.
  */
 function activityFeed(businessId: string, staff?: string) {
   return function ActivityFeedSpecimen() {
@@ -443,6 +443,7 @@ function activityFeed(businessId: string, staff?: string) {
             businessId={businessId as Id<'businesses'>}
             businessSlug="demo"
             timezone={TZ}
+            viewerId="m_owner"
             staffId={staffId}
             onStaff={setStaffId}
           />
@@ -4728,6 +4729,7 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'settings-activity-kevin': activityFeed('biz_demo', 'm_kev'),
   'settings-activity-end': activityFeed('biz_act_end'),
   'settings-activity-empty': activityFeed('biz_act_empty'),
+  'settings-activity-you': activityFeed('biz_act_empty', 'm_owner'),
   'settings-activity-failed': activityFeed('biz_act_fail'),
   'settings-activity-loading': activityFeed('biz_act_loading'),
   'activity-all': activity('ja1'),

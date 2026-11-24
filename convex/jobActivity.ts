@@ -110,11 +110,7 @@ export const list = query({
     // A job booked before then has had changes nobody wrote down. One whose
     // own booking is here began inside it, whatever its clock says: the job
     // is stamped a moment before the line that books it.
-    const first = await ctx.db
-      .query('jobActivity')
-      .withIndex('by_businessId_and_at', (q) => q.eq('businessId', businessId))
-      .first()
-    const recordedSince = first?.at ?? null
+    const recordedSince = await historyBegan(ctx, businessId)
     const hasBooking = shown.some((row) => row.action === 'job.create')
     const bookedBefore =
       !more &&
@@ -231,6 +227,55 @@ export const feed = query({
     return { ...rows, page }
   },
 })
+
+/**
+ * Where the business's Activity begins, for the foot of Settings → Activity
+ * once its last page is in: the time of its first line, when a job was
+ * booked before then and so had changes nobody wrote down — or null when
+ * the history holds every change there is, as for a business that began
+ * with it.
+ *
+ * `list`'s rule for one job, asked of the business's oldest: booked before
+ * the first line, and its own booking not among the lines. Every job after
+ * it was booked inside the history. Owner only, like `feed`.
+ */
+export const feedStart = query({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'business.manage')
+
+    const began = await historyBegan(ctx, businessId)
+    if (began === null) return { recordedSince: null }
+    const oldest = await ctx.db
+      .query('jobs')
+      .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .first()
+    if (oldest === null || oldest.createdAt >= began) {
+      return { recordedSince: null }
+    }
+    const itsFirst = await ctx.db
+      .query('jobActivity')
+      .withIndex('by_jobId_and_at', (q) => q.eq('jobId', oldest._id))
+      .first()
+    return {
+      recordedSince: itsFirst?.action === 'job.create' ? null : began,
+    }
+  },
+})
+
+/** When the business's history began: the first line it ever wrote, or null
+ * before it has written one. */
+async function historyBegan(
+  ctx: QueryCtx,
+  businessId: Id<'businesses'>,
+): Promise<number | null> {
+  const first = await ctx.db
+    .query('jobActivity')
+    .withIndex('by_businessId_and_at', (q) => q.eq('businessId', businessId))
+    .first()
+  return first?.at ?? null
+}
 
 /**
  * Reads lines of Activity into what a reader may be shown, for `list` and

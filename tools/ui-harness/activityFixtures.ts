@@ -333,3 +333,15 @@ export function jobActivityFeedFixture(args: {
     continueCursor: 'more',
   }
 }
+
+/**
+ * Where each sample business's Activity begins (`jobActivity:feedStart`):
+ * the busy one's jobs were booked before its history began, four days ago,
+ * so its foot says so; every other began with it.
+ */
+export function jobActivityFeedStartFixture(businessId: string) {
+  return {
+    recordedSince:
+      businessId === 'biz_demo' ? Date.now() - 4 * 24 * HOUR : null,
+  }
+}
